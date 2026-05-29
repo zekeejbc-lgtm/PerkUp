@@ -1,0 +1,122 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile containing identity and role data.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["customer", "staff", "store_owner", "admin", "auditor"] },
+        "createdAt": { "type": "timestamp" },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["email", "name", "role", "createdAt", "updatedAt"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Loyalty data for a customer.",
+      "type": "object",
+      "properties": {
+        "lifetimeStars": { "type": "number" },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["lifetimeStars", "updatedAt"]
+    },
+    "CustomerCard": {
+      "title": "CustomerCard",
+      "description": "A customer's stamp card for a specific promo.",
+      "type": "object",
+      "properties": {
+        "storeId": { "type": "string" },
+        "promoId": { "type": "string" },
+        "currentStamps": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "redeemed"] },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["storeId", "promoId", "currentStamps", "status", "updatedAt"]
+    },
+    "Store": {
+      "title": "Store",
+      "description": "Store information.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "active", "suspended"] },
+        "createdAt": { "type": "timestamp" },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["name", "ownerId", "status", "createdAt", "updatedAt"]
+    },
+    "StoreStaff": {
+      "title": "StoreStaff",
+      "description": "Staff assignment for a store.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "shiftStart": { "type": "string", "description": "HH:MM format" },
+        "shiftEnd": { "type": "string", "description": "HH:MM format" }
+      },
+      "required": ["userId", "shiftStart", "shiftEnd"]
+    },
+    "Promo": {
+      "title": "Promo",
+      "description": "Reward card template.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "requiredStamps": { "type": "number" },
+        "reward": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "timestamp" },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["name", "requiredStamps", "reward", "isActive", "createdAt", "updatedAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A scanned transaction log.",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "staffId": { "type": "string" },
+        "storeId": { "type": "string" },
+        "type": { "type": "string", "enum": ["star", "stamp", "redemption"] },
+        "timestamp": { "type": "timestamp" },
+        "promoId": { "type": "string" }
+      },
+      "required": ["customerId", "staffId", "storeId", "type", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "System users with roles."
+    },
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Customer lifetime tracking."
+    },
+    "/customers/{customerId}/cards/{cardId}": {
+      "schema": { "$ref": "#/entities/CustomerCard" },
+      "description": "Customer stamp cards."
+    },
+    "/stores/{storeId}": {
+      "schema": { "$ref": "#/entities/Store" },
+      "description": "Affiliated stores."
+    },
+    "/stores/{storeId}/staff/{staffId}": {
+      "schema": { "$ref": "#/entities/StoreStaff" },
+      "description": "Staff members authorized to scan for this store. Document ID should likely match userId."
+    },
+    "/stores/{storeId}/promos/{promoId}": {
+      "schema": { "$ref": "#/entities/Promo" },
+      "description": "Active promos/rewards offered by the store."
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "System-wide transaction log."
+    }
+  }
+}

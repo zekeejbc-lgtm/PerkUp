@@ -1,0 +1,21 @@
+{
+  "name": "PerkUp",
+  "short_name": "PerkUp",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#ea580c",
+  "description": "PerkUp - Minimalist digital loyalty system.",
+  "icons": [
+    {
+      "src": "https://i.imgur.com/qnbXJU8.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://i.imgur.com/qnbXJU8.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

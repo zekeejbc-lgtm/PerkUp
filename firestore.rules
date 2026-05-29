@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() { return request.auth != null; }
+
+    function getUserRole(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid)) ? get(/databases/$(database)/documents/users/$(uid)).data.role : 'none';
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && (getUserRole(request.auth.uid) == 'admin' || getUserRole(request.auth.uid) == 'auditor');
+    }
+
+    match /promotions/{promotionId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || getUserRole(request.auth.uid) == 'store_owner';
+    }
+
+    match /cards/{cardId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == resource.data.customerId || getUserRole(request.auth.uid) == 'staff' || getUserRole(request.auth.uid) == 'store_owner' || isAdmin());
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+    }
+
+    match /customers/{customerId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == customerId || getUserRole(request.auth.uid) == 'staff' || getUserRole(request.auth.uid) == 'store_owner' || isAdmin());
+    }
+
+    match /customers/{customerId}/cards/{cardId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == customerId || getUserRole(request.auth.uid) == 'staff' || getUserRole(request.auth.uid) == 'store_owner' || isAdmin());
+    }
+
+    match /stores/{storeId} {
+      allow read: if true;
+      allow write: if isSignedIn() && (isAdmin() || getUserRole(request.auth.uid) == 'store_owner');
+    }
+
+    match /stores/{storeId}/staff/{staffDocId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isAdmin() || getUserRole(request.auth.uid) == 'store_owner');
+    }
+
+    match /stores/{storeId}/promos/{promoId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isAdmin() || getUserRole(request.auth.uid) == 'store_owner');
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isAdmin() || getUserRole(request.auth.uid) == 'staff' || getUserRole(request.auth.uid) == 'store_owner');
+    }
+  }
+}
