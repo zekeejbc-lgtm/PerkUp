@@ -2,6 +2,11 @@ import { Provider, Session, User as SupabaseUser } from "@supabase/supabase-js";
 import { secondarySupabase, supabase } from "./supabase";
 
 type AuthClient = typeof supabase.auth;
+type CompatAuthErrorCode =
+  | "auth/email-already-in-use"
+  | "auth/invalid-credential"
+  | "auth/operation-not-allowed"
+  | "auth/weak-password";
 
 export interface User {
   uid: string;
@@ -76,6 +81,48 @@ export const secondaryAuth = createAuthCompat(secondarySupabase.auth);
 
 const normalizeEmail = (email: string) => email.trim();
 
+const createCompatAuthError = (message: string, code: CompatAuthErrorCode) => {
+  const error = new Error(message) as Error & { code: CompatAuthErrorCode };
+  error.code = code;
+  return error;
+};
+
+const toSignInError = (error: { message?: string }) =>
+  createCompatAuthError(error.message || "Invalid login credentials", "auth/invalid-credential");
+
+const toSignUpError = (error: { code?: string; message?: string }) => {
+  const code = String(error.code || "");
+  const message = String(error.message || "Could not create user.");
+  const normalizedMessage = message.toLowerCase();
+
+  if (
+    code.includes("weak_password") ||
+    normalizedMessage.includes("password should be") ||
+    normalizedMessage.includes("weak password")
+  ) {
+    return createCompatAuthError(message, "auth/weak-password");
+  }
+
+  if (
+    code.includes("email_exists") ||
+    code.includes("user_already") ||
+    normalizedMessage.includes("already registered") ||
+    normalizedMessage.includes("already exists")
+  ) {
+    return createCompatAuthError(message, "auth/email-already-in-use");
+  }
+
+  if (
+    code.includes("signup_disabled") ||
+    normalizedMessage.includes("signups not allowed") ||
+    normalizedMessage.includes("signup is disabled")
+  ) {
+    return createCompatAuthError(message, "auth/operation-not-allowed");
+  }
+
+  return createCompatAuthError(message, "auth/operation-not-allowed");
+};
+
 export async function signInWithEmailAndPassword(
   authClient: AuthCompat,
   email: string,
@@ -85,7 +132,7 @@ export async function signInWithEmailAndPassword(
     email: normalizeEmail(email),
     password,
   });
-  if (error) throw error;
+  if (error) throw toSignInError(error);
 
   const user = toCompatUser(data.user);
   if (!user) throw new Error("No user returned from Supabase sign in.");
@@ -102,7 +149,7 @@ export async function createUserWithEmailAndPassword(
     email: normalizeEmail(email),
     password,
   });
-  if (error) throw error;
+  if (error) throw toSignUpError(error);
 
   const user = toCompatUser(data.user);
   if (!user) throw new Error("No user returned from Supabase sign up.");

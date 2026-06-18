@@ -172,7 +172,7 @@ export default function LandingPage() {
         <nav className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between w-full">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-white rounded-xl shadow-sm overflow-hidden p-0.5">
-            <img src="/icons/icon-192.png" alt="PerkUp Logo" className="w-full h-full object-contain" />
+            <img src="/icons/icon-192.png?v=20260618-logo" alt="PerkUp Logo" className="w-full h-full object-contain" />
           </div>
           <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">PerkUp</span>
         </div>
