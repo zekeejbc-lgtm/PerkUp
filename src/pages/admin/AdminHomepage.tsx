@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../../lib/firebase";
-import { Layout, Save, Upload, Plus, Trash2, Loader2, ImagePlus, RefreshCcw } from "lucide-react";
+import { Layout, Save, Upload, Plus, Trash2, Loader2, ImagePlus, RefreshCcw, CheckCircle2, XCircle, ExternalLink, Download } from "lucide-react";
 
 export default function AdminHomepage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [toasts, setToasts] = useState<{id: string, message: string, type: 'success' | 'error', persistent: boolean}[]>([]);
+  const [urlErrors, setUrlErrors] = useState<{facebook: boolean, instagram: boolean, twitter: boolean}>({
+    facebook: false, instagram: false, twitter: false
+  });
   const [config, setConfig] = useState({
     heroHeadline: "Local Dining, Reimagined",
     heroSubheadline: "Discover exclusive offers and hidden gems in your neighborhood.",
@@ -17,7 +21,12 @@ export default function AdminHomepage() {
     footerInfo: {
       address: "123 Market St, San Francisco, CA",
       email: "hello@localbites.com",
-      phone: "+1 (555) 123-4567"
+      phone: "+1 (555) 123-4567",
+      socialLinks: {
+        facebook: "",
+        instagram: "",
+        twitter: ""
+      }
     },
     applicationsOpen: true
   });
@@ -32,7 +41,15 @@ export default function AdminHomepage() {
         setConfig({
           ...config,
           ...data,
-          usePartnerStores: data.usePartnerStores ?? false
+          usePartnerStores: data.usePartnerStores ?? false,
+          footerInfo: {
+            ...config.footerInfo,
+            ...data.footerInfo,
+            socialLinks: {
+              ...config.footerInfo.socialLinks,
+              ...(data.footerInfo?.socialLinks || {})
+            }
+          }
         });
       } else {
         await setDoc(docRef, { ...config, updatedAt: serverTimestamp() });
@@ -66,14 +83,79 @@ export default function AdminHomepage() {
     }
   };
 
+  const showToast = (message: string, type: 'success' | 'error', persistent = false) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts(prev => [...prev, { id, message, type, persistent }]);
+    
+    if (!persistent) {
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      }, 5000);
+    }
+  };
+
+  const dismissToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  const handleDownloadJson = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(config, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", "homepage_config.json");
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+    showToast("Configuration downloaded successfully", "success");
+  };
+
   const handleSave = async () => {
+    // Validate URLs
+    const newErrors = {
+      facebook: false,
+      instagram: false,
+      twitter: false
+    };
+    
+    let hasErrors = false;
+    
+    const isValidUrl = (string: string) => {
+      if (!string) return true; // Empty string is fine
+      try {
+        new URL(string);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    };
+    
+    if (!isValidUrl(config.footerInfo?.socialLinks?.facebook || '')) {
+      newErrors.facebook = true;
+      hasErrors = true;
+    }
+    if (!isValidUrl(config.footerInfo?.socialLinks?.instagram || '')) {
+      newErrors.instagram = true;
+      hasErrors = true;
+    }
+    if (!isValidUrl(config.footerInfo?.socialLinks?.twitter || '')) {
+      newErrors.twitter = true;
+      hasErrors = true;
+    }
+    
+    setUrlErrors(newErrors);
+    
+    if (hasErrors) {
+      showToast("Please enter valid URLs for social media links.", "error");
+      return;
+    }
+
     setSaving(true);
     try {
       await setDoc(doc(db, "settings", "homepage"), { ...config, updatedAt: serverTimestamp() }, { merge: true });
-      alert("Homepage configuration saved successfully.");
+      showToast("Homepage configuration saved successfully.", "success");
     } catch (error) {
       console.error(error);
-      alert("Failed to save configuration.");
+      showToast("Failed to save configuration.", "error");
     } finally {
       setSaving(false);
     }
@@ -108,6 +190,14 @@ export default function AdminHomepage() {
           <h3 className="font-semibold text-gray-900 dark:text-white text-lg">Edit Homepage</h3>
         </div>
         <div className="flex gap-2">
+          <button onClick={handleDownloadJson} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors shadow-sm">
+            <Download className="w-4 h-4" />
+            Download Config JSON
+          </button>
+          <a href="/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors">
+            <ExternalLink className="w-4 h-4" />
+            Preview Landing Page
+          </a>
           <button onClick={loadConfig} disabled={saving} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50">
             <RefreshCcw className="w-4 h-4" />
             Cancel
@@ -237,8 +327,75 @@ export default function AdminHomepage() {
                 <input type="text" value={config.footerInfo?.phone || ""} onChange={e => setConfig({...config, footerInfo: {...config.footerInfo, phone: e.target.value}})} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
              </div>
           </div>
+          
+          <div className="pt-4 border-t border-gray-100 dark:border-gray-800 mt-4">
+            <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Social Media Links</h5>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className={`block text-xs font-semibold mb-1 ${urlErrors.facebook ? 'text-red-500' : 'text-gray-500'}`}>Facebook URL</label>
+                <input 
+                  type="url" 
+                  placeholder="https://facebook.com/..." 
+                  value={config.footerInfo?.socialLinks?.facebook || ""} 
+                  onChange={e => {
+                    setConfig({...config, footerInfo: {...config.footerInfo, socialLinks: {...config.footerInfo.socialLinks, facebook: e.target.value}}});
+                    if (urlErrors.facebook) setUrlErrors({...urlErrors, facebook: false});
+                  }} 
+                  className={`w-full bg-gray-50 dark:bg-gray-900 border px-3 py-2 rounded-lg text-sm transition-colors ${urlErrors.facebook ? 'border-red-500 focus:ring-red-500' : 'border-gray-200 dark:border-gray-700'}`} 
+                />
+                {urlErrors.facebook && <span className="text-[10px] text-red-500 mt-1 block">Valid URL required</span>}
+              </div>
+              <div>
+                <label className={`block text-xs font-semibold mb-1 ${urlErrors.instagram ? 'text-red-500' : 'text-gray-500'}`}>Instagram URL</label>
+                <input 
+                  type="url" 
+                  placeholder="https://instagram.com/..." 
+                  value={config.footerInfo?.socialLinks?.instagram || ""} 
+                  onChange={e => {
+                    setConfig({...config, footerInfo: {...config.footerInfo, socialLinks: {...config.footerInfo.socialLinks, instagram: e.target.value}}});
+                    if (urlErrors.instagram) setUrlErrors({...urlErrors, instagram: false});
+                  }} 
+                  className={`w-full bg-gray-50 dark:bg-gray-900 border px-3 py-2 rounded-lg text-sm transition-colors ${urlErrors.instagram ? 'border-red-500 focus:ring-red-500' : 'border-gray-200 dark:border-gray-700'}`} 
+                />
+                {urlErrors.instagram && <span className="text-[10px] text-red-500 mt-1 block">Valid URL required</span>}
+              </div>
+              <div>
+                <label className={`block text-xs font-semibold mb-1 ${urlErrors.twitter ? 'text-red-500' : 'text-gray-500'}`}>Twitter/X URL</label>
+                <input 
+                  type="url" 
+                  placeholder="https://twitter.com/..." 
+                  value={config.footerInfo?.socialLinks?.twitter || ""} 
+                  onChange={e => {
+                    setConfig({...config, footerInfo: {...config.footerInfo, socialLinks: {...config.footerInfo.socialLinks, twitter: e.target.value}}});
+                    if (urlErrors.twitter) setUrlErrors({...urlErrors, twitter: false});
+                  }} 
+                  className={`w-full bg-gray-50 dark:bg-gray-900 border px-3 py-2 rounded-lg text-sm transition-colors ${urlErrors.twitter ? 'border-red-500 focus:ring-red-500' : 'border-gray-200 dark:border-gray-700'}`} 
+                />
+                {urlErrors.twitter && <span className="text-[10px] text-red-500 mt-1 block">Valid URL required</span>}
+              </div>
+            </div>
+          </div>
         </div>
 
+      </div>
+      
+      <div className="fixed bottom-6 right-6 flex flex-col gap-2 z-50">
+        {toasts.map((t) => (
+          <div key={t.id} className={`px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-in slide-in-from-bottom-2 fade-in duration-300 ${t.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
+            {t.type === 'success' ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : <XCircle className="w-5 h-5 shrink-0" />}
+            <p className="font-medium text-sm mr-4">{t.message}</p>
+            {t.persistent && (
+              <button onClick={() => dismissToast(t.id)} className="ml-auto opacity-70 hover:opacity-100 transition-opacity">
+                <XCircle className="w-4 h-4" />
+              </button>
+            )}
+            {!t.persistent && (
+              <button onClick={() => dismissToast(t.id)} className="ml-auto opacity-70 hover:opacity-100 transition-opacity">
+                <XCircle className="w-4 h-4" />
+              </button>
+             )}
+          </div>
+        ))}
       </div>
     </div>
   );
