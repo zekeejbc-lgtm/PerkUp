@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, where, getDocs, doc, addDoc, serverTimestamp, deleteDoc } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { collection, query, where, getDocs, doc, addDoc, serverTimestamp, deleteDoc } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
 import { BadgeCheck, Plus, Shield, UserCircle, X, Mail, Key, Trash2 } from "lucide-react";
 
 export default function StoreOwnerStaff({ store }: { store: any }) {
@@ -40,7 +40,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
     e.preventDefault();
     setSaving(true);
     try {
-      // In a real application, you would create the user in Firebase Auth via an Admin SDK or Cloud Function.
+      // In a real application, you would create the user in Supabase Auth via a backend function.
       // For this preview, we create a document in the users collection to simulate the staff account allocation.
       const newStaffRef = await addDoc(collection(db, "users"), {
         storeId: store.id,

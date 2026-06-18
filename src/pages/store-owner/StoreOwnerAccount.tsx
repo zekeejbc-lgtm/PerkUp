@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../../contexts/AuthContext";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { doc, updateDoc } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
 import { UserCircle, Mail, Key, Phone, MapPin, AtSign, Upload, Save, CheckCircle2 } from "lucide-react";
-import { resizeImage } from "../../lib/utils";
+import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 
 export default function StoreOwnerAccount() {
   const { user } = useAuth();
@@ -33,10 +33,14 @@ export default function StoreOwnerAccount() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const b64 = await resizeImage(file, 400);
-      setFormData(prev => ({ ...prev, avatarUrl: b64 }));
+      const avatarUrl = await uploadImageFileToDrive(file, {
+        owner: formData.username || user?.email || user?.id,
+        purpose: "store-owner-avatar",
+      });
+      setFormData(prev => ({ ...prev, avatarUrl }));
     } catch (err) {
-      alert("Failed to process image");
+      console.error("Avatar upload failed", err);
+      alert("Failed to upload profile image");
     }
   };
 
@@ -78,7 +82,7 @@ export default function StoreOwnerAccount() {
           <div className="flex items-center gap-6 mb-4">
             <div className="relative w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full border-4 border-white dark:border-gray-950 shadow-sm overflow-hidden group">
               {formData.avatarUrl ? (
-                <img src={formData.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                <img src={getDisplayImageUrl(formData.avatarUrl)} alt="Profile" className="w-full h-full object-cover" />
               ) : (
                 <UserCircle className="w-full h-full text-gray-300 p-2" />
               )}

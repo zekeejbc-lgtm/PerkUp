@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, where, getDocs, doc, addDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { collection, query, where, getDocs, doc, addDoc, updateDoc, deleteDoc, serverTimestamp } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
 import { Plus, Edit2, Trash2, X, Image as ImageIcon, Upload } from "lucide-react";
-import { resizeImage } from "../../lib/utils";
+import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 
 export default function StoreOwnerProducts({ store }: { store: any }) {
   const [products, setProducts] = useState<any[]>([]);
@@ -55,10 +55,14 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const b64 = await resizeImage(file, 800);
-      setFormData(prev => ({ ...prev, imageUrl: b64 }));
+      const imageUrl = await uploadImageFileToDrive(file, {
+        owner: store?.name || store?.id,
+        purpose: "product-image",
+      });
+      setFormData(prev => ({ ...prev, imageUrl }));
     } catch (err) {
-      alert("Failed to process image");
+      console.error("Product image upload failed", err);
+      alert("Failed to upload product image");
     }
   };
 
@@ -131,7 +135,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
             <div key={product.id} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden group flex flex-col h-full shadow-sm hover:shadow-md transition-shadow">
               <div className="h-48 bg-gray-100 dark:bg-gray-800 relative shrink-0">
                 {product.imageUrl ? (
-                  <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                  <img src={getDisplayImageUrl(product.imageUrl)} alt={product.name} className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
                     <ImageIcon className="w-8 h-8 text-gray-300 dark:text-gray-600" />
@@ -180,7 +184,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
               <div className="flex justify-center mb-6">
                 <div className="relative w-32 h-32 bg-gray-50 dark:bg-gray-800 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 overflow-hidden group">
                   {formData.imageUrl ? (
-                    <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                    <img src={getDisplayImageUrl(formData.imageUrl)} alt="Preview" className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
                       <ImageIcon className="w-8 h-8 mb-2 opacity-50" />

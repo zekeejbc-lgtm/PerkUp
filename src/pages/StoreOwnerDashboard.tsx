@@ -9,8 +9,8 @@ import StoreOwnerStaff from "./store-owner/StoreOwnerStaff";
 import StoreOwnerAccount from "./store-owner/StoreOwnerAccount";
 import StoreOwnerSubscription from "./store-owner/StoreOwnerSubscription";
 import { useAuth } from "../contexts/AuthContext";
-import { query, where, getDocs, collection } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+import { query, where, getDocs, collection } from "@/src/lib/dataCompat";
+import { db, handleDataError, OperationType } from "../lib/backend";
 
 export default function StoreOwnerDashboard() {
   const location = useLocation();
@@ -29,7 +29,7 @@ export default function StoreOwnerDashboard() {
         const fetchedStores = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setStores(fetchedStores);
       } catch (error) {
-        handleFirestoreError(error, OperationType.LIST, "stores");
+        handleDataError(error, OperationType.LIST, "stores");
       } finally {
         setLoading(false);
       }

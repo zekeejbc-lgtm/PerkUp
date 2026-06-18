@@ -1,9 +1,87 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
-import { doc, getDoc, collection, query, where, getDocs, updateDoc, increment, setDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { doc, getDoc, collection, query, where, getDocs, updateDoc, increment, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2 } from "lucide-react";
+
+type OfflineScan = {
+  id: string;
+  points: number;
+  timestamp: number;
+  storeId: string;
+  promotionId: string;
+};
+
+const LEGACY_OFFLINE_QUEUE_KEY = "offlineScanQueue";
+const OFFLINE_QUEUE_PREFIX = "perkup:offlineScanQueue";
+const OFFLINE_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_OFFLINE_QUEUE_ITEMS = 100;
+const MAX_POINTS_PER_SCAN = 100;
+const CUSTOMER_ID_PATTERN = /^[a-zA-Z0-9_-]{8,128}$/;
+
+const getOfflineQueueKey = (storeId: string, promotionId: string) =>
+  `${OFFLINE_QUEUE_PREFIX}:${storeId}:${promotionId}`;
+
+const isValidCustomerId = (customerId: string) => CUSTOMER_ID_PATTERN.test(customerId);
+
+const normalizePoints = (points: number) =>
+  Math.min(Math.max(Math.trunc(Number(points) || 1), 1), MAX_POINTS_PER_SCAN);
+
+const normalizeOfflineQueue = (
+  value: unknown,
+  storeId: string,
+  promotionId: string,
+): OfflineScan[] => {
+  if (!Array.isArray(value)) return [];
+
+  const cutoff = Date.now() - OFFLINE_QUEUE_TTL_MS;
+
+  return value
+    .map((item): OfflineScan | null => {
+      if (!item || typeof item !== "object") return null;
+      const scan = item as Partial<OfflineScan>;
+      const customerId = String(scan.id || "").trim();
+      const timestamp = Number(scan.timestamp || 0);
+
+      if (!isValidCustomerId(customerId)) return null;
+      if (!Number.isFinite(timestamp) || timestamp < cutoff) return null;
+      if (scan.storeId && scan.storeId !== storeId) return null;
+      if (scan.promotionId && scan.promotionId !== promotionId) return null;
+
+      return {
+        id: customerId,
+        points: normalizePoints(Number(scan.points || 1)),
+        timestamp,
+        storeId,
+        promotionId,
+      };
+    })
+    .filter((item): item is OfflineScan => Boolean(item))
+    .slice(-MAX_OFFLINE_QUEUE_ITEMS);
+};
+
+const readOfflineQueue = (key: string, storeId: string, promotionId: string): OfflineScan[] => {
+  try {
+    return normalizeOfflineQueue(JSON.parse(localStorage.getItem(key) || "[]"), storeId, promotionId);
+  } catch (_error) {
+    localStorage.removeItem(key);
+    return [];
+  }
+};
+
+const writeOfflineQueue = (key: string, queue: OfflineScan[]) => {
+  try {
+    if (queue.length === 0) {
+      localStorage.removeItem(key);
+      return;
+    }
+
+    localStorage.setItem(key, JSON.stringify(queue));
+  } catch (error) {
+    console.warn("Failed to persist offline scan queue.", error);
+  }
+};
 
 export default function StaffPromotionScan({ store }: { store: any }) {
   const { id } = useParams();
@@ -29,17 +107,29 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   const [lastScannedId, setLastScannedId] = useState<string | null>(null);
 
   // Offline Sync Queue
-  const [offlineQueue, setOfflineQueue] = useState<{ id: string, points: number, timestamp: number }[]>(() => {
-    const saved = localStorage.getItem('offlineScanQueue');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [offlineQueueKey, setOfflineQueueKey] = useState("");
+  const [offlineQueue, setOfflineQueue] = useState<OfflineScan[]>([]);
 
   // Promotion Customers state
   const [promoCustomers, setPromoCustomers] = useState<any[]>([]);
 
   useEffect(() => {
-    localStorage.setItem('offlineScanQueue', JSON.stringify(offlineQueue));
-  }, [offlineQueue]);
+    if (!store?.id || !id) {
+      setOfflineQueueKey("");
+      setOfflineQueue([]);
+      return;
+    }
+
+    const key = getOfflineQueueKey(store.id, id);
+    setOfflineQueue(readOfflineQueue(key, store.id, id));
+    setOfflineQueueKey(key);
+    localStorage.removeItem(LEGACY_OFFLINE_QUEUE_KEY);
+  }, [store?.id, id]);
+
+  useEffect(() => {
+    if (!offlineQueueKey) return;
+    writeOfflineQueue(offlineQueueKey, offlineQueue);
+  }, [offlineQueue, offlineQueueKey]);
 
   useEffect(() => {
     async function init() {
@@ -79,8 +169,8 @@ export default function StaffPromotionScan({ store }: { store: any }) {
           }
         }
         
-        if (failed.length > 0) {
-            setOfflineQueue(prev => [...prev, ...failed]);
+        if (failed.length > 0 && store?.id && id) {
+            setOfflineQueue(prev => normalizeOfflineQueue([...prev, ...failed], store.id, id));
         }
         
         // Refresh local list
@@ -94,7 +184,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     
     window.addEventListener('online', handleOnline);
     return () => window.removeEventListener('online', handleOnline);
-  }, [offlineQueue, store?.id]);
+  }, [offlineQueue, store?.id, id]);
 
   useEffect(() => {
     const checkLocation = () => {
@@ -145,8 +235,36 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     checkLocation();
   }, [store]);
 
-  const handleScan = async (scannedId: string) => {
+  const queueOfflineScan = (scannedId: string, points: number) => {
+    if (!store?.id || !id) return false;
+
+    const customerId = String(scannedId || "").trim();
+    if (!isValidCustomerId(customerId)) return false;
+
+    const item: OfflineScan = {
+      id: customerId,
+      points: normalizePoints(points),
+      timestamp: Date.now(),
+      storeId: store.id,
+      promotionId: id,
+    };
+
+    setOfflineQueue(prev =>
+      normalizeOfflineQueue([...prev, item], store.id, id),
+    );
+
+    return true;
+  };
+
+  const handleScan = async (rawScannedId: string) => {
+    const scannedId = String(rawScannedId || "").trim();
+
     if (!scannedId || isProcessing || !isWithinGeofence) return;
+
+    if (!isValidCustomerId(scannedId)) {
+      alert("Invalid customer QR code.");
+      return;
+    }
     
     if (scannedId === lastScannedId) return;
     
@@ -166,7 +284,10 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     }
 
     if (!navigator.onLine) {
-        setOfflineQueue(prev => [...prev, { id: scannedId, points: pointsToAdd, timestamp: Date.now() }]);
+        if (!queueOfflineScan(scannedId, pointsToAdd)) {
+          alert("Invalid customer QR code.");
+          return;
+        }
         alert("You are offline. Scan queued for sync.");
         return;
     }
@@ -216,19 +337,22 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   };
 
   const processPointsForCustomer = async (scannedId: string, points: number) => {
-    if (!store) return;
+    if (!store) throw new Error("Store context is missing.");
+    if (!isValidCustomerId(scannedId)) throw new Error("Invalid customer QR code.");
+
+    const safePoints = normalizePoints(points);
     const q = query(collection(db, "cards"), where("storeId", "==", store.id), where("customerId", "==", scannedId));
     const cardSnap = await getDocs(q);
     
     if (!cardSnap.empty) {
       const cardRef = doc(db, "cards", cardSnap.docs[0].id);
-      await updateDoc(cardRef, { stars: increment(points) });
+      await updateDoc(cardRef, { stars: increment(safePoints) });
     } else {
       const newCardRef = doc(collection(db, "cards"));
       await setDoc(newCardRef, {
         storeId: store.id,
         customerId: scannedId,
-        stars: points,
+        stars: safePoints,
         joinedAt: serverTimestamp(),
         status: 'active'
       });
@@ -239,7 +363,10 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     if (!scannedCustomer || !store) return;
 
     if (!navigator.onLine) {
-        setOfflineQueue(prev => [...prev, { id: scannedCustomer.id, points: pointsToAdd, timestamp: Date.now() }]);
+        if (!queueOfflineScan(scannedCustomer.id, pointsToAdd)) {
+          alert("Invalid customer QR code.");
+          return;
+        }
         alert("You are offline. Points queued for sync.");
         setShowConfirmModal(false);
         setScannedCustomer(null);
@@ -273,8 +400,30 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   };
 
   const handleConfirmBatch = async () => {
+    if (!store?.id || !id) return;
+
     if (!navigator.onLine) {
-        setOfflineQueue(prev => [...prev, ...batchQueue.map(b => ({ ...b, timestamp: Date.now() }))]);
+        const queuedItems = batchQueue
+          .map((item) => ({
+            id: String(item.id || "").trim(),
+            points: normalizePoints(item.points),
+          }))
+          .filter((item) => isValidCustomerId(item.id));
+
+        if (queuedItems.length === 0) {
+          alert("No valid customer scans to queue.");
+          return;
+        }
+
+        setOfflineQueue(prev => normalizeOfflineQueue([
+          ...prev,
+          ...queuedItems.map(item => ({
+            ...item,
+            timestamp: Date.now(),
+            storeId: store.id,
+            promotionId: id,
+          })),
+        ], store.id, id));
         alert("You are offline. Batch queued for sync.");
         setBatchQueue([]);
         setShowBatchModal(false);
@@ -306,7 +455,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   const updateBatchItemPoints = (index: number, change: number) => {
       setBatchQueue(prev => {
           const newQ = [...prev];
-          newQ[index].points = Math.max(1, newQ[index].points + change);
+          newQ[index].points = normalizePoints(newQ[index].points + change);
           return newQ;
       });
   };
@@ -444,14 +593,14 @@ export default function StaffPromotionScan({ store }: { store: any }) {
             <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-3 block text-center">Points (Default)</label>
             <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 p-2 rounded-2xl border border-gray-200 dark:border-gray-700">
                <button 
-                 onClick={() => setPointsToAdd(Math.max(1, pointsToAdd - 1))}
+                 onClick={() => setPointsToAdd(normalizePoints(pointsToAdd - 1))}
                  className="w-12 h-12 bg-white dark:bg-gray-900 rounded-xl flex items-center justify-center text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white shadow-sm border border-gray-100 dark:border-gray-700"
                >
                  <Minus className="w-5 h-5" />
                </button>
                <span className="text-2xl font-bold text-gray-900 dark:text-white px-4">{pointsToAdd}</span>
                <button 
-                 onClick={() => setPointsToAdd(pointsToAdd + 1)}
+                 onClick={() => setPointsToAdd(normalizePoints(pointsToAdd + 1))}
                  className="w-12 h-12 bg-white dark:bg-gray-900 rounded-xl flex items-center justify-center text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white shadow-sm border border-gray-100 dark:border-gray-700"
                >
                  <Plus className="w-5 h-5" />

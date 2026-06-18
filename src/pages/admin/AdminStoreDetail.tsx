@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { doc, getDoc, updateDoc, deleteDoc, collection, query, where, getDocs, deleteField } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { doc, getDoc, updateDoc, deleteDoc, collection, query, where, getDocs, deleteField } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
 import { ArrowLeft, Edit, Trash2, ShieldAlert, Key, Loader2, Save } from "lucide-react";
 
 import { CustomDropdown } from "../../components/CustomDropdown";
@@ -132,7 +132,7 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
         // (Fake storing hash, or communicating to backend)
         tempPasswordIndicator: "Password reset authorized"
       });
-      alert(`Password has been reset for ${resetModalUser.email}.\nTemporary password: ${tempPassword}\n\nNote: In a true client-only setup, a backend Cloud Function is required to update Firebase Auth passwords.`);
+      alert(`Password has been reset for ${resetModalUser.email}.\nTemporary password: ${tempPassword}\n\nNote: In a true client-only setup, a backend function is required to update another user's Supabase Auth password.`);
       setResetModalUser(null);
     } catch (e) {
       console.error(e);

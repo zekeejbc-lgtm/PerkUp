@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
 import { Gift, Calendar, Star, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 

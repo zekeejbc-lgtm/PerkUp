@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
 import { Users, Star, CreditCard, ChevronRight } from "lucide-react";
 
 export default function StaffCustomers({ store }: { store: any }) {

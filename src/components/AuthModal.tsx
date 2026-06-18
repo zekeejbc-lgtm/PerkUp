@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { User, Lock, Eye, EyeOff, X } from 'lucide-react';
-import { signInWithGoogle, auth } from '../lib/firebase';
+import { signInWithGoogle, auth } from '../lib/backend';
 import { 
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail
-} from 'firebase/auth';
+} from '@/src/lib/supabaseAuthCompat';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -62,9 +62,9 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
       } else if (err.code === 'auth/weak-password') {
         setError('Password should be at least 6 characters.');
       } else if (err.code === 'auth/operation-not-allowed') {
-        setError('Email/Password sign-in is disabled. Please enable it in Firebase Console.');
+        setError('Email/password sign-in is disabled. Please enable it in Supabase Auth.');
       } else {
-        setError(err.message || 'An error occurred. Make sure Email/Password sign-in is enabled in Firebase Console.');
+        setError(err.message || 'An error occurred. Make sure email/password sign-in is enabled in Supabase Auth.');
       }
     } finally {
       setLoading(false);
@@ -95,8 +95,8 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     try {
       const creds = await signInWithEmailAndPassword(auth, demoEmail, demoPassword);
       if (role === 'staff') {
-        const { doc, setDoc } = await import('firebase/firestore');
-        const { db } = await import('../lib/firebase');
+        const { doc, setDoc } = await import('@/src/lib/dataCompat');
+        const { db } = await import('../lib/backend');
         await setDoc(doc(db, 'users', creds.user.uid), { storeId: 'demo1' }, { merge: true });
       }
       onClose();
@@ -105,8 +105,8 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
         try {
           const creds = await createUserWithEmailAndPassword(auth, demoEmail, demoPassword);
           if (role !== 'customer') {
-            const { doc, setDoc } = await import('firebase/firestore');
-            const { db } = await import('../lib/firebase');
+            const { doc, setDoc } = await import('@/src/lib/dataCompat');
+            const { db } = await import('../lib/backend');
             const userData: any = {
               email: creds.user.email,
               name: `Demo ${role}`,
@@ -128,7 +128,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
           setError('Failed to create demo account: ' + createErr.message);
         }
       } else if (err.code === 'auth/operation-not-allowed') {
-        setError('Email/Password sign-in is disabled. Please enable it in Firebase Console under Authentication > Sign-in method.');
+        setError('Email/password sign-in is disabled. Please enable it in Supabase Auth.');
       } else {
         setError('Demo login failed: ' + err.message);
       }

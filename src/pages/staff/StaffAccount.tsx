@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
-import { updatePassword } from "firebase/auth";
-import { auth } from "../../lib/firebase";
+import { updatePassword } from "@/src/lib/supabaseAuthCompat";
+import { auth } from "../../lib/backend";
 import { Mail, Shield, User, KeyRound, AlertTriangle } from "lucide-react";
 
 export default function StaffAccount() {

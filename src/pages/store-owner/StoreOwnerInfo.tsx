@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { doc, updateDoc } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
 import { Save, MapPin, Clock, Image as ImageIcon, CheckCircle2, Navigation, Upload, X, Store } from "lucide-react";
 import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { resizeImage } from "../../lib/utils";
+import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 
 function LocationPicker({ position, setPosition }: { position: [number, number], setPosition: (p: [number, number]) => void }) {
   useMapEvents({
@@ -81,13 +81,19 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
       if (field === 'images') {
         const newImages = [...formData.images];
         for (let i = 0; i < files.length && newImages.length < 3; i++) {
-           const b64 = await resizeImage(files[i], 1200);
-           newImages.push(b64);
+           const imageUrl = await uploadImageFileToDrive(files[i], {
+             owner: formData.name || store?.id,
+             purpose: "store-photo",
+           });
+           newImages.push(imageUrl);
         }
         setFormData(prev => ({ ...prev, images: newImages }));
       } else {
-        const b64 = await resizeImage(files[0], 800);
-        setFormData(prev => ({ ...prev, [field]: b64 }));
+        const imageUrl = await uploadImageFileToDrive(files[0], {
+          owner: formData.name || store?.id,
+          purpose: field === "logoUrl" ? "store-logo" : "store-menu",
+        });
+        setFormData(prev => ({ ...prev, [field]: imageUrl }));
       }
     } catch (err) {
       console.error("Image upload failed", err);
@@ -100,7 +106,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
   };
 
   const customIcon = L.divIcon({
-    html: `<div style="background-image: url(${formData.logoUrl || 'https://images.unsplash.com/photo-1541167760496-1628856ab772?q=80&w=256&auto=format&fit=crop'}); width: 40px; height: 40px; background-size: cover; background-position: center; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>`,
+    html: `<div style="background-image: url(${getDisplayImageUrl(formData.logoUrl) || 'https://images.unsplash.com/photo-1541167760496-1628856ab772?q=80&w=256&auto=format&fit=crop'}); width: 40px; height: 40px; background-size: cover; background-position: center; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>`,
     className: '',
     iconSize: [40, 40],
     iconAnchor: [20, 40]
@@ -205,7 +211,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-full border-2 border-gray-200 dark:border-gray-700 overflow-hidden bg-gray-50 dark:bg-gray-800 shrink-0">
                   {formData.logoUrl ? (
-                    <img src={formData.logoUrl} alt="Logo" className="w-full h-full object-cover" />
+                    <img src={getDisplayImageUrl(formData.logoUrl)} alt="Logo" className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-6 h-6 text-gray-300" /></div>
                   )}
@@ -225,7 +231,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-lg border-2 border-gray-200 dark:border-gray-700 overflow-hidden bg-gray-50 dark:bg-gray-800 shrink-0">
                   {formData.menuUrl ? (
-                    <img src={formData.menuUrl} alt="Menu" className="w-full h-full object-cover" />
+                    <img src={getDisplayImageUrl(formData.menuUrl)} alt="Menu" className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-6 h-6 text-gray-300" /></div>
                   )}
@@ -255,7 +261,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
                  <div className="grid grid-cols-3 gap-4">
                    {formData.images.map((img: string, i: number) => (
                       <div key={i} className="relative aspect-video rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 group">
-                        <img src={img} alt={`Store ${i+1}`} className="w-full h-full object-cover" />
+                        <img src={getDisplayImageUrl(img)} alt={`Store ${i+1}`} className="w-full h-full object-cover" />
                         <button type="button" onClick={() => removeImage(i)} className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
                            <X className="w-4 h-4" />
                         </button>

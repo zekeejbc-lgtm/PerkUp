@@ -1,7 +1,7 @@
 import { useParams, Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { doc, getDoc } from "@/src/lib/dataCompat";
+import { db } from "../lib/backend";
 import { ArrowLeft, MapPin, Phone, Globe, Clock, Star, Share2 } from "lucide-react";
 
 interface StoreContent {

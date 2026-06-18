@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, where, getDocs, doc, setDoc, deleteDoc, serverTimestamp, updateDoc } from "firebase/firestore";
-import { createUserWithEmailAndPassword, updatePassword, signOut } from "firebase/auth";
-import { db, auth, secondaryAuth } from "../../lib/firebase";
+import { collection, query, where, getDocs, doc, setDoc, deleteDoc, serverTimestamp, updateDoc } from "@/src/lib/dataCompat";
+import { createUserWithEmailAndPassword, updatePassword, signOut } from "@/src/lib/supabaseAuthCompat";
+import { db, auth, secondaryAuth } from "../../lib/backend";
 import { useAuth } from "../../contexts/AuthContext";
 import { User, Mail, Key, Plus, Trash2, Shield, UserCog, Loader2, Save } from "lucide-react";
 

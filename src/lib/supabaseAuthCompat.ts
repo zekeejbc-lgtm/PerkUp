@@ -1,0 +1,139 @@
+import { Provider, Session, User as SupabaseUser } from "@supabase/supabase-js";
+import { secondarySupabase, supabase } from "./supabase";
+
+type AuthClient = typeof supabase.auth;
+
+export interface User {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  emailVerified?: boolean;
+  isAnonymous?: boolean;
+  tenantId?: string | null;
+  providerData?: { providerId?: string | null; email?: string | null }[];
+}
+
+export interface AuthCompat {
+  client: AuthClient;
+  currentUser: User | null;
+  onAuthStateChanged: (callback: (user: User | null) => void | Promise<void>) => () => void;
+}
+
+export interface UserCredential {
+  user: User;
+}
+
+const toCompatUser = (user: SupabaseUser | null): User | null => {
+  if (!user) return null;
+  return {
+    uid: user.id,
+    email: user.email ?? null,
+    displayName:
+      (user.user_metadata?.full_name as string | undefined) ??
+      (user.user_metadata?.name as string | undefined) ??
+      null,
+    emailVerified: Boolean(user.email_confirmed_at),
+    isAnonymous: user.is_anonymous,
+    tenantId: null,
+    providerData:
+      user.identities?.map((identity) => ({
+        providerId: identity.provider,
+        email: user.email ?? null,
+      })) ?? [],
+  };
+};
+
+const createAuthCompat = (client: AuthClient): AuthCompat => {
+  const compat: AuthCompat = {
+    client,
+    currentUser: null,
+    onAuthStateChanged: (callback) => {
+      let active = true;
+
+      const emitSession = async (session: Session | null) => {
+        if (!active) return;
+        compat.currentUser = toCompatUser(session?.user ?? null);
+        await callback(compat.currentUser);
+      };
+
+      client.getSession().then(({ data }) => emitSession(data.session));
+      const { data } = client.onAuthStateChange((_event, session) => {
+        emitSession(session);
+      });
+
+      return () => {
+        active = false;
+        data.subscription.unsubscribe();
+      };
+    },
+  };
+
+  return compat;
+};
+
+export const auth = createAuthCompat(supabase.auth);
+export const secondaryAuth = createAuthCompat(secondarySupabase.auth);
+
+const normalizeEmail = (email: string) => email.trim();
+
+export async function signInWithEmailAndPassword(
+  authClient: AuthCompat,
+  email: string,
+  password: string,
+): Promise<UserCredential> {
+  const { data, error } = await authClient.client.signInWithPassword({
+    email: normalizeEmail(email),
+    password,
+  });
+  if (error) throw error;
+
+  const user = toCompatUser(data.user);
+  if (!user) throw new Error("No user returned from Supabase sign in.");
+  authClient.currentUser = user;
+  return { user };
+}
+
+export async function createUserWithEmailAndPassword(
+  authClient: AuthCompat,
+  email: string,
+  password: string,
+): Promise<UserCredential> {
+  const { data, error } = await authClient.client.signUp({
+    email: normalizeEmail(email),
+    password,
+  });
+  if (error) throw error;
+
+  const user = toCompatUser(data.user);
+  if (!user) throw new Error("No user returned from Supabase sign up.");
+  authClient.currentUser = user;
+  return { user };
+}
+
+export async function sendPasswordResetEmail(_authClient: AuthCompat, email: string) {
+  const { error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(email), {
+    redirectTo: window.location.origin,
+  });
+  if (error) throw error;
+}
+
+export async function updatePassword(_authClient: AuthCompat | User | null, newPassword: string) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw error;
+}
+
+export async function signOut(authClient: AuthCompat = auth) {
+  const { error } = await authClient.client.signOut();
+  if (error) throw error;
+  authClient.currentUser = null;
+}
+
+export async function signInWithOAuth(provider: Provider) {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: {
+      redirectTo: window.location.origin,
+    },
+  });
+  if (error) throw error;
+}

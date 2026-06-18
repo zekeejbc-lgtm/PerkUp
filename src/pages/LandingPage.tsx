@@ -1,14 +1,15 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { signInWithGoogle, db, handleFirestoreError, OperationType } from "../lib/firebase";
-import { QrCode, Star, Coffee, ArrowRight, MapPin, Pizza, Scissors, BookOpen, Shirt, Dumbbell, Glasses, Anchor, Search, Store as StoreIcon, Mail, Phone, Facebook, Instagram, Twitter } from "lucide-react";
+import { signInWithGoogle, db, handleDataError, OperationType } from "../lib/backend";
+import { QrCode, Star, Coffee, ArrowRight, MapPin, Pizza, Scissors, BookOpen, Shirt, Dumbbell, Glasses, Anchor, Search, Store as StoreIcon, Mail, Phone } from "lucide-react";
 import { useEffect, useState } from "react";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import * as ReactDOMServer from "react-dom/server";
 import L from "leaflet";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { AuthModal } from "../components/AuthModal";
+import { getDisplayImageUrl } from "../lib/imageStorage";
 
 import { PartnerApplicationModal } from "../components/PartnerApplicationModal";
 
@@ -128,7 +129,7 @@ export default function LandingPage() {
 
     async function fetchConfig() {
       try {
-        const { getDoc, doc } = await import("firebase/firestore");
+        const { getDoc, doc } = await import("@/src/lib/dataCompat");
         const snap = await getDoc(doc(db, "settings", "homepage"));
         if (snap.exists()) {
           const data = snap.data();
@@ -171,7 +172,7 @@ export default function LandingPage() {
         <nav className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between w-full">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-white rounded-xl shadow-sm overflow-hidden p-0.5">
-            <img src="https://i.imgur.com/3pJzKcg.png" alt="PerkUp Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+            <img src="/icons/icon-192.png" alt="PerkUp Logo" className="w-full h-full object-contain" />
           </div>
           <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">PerkUp</span>
         </div>
@@ -198,7 +199,7 @@ export default function LandingPage() {
           <div className="absolute inset-0 z-0">
             <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#fafafa]/80 dark:via-gray-950/80 to-[#fafafa] dark:to-gray-950 z-10 transition-colors" />
             <img 
-              src={config.heroImageUrl}
+              src={getDisplayImageUrl(config.heroImageUrl)}
               alt="Hero image" 
               className="w-full h-full object-cover opacity-30 dark:opacity-20" 
             />
@@ -295,7 +296,7 @@ export default function LandingPage() {
                  [...stores, ...stores, ...stores, ...stores].map((store, idx) => (
                    <div key={`partner-${idx}`} className="flex flex-col items-center justify-center w-64 shrink-0 gap-4 opacity-40 hover:opacity-100 transition-opacity duration-300">
                      <div className="w-16 h-16 bg-gray-50 dark:bg-gray-900 rounded-3xl flex items-center justify-center text-gray-400 dark:text-gray-500 border border-gray-100 dark:border-gray-800 shadow-sm transition-all hover:scale-105 hover:-rotate-3 duration-300 overflow-hidden">
-                       {store.logoUrl ? <img src={store.logoUrl} className="w-full h-full object-cover" alt={store.name} /> : <StoreIcon className="w-8 h-8" />}
+                       {store.logoUrl ? <img src={getDisplayImageUrl(store.logoUrl)} className="w-full h-full object-cover" alt={store.name} /> : <StoreIcon className="w-8 h-8" />}
                      </div>
                      <span className="font-semibold text-gray-400 dark:text-gray-500 tracking-tight">{store.name}</span>
                    </div>
@@ -304,7 +305,7 @@ export default function LandingPage() {
                  [...config.trustedBusinesses, ...config.trustedBusinesses, ...config.trustedBusinesses, ...config.trustedBusinesses].map((logo: any, idx: number) => (
                    <div key={`custom-${idx}`} className="flex flex-col items-center justify-center w-64 shrink-0 gap-4 opacity-40 hover:opacity-100 transition-opacity duration-300">
                      <div className="w-16 h-16 bg-gray-50 dark:bg-gray-900 rounded-3xl flex items-center justify-center text-gray-400 dark:text-gray-500 border border-gray-100 dark:border-gray-800 shadow-sm transition-all hover:scale-105 hover:-rotate-3 duration-300 overflow-hidden">
-                       {logo.logoUrl ? <img src={logo.logoUrl} className="w-full h-full object-cover" alt={logo.name} /> : <StoreIcon className="w-8 h-8" />}
+                       {logo.logoUrl ? <img src={getDisplayImageUrl(logo.logoUrl)} className="w-full h-full object-cover" alt={logo.name} /> : <StoreIcon className="w-8 h-8" />}
                      </div>
                      <span className="font-semibold text-gray-400 dark:text-gray-500 tracking-tight">{logo.name}</span>
                    </div>

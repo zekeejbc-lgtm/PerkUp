@@ -1,6 +1,6 @@
 import { useAuth } from "../../contexts/AuthContext";
 import { User as UserIcon, Mail } from "lucide-react";
-import { logOut } from "../../lib/firebase";
+import { logOut } from "../../lib/backend";
 
 export default function CustomerProfile() {
   const { user } = useAuth();

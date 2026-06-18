@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../../lib/firebase";
+import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
+import { db, handleDataError, OperationType } from "../../lib/backend";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import * as ReactDOMServer from "react-dom/server";
 import L from "leaflet";
@@ -24,7 +24,7 @@ export default function CustomerStores() {
         }));
         setStores(fetchedStores);
       } catch (error) {
-        handleFirestoreError(error, OperationType.GET, "users");
+        handleDataError(error, OperationType.GET, "users");
       } finally {
         setLoading(false);
       }

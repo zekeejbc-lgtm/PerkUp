@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
 import { CreditCard, Save, Loader2, Check, Plus, Trash2 } from "lucide-react";
 
 export default function AdminSubscriptions() {

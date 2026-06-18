@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../../contexts/AuthContext";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../../lib/firebase";
+import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
+import { db, handleDataError, OperationType } from "../../lib/backend";
 import { Star, Coffee } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -20,7 +20,7 @@ export default function CustomerCards() {
         const fetchedCards = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setCards(fetchedCards);
       } catch (error) {
-        handleFirestoreError(error, OperationType.GET, "cards");
+        handleDataError(error, OperationType.GET, "cards");
       } finally {
         setLoading(false);
       }

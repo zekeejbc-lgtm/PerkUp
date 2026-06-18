@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../../contexts/AuthContext";
-import { doc, getDoc, collection, query, where, getCountFromServer } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../../lib/firebase";
+import { doc, getDoc, collection, query, where, getCountFromServer } from "@/src/lib/dataCompat";
+import { db, handleDataError, OperationType } from "../../lib/backend";
 import { Star, ShieldCheck, CreditCard, Gift, TrendingUp, Info } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -26,7 +26,7 @@ export default function CustomerOverview() {
         const cardsSnapshot = await getCountFromServer(cardsQuery);
         setActiveCards(cardsSnapshot.data().count);
       } catch (error) {
-        handleFirestoreError(error, OperationType.GET, "overview");
+        handleDataError(error, OperationType.GET, "overview");
       } finally {
         setLoading(false);
       }

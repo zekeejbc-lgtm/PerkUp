@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
 import { Layout, Save, Upload, Plus, Trash2, Loader2, ImagePlus, RefreshCcw, CheckCircle2, XCircle, ExternalLink, Download } from "lucide-react";
+import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 
 export default function AdminHomepage() {
   const [loading, setLoading] = useState(true);
@@ -65,21 +66,33 @@ export default function AdminHomepage() {
     loadConfig();
   }, []);
 
-  const handleHeroImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleHeroImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setConfig({...config, heroImageUrl: reader.result as string});
-      reader.readAsDataURL(file);
+      try {
+        const uploadedUrl = await uploadImageFileToDrive(file, { purpose: "homepage-hero" });
+        setConfig({...config, heroImageUrl: uploadedUrl});
+      } catch (error) {
+        console.error("Hero image upload failed", error);
+        showToast("Failed to upload hero image", "error");
+      }
     }
   };
 
-  const handleBusinessLogoUpload = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBusinessLogoUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => handleBusinessChange(index, "logoUrl", reader.result as string);
-      reader.readAsDataURL(file);
+      try {
+        const businessName = config.trustedBusinesses[index]?.name;
+        const uploadedUrl = await uploadImageFileToDrive(file, {
+          owner: businessName,
+          purpose: "trusted-business-logo",
+        });
+        handleBusinessChange(index, "logoUrl", uploadedUrl);
+      } catch (error) {
+        console.error("Business logo upload failed", error);
+        showToast("Failed to upload business logo", "error");
+      }
     }
   };
 
@@ -248,7 +261,7 @@ export default function AdminHomepage() {
             
             <div className="flex items-center justify-center bg-gray-100 dark:bg-gray-900 rounded-xl overflow-hidden relative min-h-[200px]">
               {config.heroImageUrl ? (
-                 <img src={config.heroImageUrl} alt="Hero Preview" className="absolute inset-0 w-full h-full object-cover" />
+                 <img src={getDisplayImageUrl(config.heroImageUrl)} alt="Hero Preview" className="absolute inset-0 w-full h-full object-cover" />
               ) : (
                  <span className="text-sm text-gray-400">No Image Provided</span>
               )}
@@ -290,7 +303,7 @@ export default function AdminHomepage() {
                   </button>
                   <div className="flex flex-col items-center text-center space-y-3">
                     <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-200 border-2 border-white dark:border-gray-800 shadow-sm relative group/img cursor-pointer">
-                      <img src={b.logoUrl} alt={b.name} className="w-full h-full object-cover" />
+                      <img src={getDisplayImageUrl(b.logoUrl)} alt={b.name} className="w-full h-full object-cover" />
                       <label className="absolute inset-0 bg-black/50 opacity-0 group-hover/img:opacity-100 flex items-center justify-center transition-opacity cursor-pointer text-white">
                         <Upload className="w-5 h-5" />
                         <input type="file" accept="image/*" onChange={(e) => handleBusinessLogoUpload(i, e)} className="hidden" />

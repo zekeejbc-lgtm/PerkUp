@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { User as FirebaseUser } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { auth, db, handleFirestoreError, OperationType, testConnection } from "../lib/firebase";
+import { User as AuthUser } from "@/src/lib/supabaseAuthCompat";
+import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
+import { auth, db, handleDataError, OperationType, testConnection } from "../lib/backend";
 
 export type Role = "customer" | "staff" | "store_owner" | "admin" | "auditor";
 
@@ -14,52 +14,52 @@ export interface AppUser {
 
 interface AuthContextType {
   user: AppUser | null;
-  firebaseUser: FirebaseUser | null;
+  authUser: AuthUser | null;
   loading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  firebaseUser: null,
+  authUser: null,
   loading: true,
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     testConnection();
 
-    const unsubscribe = auth.onAuthStateChanged(async (fUser) => {
-      setFirebaseUser(fUser);
-      if (fUser) {
+    const unsubscribe = auth.onAuthStateChanged(async (sessionUser) => {
+      setAuthUser(sessionUser);
+      if (sessionUser) {
         try {
-          const userDocRef = doc(db, "users", fUser.uid);
+          const userDocRef = doc(db, "users", sessionUser.uid);
           const userDoc = await getDoc(userDocRef);
 
           if (userDoc.exists()) {
             setUser({
-              id: fUser.uid,
+              id: sessionUser.uid,
               ...userDoc.data(),
             } as AppUser);
           } else {
             // Create user
             const newUser = {
-              email: fUser.email || "",
-              name: fUser.displayName || "User",
+              email: sessionUser.email || "",
+              name: sessionUser.displayName || "User",
               role: "customer" as Role,
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             };
             await setDoc(userDocRef, newUser);
             
-            setUser({ id: fUser.uid, ...newUser, role: "customer" });
+            setUser({ id: sessionUser.uid, ...newUser, role: "customer" });
 
             // Create customer profile if role is customer
             if (newUser.role === "customer") {
-               const custRef = doc(db, "customers", fUser.uid);
+               const custRef = doc(db, "customers", sessionUser.uid);
                const custDoc = await getDoc(custRef);
                if (!custDoc.exists()) {
                   await setDoc(custRef, {
@@ -74,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (error instanceof Error && error.message.includes("Missing or insufficient permissions")) {
             console.error("Permission denied. Could be a guest or unverified user.");
           } else {
-            handleFirestoreError(error, OperationType.GET, "users");
+            handleDataError(error, OperationType.GET, "users");
           }
         }
       } else {
@@ -87,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, firebaseUser, loading }}>
+    <AuthContext.Provider value={{ user, authUser, loading }}>
       {!loading && children}
     </AuthContext.Provider>
   );

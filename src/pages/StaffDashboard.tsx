@@ -2,8 +2,8 @@ import { Routes, Route, Link, useLocation } from "react-router-dom";
 import { Store, Gift, Users, UserCircle, Menu } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { doc, getDoc } from "@/src/lib/dataCompat";
+import { db } from "../lib/backend";
 
 import StaffStore from "./staff/StaffStore";
 import StaffPromotions from "./staff/StaffPromotions";

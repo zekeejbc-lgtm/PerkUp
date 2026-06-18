@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, where, getDocs, doc, updateDoc, setDoc, serverTimestamp, deleteDoc, addDoc } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { collection, query, where, getDocs, doc, updateDoc, setDoc, serverTimestamp, deleteDoc, addDoc } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
 import { Gift, Calendar, Plus, Save, Edit2, Trash2, X } from "lucide-react";
 
 export default function StoreOwnerPromotions({ store }: { store: any }) {

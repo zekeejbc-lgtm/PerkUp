@@ -1,21 +1,12 @@
-import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
-import { getFirestore, doc, getDocFromServer, getDoc } from "firebase/firestore";
-import firebaseConfig from "../../firebase-applet-config.json";
+import { doc, getDocFromServer, db } from "./dataCompat";
+import { auth, secondaryAuth, signInWithOAuth, signOut } from "./supabaseAuthCompat";
 
-export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-
-export const secondaryApp = initializeApp(firebaseConfig, "Secondary");
-export const secondaryAuth = getAuth(secondaryApp);
-
-export const googleProvider = new GoogleAuthProvider();
+export { auth, db, secondaryAuth };
 
 export const signInWithGoogle = async () => {
   try {
-    const result = await signInWithPopup(auth, googleProvider);
-    return result.user;
+    await signInWithOAuth("google");
+    return null;
   } catch (error: any) {
     if (error?.code !== 'auth/cancelled-popup-request' && error?.code !== 'auth/popup-closed-by-user') {
       console.error("Sign in failed", error);
@@ -26,21 +17,20 @@ export const signInWithGoogle = async () => {
 
 export const logOut = async () => {
   try {
-    await signOut(auth);
+    await signOut();
   } catch (error) {
     console.error("Sign out failed", error);
     throw error;
   }
 };
 
-// Check connection
 export async function testConnection() {
   try {
     await getDocFromServer(doc(db, "test", "connection"));
-    console.log("Firestore connection test completed.");
+    console.log("Supabase connection test completed.");
   } catch (error) {
     if (error instanceof Error && error.message.includes("the client is offline")) {
-      console.error("Please check your Firebase configuration.");
+      console.error("Please check your Supabase configuration.");
     }
   }
 }
@@ -55,7 +45,7 @@ export enum OperationType {
   WRITE = "write",
 }
 
-export interface FirestoreErrorInfo {
+export interface DataErrorInfo {
   error: string;
   operationType: OperationType;
   path: string | null;
@@ -72,8 +62,8 @@ export interface FirestoreErrorInfo {
   };
 }
 
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
+export function handleDataError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: DataErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
       userId: auth.currentUser?.uid,
@@ -90,6 +80,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path,
   };
-  console.error("Firestore Error: ", JSON.stringify(errInfo));
+  console.error("Supabase Data Error: ", JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }

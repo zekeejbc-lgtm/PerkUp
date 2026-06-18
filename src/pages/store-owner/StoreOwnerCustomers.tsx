@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { collection, query, where, getDocs, doc, getDoc, updateDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { collection, query, where, getDocs, doc, getDoc, updateDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
 import { Search, User, Star, ArrowLeft, Minus, Plus, Users, Clock, MessageSquare, Heart, CheckCircle2, Gift } from "lucide-react";
 
 export default function StoreOwnerCustomers({ store }: { store: any }) {

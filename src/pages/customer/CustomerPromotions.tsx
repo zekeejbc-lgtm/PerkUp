@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { collection, query, getDocs } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../../lib/firebase";
+import { collection, query, getDocs } from "@/src/lib/dataCompat";
+import { db, handleDataError, OperationType } from "../../lib/backend";
 import { Gift, Calendar } from "lucide-react";
 
 export default function CustomerPromotions() {
@@ -19,7 +19,7 @@ export default function CustomerPromotions() {
       } catch (error) {
         // Suppress expected errors if permission denied.
         if ((error as any).code !== "permission-denied") {
-            handleFirestoreError(error, OperationType.GET, "promotions");
+            handleDataError(error, OperationType.GET, "promotions");
         }
       } finally {
         setLoading(false);

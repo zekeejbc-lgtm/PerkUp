@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, getDocs, doc, setDoc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore";
-import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { db, secondaryAuth } from "../../lib/firebase";
+import { collection, query, getDocs, doc, setDoc, updateDoc, serverTimestamp, getDoc } from "@/src/lib/dataCompat";
+import { createUserWithEmailAndPassword, signOut } from "@/src/lib/supabaseAuthCompat";
+import { db, secondaryAuth } from "../../lib/backend";
 import { ShieldAlert, CheckCircle, Ban, Store, Plus, Calendar, X, FileText, Upload, Image as ImageIcon } from "lucide-react";
 import { CustomDropdown } from "../../components/CustomDropdown";
+import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 
 export default function AdminApplications() {
   const [applications, setApplications] = useState<any[]>([]);
@@ -17,14 +18,19 @@ export default function AdminApplications() {
   const [storeLogo, setStoreLogo] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setStoreLogo(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const uploadedUrl = await uploadImageFileToDrive(file, {
+          owner: storeName || ownerEmail,
+          purpose: "approved-store-logo",
+        });
+        setStoreLogo(uploadedUrl);
+      } catch (error) {
+        console.error("Store logo upload failed", error);
+        alert("Failed to upload store logo");
+      }
     }
   };
   const [ownerName, setOwnerName] = useState("");
@@ -211,7 +217,7 @@ export default function AdminApplications() {
                   <div className="flex items-center gap-4">
                     {storeLogo ? (
                       <div className="w-12 h-12 rounded-xl border border-gray-200 overflow-hidden shrink-0">
-                        <img src={storeLogo} alt="Logo Preview" className="w-full h-full object-cover" />
+                        <img src={getDisplayImageUrl(storeLogo)} alt="Logo Preview" className="w-full h-full object-cover" />
                       </div>
                     ) : (
                       <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center shrink-0 border border-gray-200 text-gray-400">

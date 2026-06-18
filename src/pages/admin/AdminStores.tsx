@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { collection, getDocs, doc, setDoc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore";
-import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { db, secondaryAuth, handleFirestoreError, OperationType } from "../../lib/firebase";
+import { collection, getDocs, doc, setDoc, updateDoc, serverTimestamp, getDoc } from "@/src/lib/dataCompat";
+import { createUserWithEmailAndPassword, signOut } from "@/src/lib/supabaseAuthCompat";
+import { db, secondaryAuth, handleDataError, OperationType } from "../../lib/backend";
 import { ShieldAlert, CheckCircle, Ban, Store, Plus, Calendar, X, Trash2, Edit, Upload, Image as ImageIcon } from "lucide-react";
 import AdminStoreDetail from "./AdminStoreDetail";
 import { CustomDropdown } from "../../components/CustomDropdown";
+import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 
 export default function AdminStores() {
   const [stores, setStores] = useState<any[]>([]);
@@ -19,14 +20,19 @@ export default function AdminStores() {
   const [storeLogo, setStoreLogo] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setStoreLogo(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const uploadedUrl = await uploadImageFileToDrive(file, {
+          owner: storeName || ownerEmail,
+          purpose: "admin-store-logo",
+        });
+        setStoreLogo(uploadedUrl);
+      } catch (error) {
+        console.error("Store logo upload failed", error);
+        alert("Failed to upload store logo");
+      }
     }
   };
   const [ownerName, setOwnerName] = useState("");
@@ -50,7 +56,7 @@ export default function AdminStores() {
           }
         }
       } catch (error) {
-        handleFirestoreError(error, OperationType.LIST, "stores");
+        handleDataError(error, OperationType.LIST, "stores");
       } finally {
         setLoading(false);
       }
@@ -66,7 +72,7 @@ export default function AdminStores() {
       });
       setStores(stores.map(s => s.id === storeId ? { ...s, status: newStatus } : s));
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `stores/${storeId}`);
+      handleDataError(error, OperationType.UPDATE, `stores/${storeId}`);
     }
   };
 
@@ -154,7 +160,7 @@ export default function AdminStores() {
             <div key={store.id} className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-6 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group cursor-pointer" onClick={() => setSelectedStoreId(store.id)}>
               <div className="flex-1 min-w-0 flex items-center gap-4">
                 {store.logoUrl ? (
-                  <img src={store.logoUrl} alt="Store Logo" className="w-12 h-12 rounded-full object-cover border border-gray-200 dark:border-gray-700 shrink-0" />
+                  <img src={getDisplayImageUrl(store.logoUrl)} alt="Store Logo" className="w-12 h-12 rounded-full object-cover border border-gray-200 dark:border-gray-700 shrink-0" />
                 ) : (
                   <div className="w-12 h-12 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-orange-600 dark:text-orange-400 font-bold shrink-0 border border-orange-200 dark:border-orange-800">
                     {store.name?.charAt(0) || <Store className="w-5 h-5" />}
@@ -241,7 +247,7 @@ export default function AdminStores() {
                   <div className="flex items-center gap-4">
                     {storeLogo ? (
                       <div className="w-12 h-12 rounded-xl border border-gray-200 overflow-hidden shrink-0">
-                        <img src={storeLogo} alt="Logo Preview" className="w-full h-full object-cover" />
+                        <img src={getDisplayImageUrl(storeLogo)} alt="Logo Preview" className="w-full h-full object-cover" />
                       </div>
                     ) : (
                       <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center shrink-0 border border-gray-200 text-gray-400">

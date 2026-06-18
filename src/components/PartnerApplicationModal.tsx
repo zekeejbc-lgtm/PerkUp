@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { X, Store, User, Mail, PenTool, Image as ImageIcon, MapPin, Phone, CreditCard, Check, Upload } from 'lucide-react';
-import { collection, doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { collection, doc, setDoc, getDoc, serverTimestamp } from '@/src/lib/dataCompat';
+import { db } from '../lib/backend';
 import 'leaflet/dist/leaflet.css';
 // @ts-ignore
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
+import { getDisplayImageUrl, uploadImageFileToDrive } from '../lib/imageStorage';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -70,14 +71,19 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
 
   if (!isOpen) return null;
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setLogoUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const uploadedUrl = await uploadImageFileToDrive(file, {
+          owner: businessName || applicantName || email,
+          purpose: "partner-application-logo",
+        });
+        setLogoUrl(uploadedUrl);
+      } catch (error) {
+        console.error("Logo upload failed", error);
+        alert("Failed to upload logo image");
+      }
     }
   };
 
@@ -197,7 +203,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                       <div className="flex items-center gap-4">
                         {logoUrl ? (
                           <div className="w-12 h-12 rounded-xl border border-gray-200 overflow-hidden shrink-0">
-                            <img src={logoUrl} alt="Logo Preview" className="w-full h-full object-cover" />
+                            <img src={getDisplayImageUrl(logoUrl)} alt="Logo Preview" className="w-full h-full object-cover" />
                           </div>
                         ) : (
                           <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center shrink-0 border border-gray-200 text-gray-400">

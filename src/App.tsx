@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth, Role } from "./contexts/AuthContext";
-import { logOut } from "./lib/firebase";
+import { logOut } from "./lib/backend";
 
 // Placeholders for views
 import LandingPage from "./pages/LandingPage";
@@ -56,7 +56,7 @@ function Layout({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-white rounded-xl shadow-sm overflow-hidden p-0.5">
-                  <img src="https://i.imgur.com/3pJzKcg.png" alt="PerkUp Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                  <img src="/icons/icon-192.png" alt="PerkUp Logo" className="w-full h-full object-contain" />
                 </div>
                 <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">PerkUp</span>
               </div>
