@@ -55,8 +55,8 @@ function Layout({ children }: { children: ReactNode }) {
           <div className="flex h-16 justify-between items-center">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl flex items-center justify-center shadow-sm overflow-hidden shrink-0">
-                  <img src="https://i.imgur.com/qnbXJU8.png" alt="PerkUp Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-white rounded-xl shadow-sm overflow-hidden p-0.5">
+                  <img src="https://i.imgur.com/3pJzKcg.png" alt="PerkUp Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
                 </div>
                 <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">PerkUp</span>
               </div>

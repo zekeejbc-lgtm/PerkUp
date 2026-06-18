@@ -91,7 +91,13 @@ export default function CustomerOverview() {
             <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-200">
               <QRCodeSVG value={user?.id || ""} size={160} className="w-full max-w-[160px] h-auto" />
             </div>
-            <p className="mt-6 font-mono text-xs text-gray-500 dark:text-gray-400 tracking-widest uppercase break-all text-center">{user?.id}</p>
+            <div className="mt-4 text-center">
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Unique ID (Manual Entry)</p>
+              <p className="mt-1 font-mono text-xs text-gray-500 dark:text-gray-400 tracking-widest uppercase break-all">{user?.id}</p>
+            </div>
+            <div className="mt-4 text-center text-xs text-orange-600 dark:text-orange-400 font-medium">
+              1 Visit = 1 Sticker
+            </div>
           </div>
         </div>
 

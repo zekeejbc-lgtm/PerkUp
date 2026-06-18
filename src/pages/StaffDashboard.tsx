@@ -1,64 +1,179 @@
+import { Routes, Route, Link, useLocation } from "react-router-dom";
+import { Store, Gift, Users, UserCircle, Menu } from "lucide-react";
 import { useState, useEffect } from "react";
-import { Scanner } from "@yudiel/react-qr-scanner";
 import { useAuth } from "../contexts/AuthContext";
-import { collection, query, getDocs, setDoc, doc, getDoc, serverTimestamp } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
-import { ScanLine, CheckCircle2 } from "lucide-react";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../lib/firebase";
+
+import StaffStore from "./staff/StaffStore";
+import StaffPromotions from "./staff/StaffPromotions";
+import StaffPromotionScan from "./staff/StaffPromotionScan";
+import StaffCustomers from "./staff/StaffCustomers";
+import StaffAccount from "./staff/StaffAccount";
 
 export default function StaffDashboard() {
+  const location = useLocation();
   const { user } = useAuth();
-  const [storeId, setStoreId] = useState<string | null>(null);
-  const [scannedId, setScannedId] = useState<string | null>(null);
+  const [store, setStore] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   useEffect(() => {
     async function loadAssignment() {
+      let activeStoreId = user?.storeId;
+      if (!activeStoreId && user?.role === 'staff' && user?.email?.includes('demo_staff')) {
+        activeStoreId = 'demo1';
+      }
+
+      if (!activeStoreId) {
         setLoading(false);
+        return;
+      }
+      try {
+        const storeRef = doc(db, "stores", activeStoreId);
+        const storeSnap = await getDoc(storeRef);
+        if (storeSnap.exists()) {
+          setStore({ id: storeSnap.id, ...storeSnap.data() });
+        } else if (activeStoreId.startsWith('demo')) {
+          setStore({
+            id: activeStoreId,
+            name: "Demo Store",
+            address: "Tagum City, Davao del Norte",
+            contactPhone: "(084) 123-4567",
+            lat: 7.4474,
+            lng: 125.8093,
+          });
+        }
+      } catch (err) {
+        console.error("Failed to load store assignment", err);
+        if (activeStoreId.startsWith('demo')) {
+          setStore({
+            id: activeStoreId,
+            name: "Demo Store",
+            address: "Tagum City, Davao del Norte",
+            contactPhone: "(084) 123-4567",
+            lat: 7.4474,
+            lng: 125.8093,
+          });
+        }
+      } finally {
+        setLoading(false);
+      }
     }
     loadAssignment();
-  }, []);
+  }, [user]);
 
-  const handleScan = async (id: string) => {
-    if (!id || id === scannedId) return;
-    setScannedId(id);
-    console.log("Scanned:", id);
-    
-    // Simulate processing
-    setTimeout(() => setScannedId(null), 3000);
+  const navigation = [
+    { name: 'Store', href: '/staff', icon: Store },
+    { name: 'Promotions', href: '/staff/promotions', icon: Gift },
+    { name: 'Customers', href: '/staff/customers', icon: Users },
+    { name: 'Account', href: '/staff/account', icon: UserCircle },
+  ];
+
+  if (loading) {
+    return <div className="animate-pulse p-8 text-gray-500 text-center">Loading staff dashboard...</div>;
+  }
+
+  if (!store && location.pathname !== '/staff/account') {
+    return (
+      <div className="max-w-2xl mx-auto space-y-6 text-center py-12">
+        <div className="bg-white dark:bg-gray-900 p-8 rounded-[2rem] shadow-sm border border-gray-200 dark:border-gray-800">
+          <Store className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white mb-2">No Store Assigned</h2>
+          <p className="text-gray-500 dark:text-gray-400 mb-6">You have not been assigned to a store yet. Please contact your store owner.</p>
+          <Link to="/staff/account" className="inline-flex items-center justify-center px-4 py-2 bg-orange-600 text-white rounded-xl font-medium hover:bg-orange-700 transition">
+            Go to Account Settings
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // To check active route considering sub-routes
+  const isActive = (href: string) => {
+    if (href === '/staff' && location.pathname === '/staff') return true;
+    if (href !== '/staff' && location.pathname.startsWith(href)) return true;
+    return false;
   };
 
-  if (loading) return <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading scanner...</div>;
-
   return (
-    <div className="max-w-md mx-auto space-y-6">
-      <div className="bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-[2rem] border border-gray-200 dark:border-gray-800 shadow-sm transition-colors">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-2xl flex items-center justify-center shrink-0">
-             <ScanLine className="w-6 h-6 text-gray-700 dark:text-gray-300" />
+    <div className="flex flex-col md:flex-row gap-8 pb-24 md:pb-0 w-full relative">
+      {/* Desktop Sidebar Navigation */}
+      <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 h-max z-10 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
+        <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} mb-2`}>
+            {isSidebarOpen && <span className="font-bold text-gray-900 dark:text-white px-2 text-xs tracking-widest uppercase">Navigation</span>}
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 rounded-xl text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+               <Menu className="w-5 h-5" />
+            </button>
+        </div>
+
+        {store && (
+          <div className="hidden md:block overflow-hidden transition-all duration-300 mb-2">
+            <div className={`w-full text-left px-4 py-3 bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800/50 rounded-2xl border flex items-center justify-center`}>
+               {!isSidebarOpen ? (
+                 <Store className="w-6 h-6 text-orange-600 dark:text-orange-400" />
+               ) : (
+                 <div className="w-full">
+                    <p className="text-[10px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-widest mb-0.5">Assigned Store</p>
+                    <p className="font-bold text-gray-900 dark:text-white truncate text-sm">{store.name}</p>
+                 </div>
+               )}
+            </div>
           </div>
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">Scanner</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Ready to scan customer codes</p>
-          </div>
-        </div>
-        
-        <div className="rounded-[2rem] overflow-hidden aspect-square relative bg-black shadow-inner">
-           {!scannedId ? (
-              <Scanner onScan={(result) => handleScan(result[0].rawValue)} />
-           ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900 z-10 transition-colors">
-                <CheckCircle2 className="w-16 h-16 text-green-500 mb-4 animate-bounce" />
-                <p className="text-lg font-bold text-gray-900 dark:text-white">Success</p>
-                <p className="font-mono text-xs text-gray-400 dark:text-gray-500 tracking-widest mt-2">{scannedId}</p>
-              </div>
-           )}
-        </div>
-        
-        <div className="mt-6 text-center">
-            <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-widest font-mono">
-                Hold QR code steady in frame
-            </p>
-        </div>
+        )}
+
+        <nav className="flex flex-col gap-2">
+          {navigation.map((item) => {
+            const active = isActive(item.href);
+            return (
+              <Link
+                key={item.name}
+                to={item.href}
+                title={!isSidebarOpen ? item.name : undefined}
+                className={`flex items-center ${isSidebarOpen ? 'gap-3 px-4' : 'justify-center'} py-3 rounded-2xl text-sm font-medium transition-all whitespace-nowrap overflow-hidden group ${
+                  active 
+                    ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900 shadow-md scale-[1.02]' 
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white hover:shadow-sm'
+                }`}
+              >
+                <item.icon className={`w-5 h-5 shrink-0 ${active ? 'text-current' : 'text-gray-400 group-hover:text-gray-500'}`} />
+                {isSidebarOpen && <span className="truncate outline-none transition-opacity duration-300">{item.name}</span>}
+              </Link>
+            );
+          })}
+        </nav>
+      </aside>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-gray-950/90 backdrop-blur-xl border-t border-gray-200 dark:border-gray-800 flex items-center justify-start sm:justify-center overflow-x-auto pb-[env(safe-area-inset-bottom)] px-2 py-2 shadow-[0_-10px_40px_-20px_rgba(0,0,0,0.1)] gap-2 sm:gap-6">
+        {navigation.map((item) => {
+          const active = isActive(item.href);
+          return (
+            <Link
+              key={item.name}
+              to={item.href}
+              className={`flex flex-col items-center gap-1 min-w-[4rem] px-3 py-1.5 rounded-xl transition-all shrink-0 ${
+                active 
+                  ? 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20' 
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
+              }`}
+            >
+              <item.icon className={`w-5 h-5 mb-0.5 ${active ? 'fill-orange-500/20' : ''}`} />
+              <span className="text-[10px] font-bold tracking-tight">{item.name}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Main Content Area */}
+      <div className="flex-1 min-w-0 bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-4 sm:p-6 md:p-8 shadow-sm">
+        <Routes>
+          <Route path="/" element={<StaffStore store={store} />} />
+          <Route path="/promotions" element={<StaffPromotions store={store} />} />
+          <Route path="/promotions/:id" element={<StaffPromotionScan store={store} />} />
+          <Route path="/customers" element={<StaffCustomers store={store} />} />
+          <Route path="/account" element={<StaffAccount />} />
+        </Routes>
       </div>
     </div>
   );

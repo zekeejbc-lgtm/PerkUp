@@ -21,6 +21,26 @@ service cloud.firestore {
       allow write: if isAdmin() || getUserRole(request.auth.uid) == 'store_owner';
     }
 
+    match /promotions_scanned/{claimId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (getUserRole(request.auth.uid) == 'staff' || getUserRole(request.auth.uid) == 'store_owner' || isAdmin());
+    }
+
+    match /applications/{appId} {
+      allow read: if isAdmin();
+      allow write: if true; // anyone can apply
+    }
+    
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if isSignedIn() && (getUserRole(request.auth.uid) == 'store_owner' || isAdmin());
+    }
+
     match /cards/{cardId} {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && (request.auth.uid == resource.data.customerId || getUserRole(request.auth.uid) == 'staff' || getUserRole(request.auth.uid) == 'store_owner' || isAdmin());
@@ -28,7 +48,18 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow write: if isSignedIn() && (
+        isAdmin() || 
+        (request.auth.uid == userId && (
+          // Allow demo accounts to bypass role constraint
+          (request.resource.data.email.matches('^demo_.*@perkup\\.local$')) ||
+          // Ensure new signups are 'customer' and updates don't change role
+          (
+            (!exists(/databases/$(database)/documents/users/$(userId)) && request.resource.data.role == 'customer') ||
+            (exists(/databases/$(database)/documents/users/$(userId)) && request.resource.data.role == resource.data.role)
+          )
+        ))
+      );
     }
 
     match /customers/{customerId} {

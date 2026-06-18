@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Lock, Eye, EyeOff, X } from 'lucide-react';
 import { signInWithGoogle, auth } from '../lib/firebase';
 import { 
@@ -93,7 +93,12 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     const demoPassword = 'password123';
 
     try {
-      await signInWithEmailAndPassword(auth, demoEmail, demoPassword);
+      const creds = await signInWithEmailAndPassword(auth, demoEmail, demoPassword);
+      if (role === 'staff') {
+        const { doc, setDoc } = await import('firebase/firestore');
+        const { db } = await import('../lib/firebase');
+        await setDoc(doc(db, 'users', creds.user.uid), { storeId: 'demo1' }, { merge: true });
+      }
       onClose();
     } catch (err: any) {
       if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
@@ -102,12 +107,16 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
           if (role !== 'customer') {
             const { doc, setDoc } = await import('firebase/firestore');
             const { db } = await import('../lib/firebase');
-            await setDoc(doc(db, 'users', creds.user.uid), {
+            const userData: any = {
               email: creds.user.email,
               name: `Demo ${role}`,
               role: role,
               updatedAt: new Date(),
-            }, { merge: true });
+            };
+            if (role === 'staff') {
+              userData.storeId = 'demo1';
+            }
+            await setDoc(doc(db, 'users', creds.user.uid), userData, { merge: true });
             
             // Reload to ensure the correct role is fetched by AuthContext if we overwrote it.
             setTimeout(() => {

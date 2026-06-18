@@ -1,0 +1,656 @@
+import { useState, useEffect } from "react";
+import { useParams, Link } from "react-router-dom";
+import { doc, getDoc, collection, query, where, getDocs, updateDoc, increment, setDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "../../lib/firebase";
+import { Scanner } from "@yudiel/react-qr-scanner";
+import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2 } from "lucide-react";
+
+export default function StaffPromotionScan({ store }: { store: any }) {
+  const { id } = useParams();
+  const [promo, setPromo] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  
+  // Geofencing state
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [isWithinGeofence, setIsWithinGeofence] = useState<boolean>(true); // Default true if no store coordinates
+
+  // Scanner state
+  const [isScannerActive, setIsScannerActive] = useState(false);
+  const [pointsToAdd, setPointsToAdd] = useState(1);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [scannedCustomer, setScannedCustomer] = useState<any>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Batch & Feedback state
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [batchQueue, setBatchQueue] = useState<{ id: string, points: number }[]>([]);
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [showScanSuccess, setShowScanSuccess] = useState(false);
+  const [lastScannedId, setLastScannedId] = useState<string | null>(null);
+
+  // Offline Sync Queue
+  const [offlineQueue, setOfflineQueue] = useState<{ id: string, points: number, timestamp: number }[]>(() => {
+    const saved = localStorage.getItem('offlineScanQueue');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Promotion Customers state
+  const [promoCustomers, setPromoCustomers] = useState<any[]>([]);
+
+  useEffect(() => {
+    localStorage.setItem('offlineScanQueue', JSON.stringify(offlineQueue));
+  }, [offlineQueue]);
+
+  useEffect(() => {
+    async function init() {
+      if (!id || !store) return;
+      try {
+        const promoRef = doc(db, "promotions", id);
+        const promoSnap = await getDoc(promoRef);
+        if (promoSnap.exists()) {
+          setPromo({ id: promoSnap.id, ...promoSnap.data() });
+        }
+
+        const q = query(collection(db, "cards"), where("storeId", "==", store.id));
+        const customSnap = await getDocs(q);
+        setPromoCustomers(customSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (err) {
+        console.error("Failed to load promotion data", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    init();
+  }, [id, store]);
+
+  useEffect(() => {
+    const handleOnline = async () => {
+      if (offlineQueue.length > 0) {
+        const queueCopy = [...offlineQueue];
+        setOfflineQueue([]); // Clear early to prevent duplicates
+        let failed = [];
+
+        for (const item of queueCopy) {
+          try {
+            await processPointsForCustomer(item.id, item.points);
+          } catch (e) {
+            console.error("Offline sync failed for", item.id, e);
+            failed.push(item);
+          }
+        }
+        
+        if (failed.length > 0) {
+            setOfflineQueue(prev => [...prev, ...failed]);
+        }
+        
+        // Refresh local list
+        if (store?.id) {
+           const q = query(collection(db, "cards"), where("storeId", "==", store.id));
+           const customSnap = await getDocs(q);
+           setPromoCustomers(customSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      }
+    };
+    
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [offlineQueue, store?.id]);
+
+  useEffect(() => {
+    const checkLocation = () => {
+      if (!store?.lat || !store?.lng) {
+        setIsWithinGeofence(true);
+        return;
+      }
+
+      if (!navigator.geolocation) {
+        setLocationError("Geolocation is not supported by your browser.");
+        setIsWithinGeofence(false);
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const userLat = position.coords.latitude;
+          const userLng = position.coords.longitude;
+          const MAX_DISTANCE_METERS = 500; 
+
+          const R = 6371e3;
+          const lat1 = userLat * Math.PI/180;
+          const lat2 = store.lat * Math.PI/180;
+          const dLat = (store.lat - userLat) * Math.PI/180;
+          const dLon = (store.lng - userLng) * Math.PI/180;
+
+          const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(lat1) * Math.cos(lat2) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+          const distance = R * c;
+
+          if (distance <= MAX_DISTANCE_METERS) {
+            setIsWithinGeofence(true);
+            setLocationError(null);
+          } else {
+            setIsWithinGeofence(false);
+            setLocationError(`You are too far from the store. Distance: ${Math.round(distance)}m (Max: ${MAX_DISTANCE_METERS}m).`);
+          }
+        },
+        (error) => {
+          setIsWithinGeofence(false);
+          setLocationError("Unable to retrieve your location for security check.");
+        }
+      );
+    };
+
+    checkLocation();
+  }, [store]);
+
+  const handleScan = async (scannedId: string) => {
+    if (!scannedId || isProcessing || !isWithinGeofence) return;
+    
+    if (scannedId === lastScannedId) return;
+    
+    setLastScannedId(scannedId);
+    setTimeout(() => setLastScannedId(null), 2500); // 2.5s cooldown for identical code mapping
+
+    // Trigger visual feedback
+    setShowScanSuccess(true);
+    setTimeout(() => setShowScanSuccess(false), 1000);
+
+    if (isBatchMode) {
+      setBatchQueue(prev => {
+        if (prev.some(item => item.id === scannedId)) return prev;
+        return [...prev, { id: scannedId, points: pointsToAdd }];
+      });
+      return;
+    }
+
+    if (!navigator.onLine) {
+        setOfflineQueue(prev => [...prev, { id: scannedId, points: pointsToAdd, timestamp: Date.now() }]);
+        alert("You are offline. Scan queued for sync.");
+        return;
+    }
+
+    setIsProcessing(true);
+    setIsScannerActive(false);
+
+    try {
+      const userRef = doc(db, "users", scannedId);
+      const userSnap = await getDoc(userRef);
+      
+      let customerName = "Unknown Customer";
+      let profilePic = null;
+      let existingStars = 0;
+      let cardIdToUpdate = null;
+
+      if (userSnap.exists()) {
+        customerName = userSnap.data().name || "Unknown Customer";
+        profilePic = userSnap.data().profilePic || null;
+      }
+
+      const q = query(collection(db, "cards"), where("storeId", "==", store.id), where("customerId", "==", scannedId));
+      const cardSnap = await getDocs(q);
+      
+      if (!cardSnap.empty) {
+        existingStars = cardSnap.docs[0].data().stars || 0;
+        cardIdToUpdate = cardSnap.docs[0].id;
+      }
+
+      setScannedCustomer({
+        id: scannedId,
+        name: customerName,
+        profilePic,
+        existingStars,
+        cardIdToUpdate
+      });
+
+      setShowConfirmModal(true);
+
+    } catch (err) {
+      console.error(err);
+      alert("Failed to process scanned QR code.");
+      setIsScannerActive(true);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const processPointsForCustomer = async (scannedId: string, points: number) => {
+    if (!store) return;
+    const q = query(collection(db, "cards"), where("storeId", "==", store.id), where("customerId", "==", scannedId));
+    const cardSnap = await getDocs(q);
+    
+    if (!cardSnap.empty) {
+      const cardRef = doc(db, "cards", cardSnap.docs[0].id);
+      await updateDoc(cardRef, { stars: increment(points) });
+    } else {
+      const newCardRef = doc(collection(db, "cards"));
+      await setDoc(newCardRef, {
+        storeId: store.id,
+        customerId: scannedId,
+        stars: points,
+        joinedAt: serverTimestamp(),
+        status: 'active'
+      });
+    }
+  };
+
+  const handleConfirmPoints = async () => {
+    if (!scannedCustomer || !store) return;
+
+    if (!navigator.onLine) {
+        setOfflineQueue(prev => [...prev, { id: scannedCustomer.id, points: pointsToAdd, timestamp: Date.now() }]);
+        alert("You are offline. Points queued for sync.");
+        setShowConfirmModal(false);
+        setScannedCustomer(null);
+        setPointsToAdd(1);
+        setIsScannerActive(true);
+        return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      await processPointsForCustomer(scannedCustomer.id, pointsToAdd);
+
+      alert(`Successfully credited ${pointsToAdd} points to ${scannedCustomer.name}!`);
+      
+      setShowConfirmModal(false);
+      setScannedCustomer(null);
+      setPointsToAdd(1);
+      
+      const q = query(collection(db, "cards"), where("storeId", "==", store.id));
+      const customSnap = await getDocs(q);
+      setPromoCustomers(customSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setIsScannerActive(true);
+      
+    } catch (err) {
+      console.error(err);
+      alert("Failed to credit points.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleConfirmBatch = async () => {
+    if (!navigator.onLine) {
+        setOfflineQueue(prev => [...prev, ...batchQueue.map(b => ({ ...b, timestamp: Date.now() }))]);
+        alert("You are offline. Batch queued for sync.");
+        setBatchQueue([]);
+        setShowBatchModal(false);
+        return;
+    }
+
+    setIsProcessing(true);
+    try {
+        for (const item of batchQueue) {
+            await processPointsForCustomer(item.id, item.points);
+        }
+        
+        alert(`Successfully processed ${batchQueue.length} scans!`);
+        setBatchQueue([]);
+        setShowBatchModal(false);
+        
+        const q = query(collection(db, "cards"), where("storeId", "==", store.id));
+        const customSnap = await getDocs(q);
+        setPromoCustomers(customSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        
+    } catch(e) {
+        console.error(e);
+        alert("Failed to process some batch items.");
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
+  const updateBatchItemPoints = (index: number, change: number) => {
+      setBatchQueue(prev => {
+          const newQ = [...prev];
+          newQ[index].points = Math.max(1, newQ[index].points + change);
+          return newQ;
+      });
+  };
+  
+  const removeBatchItem = (index: number) => {
+      setBatchQueue(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleCancelPoints = () => {
+    setShowConfirmModal(false);
+    setScannedCustomer(null);
+    setPointsToAdd(1);
+    setIsScannerActive(true); // resume scanner
+  };
+
+  if (loading) return <div className="animate-pulse p-8">Loading scanner...</div>;
+
+  if (!promo) {
+    return (
+      <div className="text-center p-8 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl mt-4">
+        <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Promotion Not Found</h3>
+        <Link to="/staff/promotions" className="text-orange-600 hover:underline">Return to Promotions</Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-5xl space-y-8">
+      {/* Header */}
+      <div className="flex items-start gap-4">
+        <Link to="/staff/promotions" className="p-2 -ml-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
+          <ArrowLeft className="w-6 h-6" />
+        </Link>
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">{promo.title}</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Promotion Scanner & Mechanics</p>
+        </div>
+      </div>
+
+      {!isWithinGeofence && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 rounded-2xl flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-bold text-red-900 dark:text-red-200 block">Security Geofence Alert</h4>
+            <p className="text-sm text-red-700 dark:text-red-300/80 mt-1">{locationError}</p>
+          </div>
+        </div>
+      )}
+
+      {offlineQueue.length > 0 && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4 rounded-2xl flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-bold text-yellow-900 dark:text-yellow-200 block">Offline Mode Active</h4>
+            <p className="text-sm text-yellow-700 dark:text-yellow-300/80 mt-1">
+              {offlineQueue.length} scan(s) queued for synchronization when connection is restored.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-2 gap-8">
+        {/* Scanner Panel */}
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8 flex flex-col items-center">
+          <div className="w-full flex flex-col gap-4 mb-8">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <Camera className="w-5 h-5 text-orange-500" /> Scanner Control
+              </h3>
+              <button
+                 onClick={() => setIsScannerActive(!isScannerActive)}
+                 disabled={!isWithinGeofence}
+                 className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors ${
+                   !isWithinGeofence ? 'bg-gray-100 text-gray-400 cursor-not-allowed' :
+                   isScannerActive 
+                    ? 'bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-900/30 dark:hover:bg-red-900/50 dark:text-red-400' 
+                    : 'bg-orange-600 hover:bg-orange-700 text-white'
+                 }`}
+              >
+                {isScannerActive ? <><CameraOff className="w-4 h-4"/> Stop</> : <><Camera className="w-4 h-4"/> Start</>}
+              </button>
+            </div>
+            
+            <div className="flex gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
+                <button 
+                  onClick={() => setIsBatchMode(false)}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-sm font-bold transition-all ${!isBatchMode ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                >
+                  Single Scan
+                </button>
+                <button 
+                  onClick={() => setIsBatchMode(true)}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-sm font-bold transition-all ${isBatchMode ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                >
+                  Batch Mode
+                </button>
+            </div>
+          </div>
+
+          <div className="w-full max-w-sm aspect-square bg-gray-50 dark:bg-black rounded-[2rem] border border-gray-200 dark:border-gray-800 overflow-hidden relative shadow-inner flex items-center justify-center mb-6 relative">
+            {isBatchMode && batchQueue.length > 0 && (
+                <div className="absolute top-4 right-4 z-20">
+                    <span className="bg-orange-600 text-white font-bold px-3 py-1 rounded-full shadow-lg border-2 border-orange-50 dark:border-gray-900 animate-bounce block">
+                        {batchQueue.length} queued
+                    </span>
+                </div>
+            )}
+
+            {showScanSuccess && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-green-500/20 backdrop-blur-sm animate-in fade-in zoom-in duration-300">
+                    <div className="bg-white dark:bg-gray-900 rounded-full p-6 shadow-2xl animate-in zoom-in spin-in-1">
+                        <CheckCircle2 className="w-16 h-16 text-green-500" />
+                    </div>
+                </div>
+            )}
+
+            {!isWithinGeofence ? (
+               <div className="text-center p-6 text-gray-400">
+                  <MapPin className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-sm font-medium">Scanner disabled due to location restrictions.</p>
+               </div>
+            ) : isScannerActive ? (
+               <Scanner onScan={(result) => handleScan(result[0].rawValue)} />
+            ) : (
+               <div className="text-center p-6 text-gray-400">
+                  <CameraOff className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-sm font-medium">Scanner is paused.</p>
+                  <p className="text-xs mt-2">Click "Start" above.</p>
+               </div>
+            )}
+          </div>
+
+          <div className="w-full max-w-sm">
+            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-3 block text-center">Points (Default)</label>
+            <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 p-2 rounded-2xl border border-gray-200 dark:border-gray-700">
+               <button 
+                 onClick={() => setPointsToAdd(Math.max(1, pointsToAdd - 1))}
+                 className="w-12 h-12 bg-white dark:bg-gray-900 rounded-xl flex items-center justify-center text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white shadow-sm border border-gray-100 dark:border-gray-700"
+               >
+                 <Minus className="w-5 h-5" />
+               </button>
+               <span className="text-2xl font-bold text-gray-900 dark:text-white px-4">{pointsToAdd}</span>
+               <button 
+                 onClick={() => setPointsToAdd(pointsToAdd + 1)}
+                 className="w-12 h-12 bg-white dark:bg-gray-900 rounded-xl flex items-center justify-center text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white shadow-sm border border-gray-100 dark:border-gray-700"
+               >
+                 <Plus className="w-5 h-5" />
+               </button>
+            </div>
+            
+            {isBatchMode && batchQueue.length > 0 && (
+                <button 
+                  onClick={() => setShowBatchModal(true)}
+                  className="w-full mt-4 py-3 bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 dark:hover:bg-orange-900/50 rounded-xl font-bold transition-colors"
+                >
+                  Review {batchQueue.length} Scans
+                </button>
+            )}
+            
+            {pointsToAdd > 1 && !isBatchMode && (
+               <p className="text-xs text-orange-600 dark:text-orange-400 text-center mt-3 font-medium">
+                 You are awarding multiple points per scan!
+               </p>
+            )}
+          </div>
+        </div>
+
+        {/* Info Panel: Mechanics and Customers */}
+        <div className="space-y-6">
+          <div className="bg-gray-50 dark:bg-gray-800/50 p-6 sm:p-8 rounded-[2rem] border border-gray-200 dark:border-gray-800">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Mechanics</h3>
+             <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap leading-relaxed mb-6">
+               {promo.description || "No specific mechanics outlined."}
+             </p>
+             <div className="flex items-center gap-6 border-t border-gray-200 dark:border-gray-700 pt-6">
+               <div>
+                 <p className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">Required Points</p>
+                 <p className="text-xl font-bold text-gray-900 dark:text-white">{promo.requiredStamps || 0}</p>
+               </div>
+               <div>
+                 <p className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">Valid Until</p>
+                 <p className="text-xl font-bold text-gray-900 dark:text-white">{promo.endDate ? new Date(promo.endDate).toLocaleDateString() : 'Continuous'}</p>
+               </div>
+             </div>
+          </div>
+
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <Gift className="w-5 h-5 text-gray-400" /> Customer Progress
+            </h3>
+            
+            {promoCustomers.length === 0 ? (
+               <p className="text-sm text-gray-500">No customers have participated in this store's program yet.</p>
+            ) : (
+               <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
+                 {promoCustomers.slice(0, 50).map(c => (
+                   <div key={c.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700">
+                     <div className="flex items-center gap-3">
+                       <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center border border-orange-200 dark:border-orange-800">
+                         <User className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                       </div>
+                       <span className="text-sm font-semibold text-gray-900 dark:text-white font-mono">{c.customerId.slice(0,8)}...</span>
+                     </div>
+                     <div className="text-sm font-bold text-gray-900 dark:text-white bg-white dark:bg-gray-900 px-3 py-1.5 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                       {c.stars || 0} / {promo.requiredStamps || 10}
+                     </div>
+                   </div>
+                 ))}
+                 {promoCustomers.length > 50 && (
+                   <p className="text-xs text-center text-gray-500 pt-2">Showing 50 most recent</p>
+                 )}
+               </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Confirmation Modal - Single Mode */}
+      {showConfirmModal && scannedCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-gray-900 rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-800 animate-in zoom-in-95">
+            <div className="p-8 text-center border-b border-gray-100 dark:border-gray-800 bg-orange-50 dark:bg-orange-900/10">
+              {scannedCustomer.profilePic ? (
+                <img src={scannedCustomer.profilePic} alt="Customer" className="w-20 h-20 rounded-full mx-auto mb-4 border-4 border-white dark:border-gray-800 shadow-sm object-cover" />
+              ) : (
+                <div className="w-20 h-20 rounded-full bg-white dark:bg-gray-800 border-4 border-orange-100 dark:border-gray-700 mx-auto flex items-center justify-center shadow-sm mb-4">
+                  <UserCircle className="w-10 h-10 text-gray-400" />
+                </div>
+              )}
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">{scannedCustomer.name}</h3>
+              <p className="text-sm text-gray-500 mt-1 font-mono tracking-widest">{scannedCustomer.id.slice(0, 8)}...</p>
+            </div>
+
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6 bg-gray-50 dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700">
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mb-1">Current</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{scannedCustomer.existingStars}</p>
+                </div>
+                <div className="w-8 h-px bg-gray-300 dark:bg-gray-600"></div>
+                <div className="text-center">
+                  <p className="text-xs text-orange-600 font-bold uppercase tracking-widest mb-1">Add</p>
+                  <p className="text-lg font-bold text-orange-600 dark:text-orange-400">+{pointsToAdd}</p>
+                </div>
+                <div className="w-8 h-px bg-gray-300 dark:bg-gray-600"></div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mb-1">New Total</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{scannedCustomer.existingStars + pointsToAdd}</p>
+                </div>
+              </div>
+
+              {pointsToAdd > 1 && (
+                <div className="mb-6 p-3 bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-sm font-medium rounded-xl border border-orange-200 dark:border-orange-800/50 flex gap-2 items-start">
+                  <AlertTriangle className="w-5 h-5 shrink-0" />
+                  <p>Are you sure you want to award {pointsToAdd} points at once?</p>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={handleCancelPoints}
+                  disabled={isProcessing}
+                  className="flex-1 py-3 px-4 rounded-xl font-bold text-gray-700 dark:text-gray-300 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleConfirmPoints}
+                  disabled={isProcessing}
+                  className="flex-1 py-3 px-4 rounded-xl font-bold text-white bg-orange-600 hover:bg-orange-700 transition disabled:opacity-70 disabled:animate-pulse flex items-center justify-center gap-2 shadow-lg shadow-orange-600/30"
+                >
+                  {isProcessing ? "Processing..." : <>Confirm <CheckCircle2 className="w-4 h-4" /></>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Box Confirm Modal - Batch Mode */}
+      {showBatchModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-gray-900 rounded-[2rem] w-full max-w-lg overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-800 flex flex-col max-h-[85vh] animate-in zoom-in-95">
+              <div className="p-6 border-b border-gray-100 dark:border-gray-800 bg-orange-50 dark:bg-orange-900/10 flex justify-between items-center shrink-0">
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white">Review Batch</h3>
+                  <span className="bg-orange-200 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300 px-3 py-1 rounded-xl font-bold text-sm shadow-sm">{batchQueue.length} pending</span>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                  {batchQueue.map((item, index) => (
+                      <div key={index} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
+                          <div className="flex items-center gap-3 overflow-hidden">
+                             <div className="w-10 h-10 rounded-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 flex items-center justify-center shrink-0 shadow-sm">
+                                 <UserCircle className="w-5 h-5 text-gray-400" />
+                             </div>
+                             <div className="min-w-0">
+                               <p className="text-sm font-bold text-gray-900 dark:text-white truncate">Customer Scan</p>
+                               <p className="text-xs text-gray-500 font-mono tracking-widest truncate">{item.id.slice(0, 10)}</p>
+                             </div>
+                          </div>
+                          <div className="flex items-center gap-4 shrink-0">
+                              <div className="flex items-center gap-3 bg-white dark:bg-gray-900 p-1.5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                                  <button onClick={() => updateBatchItemPoints(index, -1)} className="w-7 h-7 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400">
+                                    <Minus className="w-3 h-3" />
+                                  </button>
+                                  <span className="font-bold w-4 text-center text-sm dark:text-white">{item.points}</span>
+                                  <button onClick={() => updateBatchItemPoints(index, 1)} className="w-7 h-7 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400">
+                                    <Plus className="w-3 h-3" />
+                                  </button>
+                              </div>
+                              <button onClick={() => removeBatchItem(index)} className="text-gray-400 hover:text-red-500 transition-colors p-2 -mr-2">
+                                  <Trash2 className="w-5 h-5" />
+                              </button>
+                          </div>
+                      </div>
+                  ))}
+                  
+                  {batchQueue.length === 0 && (
+                      <div className="text-center py-8 text-gray-500 dark:text-gray-400 flex flex-col items-center">
+                          <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
+                            <CheckCircle2 className="w-8 h-8 text-gray-300 dark:text-gray-600" />
+                          </div>
+                          <p className="font-medium text-gray-900 dark:text-white">Batch is empty.</p>
+                          <p className="text-sm mt-1">Scan QR codes to add them to the queue.</p>
+                      </div>
+                  )}
+              </div>
+              
+              <div className="p-6 border-t border-gray-100 dark:border-gray-800 flex gap-3 bg-white dark:bg-gray-900 shrink-0">
+                  <button onClick={() => setShowBatchModal(false)} className="flex-1 py-3 px-4 rounded-xl font-bold text-gray-700 dark:text-gray-300 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition">
+                      Close
+                  </button>
+                  <button 
+                    onClick={handleConfirmBatch} 
+                    disabled={isProcessing || batchQueue.length === 0} 
+                    className="flex-1 py-3 px-4 rounded-xl font-bold text-white bg-orange-600 hover:bg-orange-700 transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-orange-600/30"
+                  >
+                      {isProcessing ? "Processing..." : <>Confirm All <CheckCircle2 className="w-4 h-4" /></>}
+                  </button>
+              </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

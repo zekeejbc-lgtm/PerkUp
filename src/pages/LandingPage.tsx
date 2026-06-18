@@ -19,6 +19,7 @@ interface MapStore {
   lng?: number;
   description?: string;
   contact?: string;
+  logoUrl?: string;
 }
 
 // Temporary demo stores in case DB is empty or lacks location data
@@ -70,6 +71,19 @@ export default function LandingPage() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showAppModal, setShowAppModal] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [config, setConfig] = useState<any>({
+    heroHeadline: "Reward your \nbest customers.",
+    heroSubheadline: "Ditch the paper punch cards. PerkUp is a minimal, fast, and secure digital loyalty system that runs right in your browser. No apps to install.",
+    heroImageUrl: "https://images.unsplash.com/photo-1554118811-1e0d58224f24?q=80&w=2047&auto=format&fit=crop",
+    trustedBusinesses: [],
+    usePartnerStores: false,
+    applicationsOpen: true,
+    footerInfo: {
+      address: "123 Market St, San Francisco, CA",
+      email: "hello@perkup.example.com",
+      phone: "(084) 123-4567"
+    }
+  });
 
   const openAuthModal = (mode: 'signin' | 'signup') => {
     setAuthMode(mode);
@@ -88,7 +102,8 @@ export default function LandingPage() {
           lat: doc.data().lat,
           lng: doc.data().lng,
           description: doc.data().description,
-          contact: doc.data().contact
+          contact: doc.data().contact,
+          logoUrl: doc.data().logoUrl
         }));
 
         // Filter out those without location, if none have location, use demo stores
@@ -105,7 +120,21 @@ export default function LandingPage() {
         setMapLoaded(true);
       }
     }
+
+    async function fetchConfig() {
+      try {
+        const { getDoc, doc } = await import("firebase/firestore");
+        const snap = await getDoc(doc(db, "settings", "homepage"));
+        if (snap.exists()) {
+          setConfig((prev: any) => ({ ...prev, ...snap.data() }));
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
     fetchStores();
+    fetchConfig();
   }, []);
 
   if (loading) return null;
@@ -124,8 +153,8 @@ export default function LandingPage() {
       <header className="sticky top-0 z-50 bg-[#fafafa]/80 dark:bg-gray-950/80 backdrop-blur-md border-b border-gray-200/50 dark:border-gray-800/50 transition-colors">
         <nav className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between w-full">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center shadow-sm overflow-hidden shrink-0">
-            <img src="https://i.imgur.com/qnbXJU8.png" alt="PerkUp Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-white rounded-xl shadow-sm overflow-hidden p-0.5">
+            <img src="https://i.imgur.com/3pJzKcg.png" alt="PerkUp Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
           </div>
           <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">PerkUp</span>
         </div>
@@ -152,8 +181,8 @@ export default function LandingPage() {
           <div className="absolute inset-0 z-0">
             <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#fafafa]/80 dark:via-gray-950/80 to-[#fafafa] dark:to-gray-950 z-10 transition-colors" />
             <img 
-              src="https://images.unsplash.com/photo-1554118811-1e0d58224f24?q=80&w=2047&auto=format&fit=crop" 
-              alt="Coffee shop" 
+              src={config.heroImageUrl}
+              alt="Hero image" 
               className="w-full h-full object-cover opacity-30 dark:opacity-20" 
             />
           </div>
@@ -169,13 +198,12 @@ export default function LandingPage() {
                 Digital Loyalty Starts Here
               </div>
               
-              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-semibold tracking-tight text-gray-900 dark:text-white leading-[1.1] mb-6 sm:mb-8 transition-colors">
-                Reward your <br/>
-                <span className="text-gray-400 dark:text-gray-500">best customers.</span>
+              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-semibold tracking-tight text-gray-900 dark:text-white leading-[1.1] mb-6 sm:mb-8 transition-colors whitespace-pre-wrap">
+                {config.heroHeadline}
               </h1>
               
               <p className="text-base sm:text-lg text-gray-500 dark:text-gray-400 mb-8 sm:mb-10 max-w-lg leading-relaxed transition-colors">
-                Ditch the paper punch cards. PerkUp is a minimal, fast, and secure digital loyalty system that runs right in your browser. No apps to install.
+                {config.heroSubheadline}
               </p>
               
               <button
@@ -246,14 +274,34 @@ export default function LandingPage() {
             <div className="absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-white dark:from-gray-950 to-transparent z-10 pointer-events-none transition-colors"></div>
             
             <div className="flex animate-scroll hover:opacity-100 transition-opacity duration-500 w-[200%]">
-              {[...LOGOS, ...LOGOS, ...LOGOS, ...LOGOS].map((logo, idx) => (
-                <div key={idx} className="flex flex-col items-center justify-center w-64 shrink-0 gap-4 opacity-40 hover:opacity-100 transition-opacity duration-300">
-                  <div className="w-16 h-16 bg-gray-50 dark:bg-gray-900 rounded-3xl flex items-center justify-center text-gray-400 dark:text-gray-500 border border-gray-100 dark:border-gray-800 shadow-sm transition-all hover:scale-105 hover:-rotate-3 duration-300">
-                    <logo.icon className="w-8 h-8" />
+              {config.usePartnerStores && stores.length > 0 ? (
+                 [...stores, ...stores, ...stores, ...stores].map((store, idx) => (
+                   <div key={`partner-${idx}`} className="flex flex-col items-center justify-center w-64 shrink-0 gap-4 opacity-40 hover:opacity-100 transition-opacity duration-300">
+                     <div className="w-16 h-16 bg-gray-50 dark:bg-gray-900 rounded-3xl flex items-center justify-center text-gray-400 dark:text-gray-500 border border-gray-100 dark:border-gray-800 shadow-sm transition-all hover:scale-105 hover:-rotate-3 duration-300 overflow-hidden">
+                       {store.logoUrl ? <img src={store.logoUrl} className="w-full h-full object-cover" alt={store.name} /> : <StoreIcon className="w-8 h-8" />}
+                     </div>
+                     <span className="font-semibold text-gray-400 dark:text-gray-500 tracking-tight">{store.name}</span>
+                   </div>
+                 ))
+              ) : config.trustedBusinesses && config.trustedBusinesses.length > 0 ? (
+                 [...config.trustedBusinesses, ...config.trustedBusinesses, ...config.trustedBusinesses, ...config.trustedBusinesses].map((logo: any, idx: number) => (
+                   <div key={`custom-${idx}`} className="flex flex-col items-center justify-center w-64 shrink-0 gap-4 opacity-40 hover:opacity-100 transition-opacity duration-300">
+                     <div className="w-16 h-16 bg-gray-50 dark:bg-gray-900 rounded-3xl flex items-center justify-center text-gray-400 dark:text-gray-500 border border-gray-100 dark:border-gray-800 shadow-sm transition-all hover:scale-105 hover:-rotate-3 duration-300 overflow-hidden">
+                       {logo.logoUrl ? <img src={logo.logoUrl} className="w-full h-full object-cover" alt={logo.name} /> : <StoreIcon className="w-8 h-8" />}
+                     </div>
+                     <span className="font-semibold text-gray-400 dark:text-gray-500 tracking-tight">{logo.name}</span>
+                   </div>
+                 ))
+              ) : (
+                [...LOGOS, ...LOGOS, ...LOGOS, ...LOGOS].map((logo, idx) => (
+                  <div key={`fallback-${idx}`} className="flex flex-col items-center justify-center w-64 shrink-0 gap-4 opacity-40 hover:opacity-100 transition-opacity duration-300">
+                    <div className="w-16 h-16 bg-gray-50 dark:bg-gray-900 rounded-3xl flex items-center justify-center text-gray-400 dark:text-gray-500 border border-gray-100 dark:border-gray-800 shadow-sm transition-all hover:scale-105 hover:-rotate-3 duration-300">
+                      <logo.icon className="w-8 h-8" />
+                    </div>
+                    <span className="font-semibold text-gray-400 dark:text-gray-500 tracking-tight">{logo.name}</span>
                   </div>
-                  <span className="font-semibold text-gray-400 dark:text-gray-500 tracking-tight">{logo.name}</span>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </section>
@@ -340,24 +388,26 @@ export default function LandingPage() {
         </section>
 
         {/* Affiliate Section */}
-        <section className="bg-gray-900 text-white py-24 sm:py-32 relative overflow-hidden">
-          <div className="absolute inset-0 z-0 opacity-10">
-            <div className="absolute -top-24 -right-24 w-96 h-96 bg-orange-500 rounded-full blur-3xl mix-blend-screen"></div>
-            <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-500 rounded-full blur-3xl mix-blend-screen"></div>
-          </div>
-          <div className="mx-auto max-w-7xl px-6 relative z-10 text-center">
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-6">Become a Partner Store</h2>
-            <p className="text-gray-400 text-lg max-w-2xl mx-auto mb-10">
-              Join our growing network of local businesses. Drive more foot traffic, build customer loyalty, and get insights into your best customers.
-            </p>
-            <button 
-              onClick={() => setShowAppModal(true)}
-              className="bg-orange-600 text-white px-8 py-4 rounded-2xl font-medium hover:bg-orange-500 transition-colors shadow-lg shadow-orange-600/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-orange-500"
-            >
-              Apply to be a Partner
-            </button>
-          </div>
-        </section>
+        {config.applicationsOpen && (
+          <section className="bg-gray-900 text-white py-24 sm:py-32 relative overflow-hidden">
+            <div className="absolute inset-0 z-0 opacity-10">
+              <div className="absolute -top-24 -right-24 w-96 h-96 bg-orange-500 rounded-full blur-3xl mix-blend-screen"></div>
+              <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-500 rounded-full blur-3xl mix-blend-screen"></div>
+            </div>
+            <div className="mx-auto max-w-7xl px-6 relative z-10 text-center">
+              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-6">Become a Partner Store</h2>
+              <p className="text-gray-400 text-lg max-w-2xl mx-auto mb-10">
+                Join our growing network of local businesses. Drive more foot traffic, build customer loyalty, and get insights into your best customers.
+              </p>
+              <button 
+                onClick={() => setShowAppModal(true)}
+                className="bg-orange-600 text-white px-8 py-4 rounded-2xl font-medium hover:bg-orange-500 transition-colors shadow-lg shadow-orange-600/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-orange-500"
+              >
+                Apply to be a Partner
+              </button>
+            </div>
+          </section>
+        )}
       </main>
 
       {/* Footer */}
@@ -377,11 +427,15 @@ export default function LandingPage() {
               <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400 transition-colors">
                   <Mail className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-                  <span className="text-sm">hello@perkup.example.com</span>
+                  <span className="text-sm">{config.footerInfo.email}</span>
                 </div>
                 <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400 transition-colors">
                   <Phone className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-                  <span className="text-sm">(084) 123-4567</span>
+                  <span className="text-sm">{config.footerInfo.phone}</span>
+                </div>
+                <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400 transition-colors">
+                  <MapPin className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                  <span className="text-sm">{config.footerInfo.address}</span>
                 </div>
               </div>
             </div>
