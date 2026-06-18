@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { User, Lock, Eye, EyeOff, X } from 'lucide-react';
 import { signInWithGoogle, auth } from '../lib/backend';
 import { 
@@ -6,6 +6,7 @@ import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail
 } from '@/src/lib/supabaseAuthCompat';
+import { getPasswordStrength } from '@/src/lib/passwordStrength';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -31,6 +32,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
 
   if (!isOpen) return null;
 
@@ -216,6 +218,34 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                     {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
+                {mode === 'signup' && password && (
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between text-xs font-semibold">
+                      <span className="text-gray-500 dark:text-gray-400">Password strength</span>
+                      <span className="text-gray-900 dark:text-gray-100">{passwordStrength.label}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${passwordStrength.tone}`}
+                        style={{ width: `${passwordStrength.percent}%` }}
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {passwordStrength.checks.map((check) => (
+                        <span
+                          key={check.label}
+                          className={`rounded-full px-2 py-1 text-[11px] font-medium ${
+                            check.met
+                              ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                              : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+                          }`}
+                        >
+                          {check.label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

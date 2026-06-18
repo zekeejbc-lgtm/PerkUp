@@ -164,8 +164,20 @@ export async function sendPasswordResetEmail(_authClient: AuthCompat, email: str
   if (error) throw error;
 }
 
-export async function updatePassword(_authClient: AuthCompat | User | null, newPassword: string) {
-  const { error } = await supabase.auth.updateUser({ password: newPassword });
+export async function updatePassword(
+  _authClient: AuthCompat | User | null,
+  newPassword: string,
+  currentPassword?: string,
+) {
+  const { error } = await supabase.auth.updateUser({
+    password: newPassword,
+    ...(currentPassword ? { current_password: currentPassword } : {}),
+  });
+  if (error) throw error;
+}
+
+export async function updateEmail(_authClient: AuthCompat | User | null, email: string) {
+  const { error } = await supabase.auth.updateUser({ email: normalizeEmail(email) });
   if (error) throw error;
 }
 

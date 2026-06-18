@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
-import { doc, getDoc, collection, query, where, getDocs, updateDoc, increment, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
+import { doc, getDoc, collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2 } from "lucide-react";
+import { isSecureCustomerQr, redeemCustomerScan } from "@/src/lib/secureQr";
 
 type OfflineScan = {
   id: string;
@@ -18,12 +19,11 @@ const OFFLINE_QUEUE_PREFIX = "perkup:offlineScanQueue";
 const OFFLINE_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_OFFLINE_QUEUE_ITEMS = 100;
 const MAX_POINTS_PER_SCAN = 100;
-const CUSTOMER_ID_PATTERN = /^[a-zA-Z0-9_-]{8,128}$/;
 
 const getOfflineQueueKey = (storeId: string, promotionId: string) =>
   `${OFFLINE_QUEUE_PREFIX}:${storeId}:${promotionId}`;
 
-const isValidCustomerId = (customerId: string) => CUSTOMER_ID_PATTERN.test(customerId);
+const isValidCustomerQr = (scanToken: string) => isSecureCustomerQr(scanToken);
 
 const normalizePoints = (points: number) =>
   Math.min(Math.max(Math.trunc(Number(points) || 1), 1), MAX_POINTS_PER_SCAN);
@@ -44,7 +44,7 @@ const normalizeOfflineQueue = (
       const customerId = String(scan.id || "").trim();
       const timestamp = Number(scan.timestamp || 0);
 
-      if (!isValidCustomerId(customerId)) return null;
+      if (!isValidCustomerQr(customerId)) return null;
       if (!Number.isFinite(timestamp) || timestamp < cutoff) return null;
       if (scan.storeId && scan.storeId !== storeId) return null;
       if (scan.promotionId && scan.promotionId !== promotionId) return null;
@@ -235,34 +235,13 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     checkLocation();
   }, [store]);
 
-  const queueOfflineScan = (scannedId: string, points: number) => {
-    if (!store?.id || !id) return false;
-
-    const customerId = String(scannedId || "").trim();
-    if (!isValidCustomerId(customerId)) return false;
-
-    const item: OfflineScan = {
-      id: customerId,
-      points: normalizePoints(points),
-      timestamp: Date.now(),
-      storeId: store.id,
-      promotionId: id,
-    };
-
-    setOfflineQueue(prev =>
-      normalizeOfflineQueue([...prev, item], store.id, id),
-    );
-
-    return true;
-  };
-
   const handleScan = async (rawScannedId: string) => {
     const scannedId = String(rawScannedId || "").trim();
 
     if (!scannedId || isProcessing || !isWithinGeofence) return;
 
-    if (!isValidCustomerId(scannedId)) {
-      alert("Invalid customer QR code.");
+    if (!isValidCustomerQr(scannedId)) {
+      alert("Invalid PerkUp QR code. Ask the customer to refresh their QR from the PerkUp app.");
       return;
     }
     
@@ -284,11 +263,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     }
 
     if (!navigator.onLine) {
-        if (!queueOfflineScan(scannedId, pointsToAdd)) {
-          alert("Invalid customer QR code.");
-          return;
-        }
-        alert("You are offline. Scan queued for sync.");
+        alert("Secure QR scans require an internet connection so PerkUp can authenticate the staff account and QR ticket.");
         return;
     }
 
@@ -296,33 +271,20 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     setIsScannerActive(false);
 
     try {
-      const userRef = doc(db, "users", scannedId);
-      const userSnap = await getDoc(userRef);
-      
-      let customerName = "Unknown Customer";
-      let profilePic = null;
-      let existingStars = 0;
-      let cardIdToUpdate = null;
-
-      if (userSnap.exists()) {
-        customerName = userSnap.data().name || "Unknown Customer";
-        profilePic = userSnap.data().profilePic || null;
-      }
-
-      const q = query(collection(db, "cards"), where("storeId", "==", store.id), where("customerId", "==", scannedId));
-      const cardSnap = await getDocs(q);
-      
-      if (!cardSnap.empty) {
-        existingStars = cardSnap.docs[0].data().stars || 0;
-        cardIdToUpdate = cardSnap.docs[0].id;
-      }
+      const result = await redeemCustomerScan({
+        scanToken: scannedId,
+        storeId: store.id,
+        promotionId: id,
+        points: pointsToAdd,
+        previewOnly: true,
+      });
 
       setScannedCustomer({
-        id: scannedId,
-        name: customerName,
-        profilePic,
-        existingStars,
-        cardIdToUpdate
+        id: result.customer.id,
+        scanToken: scannedId,
+        name: result.customer.name,
+        profilePic: result.customer.profilePic,
+        existingStars: result.customer.existingStars,
       });
 
       setShowConfirmModal(true);
@@ -338,47 +300,29 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
   const processPointsForCustomer = async (scannedId: string, points: number) => {
     if (!store) throw new Error("Store context is missing.");
-    if (!isValidCustomerId(scannedId)) throw new Error("Invalid customer QR code.");
+    if (!isValidCustomerQr(scannedId)) throw new Error("Invalid PerkUp QR code.");
 
     const safePoints = normalizePoints(points);
-    const q = query(collection(db, "cards"), where("storeId", "==", store.id), where("customerId", "==", scannedId));
-    const cardSnap = await getDocs(q);
-    
-    if (!cardSnap.empty) {
-      const cardRef = doc(db, "cards", cardSnap.docs[0].id);
-      await updateDoc(cardRef, { stars: increment(safePoints) });
-    } else {
-      const newCardRef = doc(collection(db, "cards"));
-      await setDoc(newCardRef, {
-        storeId: store.id,
-        customerId: scannedId,
-        stars: safePoints,
-        joinedAt: serverTimestamp(),
-        status: 'active'
-      });
-    }
+    await redeemCustomerScan({
+      scanToken: scannedId,
+      storeId: store.id,
+      promotionId: id,
+      points: safePoints,
+    });
   };
 
   const handleConfirmPoints = async () => {
     if (!scannedCustomer || !store) return;
 
     if (!navigator.onLine) {
-        if (!queueOfflineScan(scannedCustomer.id, pointsToAdd)) {
-          alert("Invalid customer QR code.");
-          return;
-        }
-        alert("You are offline. Points queued for sync.");
-        setShowConfirmModal(false);
-        setScannedCustomer(null);
-        setPointsToAdd(1);
-        setIsScannerActive(true);
+        alert("Secure QR scans require an internet connection.");
         return;
     }
 
     setIsProcessing(true);
 
     try {
-      await processPointsForCustomer(scannedCustomer.id, pointsToAdd);
+      await processPointsForCustomer(scannedCustomer.scanToken, pointsToAdd);
 
       alert(`Successfully credited ${pointsToAdd} points to ${scannedCustomer.name}!`);
       
@@ -403,30 +347,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     if (!store?.id || !id) return;
 
     if (!navigator.onLine) {
-        const queuedItems = batchQueue
-          .map((item) => ({
-            id: String(item.id || "").trim(),
-            points: normalizePoints(item.points),
-          }))
-          .filter((item) => isValidCustomerId(item.id));
-
-        if (queuedItems.length === 0) {
-          alert("No valid customer scans to queue.");
-          return;
-        }
-
-        setOfflineQueue(prev => normalizeOfflineQueue([
-          ...prev,
-          ...queuedItems.map(item => ({
-            ...item,
-            timestamp: Date.now(),
-            storeId: store.id,
-            promotionId: id,
-          })),
-        ], store.id, id));
-        alert("You are offline. Batch queued for sync.");
-        setBatchQueue([]);
-        setShowBatchModal(false);
+        alert("Secure QR scans require an internet connection.");
         return;
     }
 

@@ -42,6 +42,7 @@ interface ServerTimestampValue {
 const tableNames = new Set([
   "applications",
   "cards",
+  "customer_qr_tokens",
   "customers",
   "products",
   "promotions",

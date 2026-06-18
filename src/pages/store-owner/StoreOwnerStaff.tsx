@@ -148,7 +148,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
               
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Key className="w-4 h-4 text-gray-400" /> Temporary Password</label>
-                <input required type="text" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" placeholder="Randomly generated or custom" />
+                <input required type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" placeholder="Randomly generated or custom" />
                 <p className="text-xs text-gray-500 mt-1">Provide this password to your staff member so they can login. They can change it later.</p>
               </div>
 

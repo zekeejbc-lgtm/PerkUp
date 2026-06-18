@@ -1,20 +1,27 @@
 import React, { useState, useEffect } from "react";
 import { collection, query, where, getDocs, doc, setDoc, deleteDoc, serverTimestamp, updateDoc } from "@/src/lib/dataCompat";
-import { createUserWithEmailAndPassword, updatePassword, signOut } from "@/src/lib/supabaseAuthCompat";
-import { db, auth, secondaryAuth } from "../../lib/backend";
+import { createUserWithEmailAndPassword, signOut } from "@/src/lib/supabaseAuthCompat";
+import { db, secondaryAuth } from "../../lib/backend";
 import { useAuth } from "../../contexts/AuthContext";
-import { User, Mail, Key, Plus, Trash2, Shield, UserCog, Loader2, Save } from "lucide-react";
+import { User, Mail, Key, Plus, Trash2, Shield, UserCog, Loader2, Save, X, AtSign, Phone, Calendar, FileText, ImagePlus } from "lucide-react";
+import AccountSecurity from "@/src/components/AccountSecurity";
+import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 
 export default function AdminAccount() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [admins, setAdmins] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   // My Account state
   const [isEditingMyAccount, setIsEditingMyAccount] = useState(false);
-  const [myName, setMyName] = useState(user?.displayName || "");
+  const [myName, setMyName] = useState(user?.name || "");
   const [myEmail, setMyEmail] = useState(user?.email || "");
-  const [newPassword, setNewPassword] = useState("");
+  const [myUsername, setMyUsername] = useState(user?.username || "");
+  const [myPhone, setMyPhone] = useState(user?.phone || user?.number || "");
+  const [myBio, setMyBio] = useState(user?.bio || "");
+  const [myBirthday, setMyBirthday] = useState(user?.birthday || "");
+  const [myAvatarUrl, setMyAvatarUrl] = useState(user?.avatarUrl || user?.photoURL || "");
+  const [myAccountSaved, setMyAccountSaved] = useState(false);
 
   // New admin state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -38,24 +45,67 @@ export default function AdminAccount() {
     fetchAdmins();
   }, []);
 
+  useEffect(() => {
+    setMyName(user?.name || "");
+    setMyEmail(user?.email || "");
+    setMyUsername(user?.username || "");
+    setMyPhone(user?.phone || user?.number || "");
+    setMyBio(user?.bio || "");
+    setMyBirthday(user?.birthday || "");
+    setMyAvatarUrl(user?.avatarUrl || user?.photoURL || "");
+  }, [user]);
+
   const handleUpdateMyAccount = async () => {
     try {
-      if (newPassword && auth.currentUser) {
-        await updatePassword(auth.currentUser, newPassword);
-      }
-      
-      if (user?.uid) {
-        await updateDoc(doc(db, "users", user.uid), {
+      if (user?.id) {
+        await updateDoc(doc(db, "users", user.id), {
           name: myName,
+          username: myUsername,
+          phone: myPhone,
+          number: myPhone,
+          bio: myBio,
+          birthday: myBirthday,
+          avatarUrl: myAvatarUrl,
+          photoURL: myAvatarUrl,
         });
-        // We wouldn't easily update email without re-auth, so we might skip email update for demo or just update DB
+        await refreshUser();
       }
-      alert("Account updated successfully");
       setIsEditingMyAccount(false);
-      setNewPassword("");
+      setMyAccountSaved(true);
+      window.setTimeout(() => setMyAccountSaved(false), 3000);
     } catch (e) {
       console.error(e);
-      alert("Failed to update account. Re-authentication might be required for password changes.");
+      alert("Failed to update account.");
+    }
+  };
+
+  const handleCancelMyAccountEdit = () => {
+    setMyName(user?.name || "");
+    setMyEmail(user?.email || "");
+    setMyUsername(user?.username || "");
+    setMyPhone(user?.phone || user?.number || "");
+    setMyBio(user?.bio || "");
+    setMyBirthday(user?.birthday || "");
+    setMyAvatarUrl(user?.avatarUrl || user?.photoURL || "");
+    setMyAccountSaved(false);
+    setIsEditingMyAccount(false);
+  };
+
+  const handleMyAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user?.id) return;
+
+    try {
+      const avatarUrl = await uploadImageFileToDrive(file, {
+        owner: myUsername || myEmail || user.id,
+        purpose: "admin-avatar",
+      });
+      setMyAvatarUrl(avatarUrl);
+    } catch (error) {
+      console.error("Failed to upload admin profile picture:", error);
+      alert("Failed to upload profile picture.");
+    } finally {
+      event.target.value = "";
     }
   };
 
@@ -91,7 +141,7 @@ export default function AdminAccount() {
   };
 
   const handleDeleteAdmin = async (adminId: string) => {
-    if (adminId === user?.uid) {
+    if (adminId === user?.id) {
       alert("You cannot delete your own account here.");
       return;
     }
@@ -122,14 +172,29 @@ export default function AdminAccount() {
                  Edit
                </button>
              ) : (
-               <button onClick={handleUpdateMyAccount} className="absolute top-4 right-4 flex items-center gap-1 text-xs font-medium bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">
-                 <Save className="w-3 h-3" /> Save
-               </button>
+               <div className="absolute top-4 right-4 flex items-center gap-2">
+                 <button onClick={handleCancelMyAccountEdit} className="flex items-center gap-1 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
+                   <X className="w-3 h-3" /> Cancel
+                 </button>
+                 <button onClick={handleUpdateMyAccount} className="flex items-center gap-1 text-xs font-medium bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">
+                   <Save className="w-3 h-3" /> Save
+                 </button>
+               </div>
              )}
 
              <div className="flex items-center gap-4 mb-6">
-               <div className="w-16 h-16 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center font-bold text-2xl">
-                 {myName.charAt(0) || user?.email?.charAt(0) || 'A'}
+               <div className="relative w-16 h-16 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center font-bold text-2xl overflow-hidden group">
+                 {myAvatarUrl ? (
+                   <img src={getDisplayImageUrl(myAvatarUrl)} alt="Profile" className="h-full w-full object-cover" />
+                 ) : (
+                   myName.charAt(0) || user?.email?.charAt(0) || 'A'
+                 )}
+                 {isEditingMyAccount && (
+                   <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
+                     <ImagePlus className="w-4 h-4" />
+                     <input type="file" accept="image/*" className="hidden" onChange={handleMyAvatarUpload} />
+                   </label>
+                 )}
                </div>
                <div>
                  <h5 className="font-bold text-gray-900 dark:text-white text-lg">{myName || "Admin User"}</h5>
@@ -139,7 +204,7 @@ export default function AdminAccount() {
 
              <div className="space-y-4">
                <div>
-                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><User className="w-3 h-3" /> Name/Username</label>
+                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><User className="w-3 h-3" /> Name</label>
                  {isEditingMyAccount ? (
                    <input type="text" value={myName} onChange={e => setMyName(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
                  ) : (
@@ -147,21 +212,55 @@ export default function AdminAccount() {
                  )}
                </div>
                <div>
-                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><Mail className="w-3 h-3" /> Email Address</label>
+                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><AtSign className="w-3 h-3" /> Username</label>
+                 {isEditingMyAccount ? (
+                   <input type="text" value={myUsername} onChange={e => setMyUsername(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                 ) : (
+                   <p className="text-gray-900 dark:text-white text-sm font-medium">{myUsername || "Not set"}</p>
+                 )}
+               </div>
+               <div>
+                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><Phone className="w-3 h-3" /> Number</label>
+                 {isEditingMyAccount ? (
+                   <input type="tel" value={myPhone} onChange={e => setMyPhone(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                 ) : (
+                   <p className="text-gray-900 dark:text-white text-sm font-medium">{myPhone || "Not set"}</p>
+                 )}
+               </div>
+               <div>
+                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><Calendar className="w-3 h-3" /> Birthday</label>
+                 {isEditingMyAccount ? (
+                   <input type="date" value={myBirthday} onChange={e => setMyBirthday(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                 ) : (
+                   <p className="text-gray-900 dark:text-white text-sm font-medium">{myBirthday || "Not set"}</p>
+                 )}
+               </div>
+               <div>
+                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><Mail className="w-3 h-3" /> Email</label>
                  {isEditingMyAccount ? (
                    <input type="email" value={myEmail} disabled className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm text-gray-400 cursor-not-allowed" title="Email change requires special flow" />
                  ) : (
                    <p className="text-gray-900 dark:text-white text-sm font-medium">{user?.email}</p>
                  )}
                </div>
-               {isEditingMyAccount && (
-                 <div>
-                   <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><Key className="w-3 h-3" /> New Password</label>
-                   <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" placeholder="Leave blank to keep current" />
-                 </div>
-               )}
+               <div>
+                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><FileText className="w-3 h-3" /> Bio</label>
+                 {isEditingMyAccount ? (
+                   <textarea value={myBio} onChange={e => setMyBio(e.target.value)} rows={3} className="w-full resize-none bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                 ) : (
+                   <p className="text-gray-900 dark:text-white text-sm font-medium">{myBio || "Not set"}</p>
+                 )}
+               </div>
              </div>
+             {myAccountSaved && (
+               <div className="mt-4 flex items-center gap-2 text-sm font-medium text-green-600 dark:text-green-400">
+                 <Save className="w-4 h-4" />
+                 Profile saved
+               </div>
+             )}
           </div>
+
+          <AccountSecurity />
         </div>
 
         {/* Assistant Admins */}

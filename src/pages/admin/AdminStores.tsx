@@ -6,6 +6,12 @@ import { ShieldAlert, CheckCircle, Ban, Store, Plus, Calendar, X, Trash2, Edit, 
 import AdminStoreDetail from "./AdminStoreDetail";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import {
+  DEFAULT_SUBSCRIPTION_PLANS,
+  dateInputToDate,
+  formatMoney,
+  getSubscriptionOwedAmount,
+} from "../../lib/subscriptionBilling";
 
 export default function AdminStores() {
   const [stores, setStores] = useState<any[]>([]);
@@ -40,7 +46,10 @@ export default function AdminStores() {
   const [subLevel, setSubLevel] = useState("Standard");
   const [subStart, setSubStart] = useState("");
   const [subEnd, setSubEnd] = useState("");
+  const [paymentDate, setPaymentDate] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const billingPlans = subscriptionPlans.length > 0 ? subscriptionPlans : DEFAULT_SUBSCRIPTION_PLANS;
+  const selectedOwedAmount = getSubscriptionOwedAmount(billingPlans, subLevel);
 
   useEffect(() => {
     async function fetchStores() {
@@ -101,8 +110,10 @@ export default function AdminStores() {
         ownerId: newOwnerId,
         status: "active",
         subscriptionLevel: subLevel,
-        subscriptionStart: subStart ? new Date(subStart) : null,
-        subscriptionEnd: subEnd ? new Date(subEnd) : null,
+        owedAmount: selectedOwedAmount,
+        subscriptionStart: dateInputToDate(subStart),
+        subscriptionEnd: dateInputToDate(subEnd),
+        paymentDate: dateInputToDate(paymentDate),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -119,6 +130,7 @@ export default function AdminStores() {
       setOwnerPassword("");
       setSubStart("");
       setSubEnd("");
+      setPaymentDate("");
     } catch (error) {
       console.error(error);
       alert("Failed to create store: " + (error as Error).message);
@@ -264,19 +276,23 @@ export default function AdminStores() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Subscription Level</label>
                     <CustomDropdown
                        options={
-                          subscriptionPlans.length > 0 
-                            ? subscriptionPlans.map(p => ({ label: p.name, value: p.name }))
-                            : [{ label: "Standard", value: "Standard" }]
+                          billingPlans.map(p => ({ label: p.name || "Unnamed Plan", value: p.name || p.id || "Standard" }))
                        }
                        value={subLevel}
                        onChange={setSubLevel}
                        className="w-full"
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Owed Amount</label>
+                    <div className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm font-medium">
+                      {formatMoney(selectedOwedAmount)}
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Subscription Start</label>
@@ -285,6 +301,10 @@ export default function AdminStores() {
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Subscription End</label>
                     <input type="date" required value={subEnd} onChange={e => setSubEnd(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Payment Date</label>
+                    <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
                   </div>
                 </div>
               </div>
@@ -301,7 +321,7 @@ export default function AdminStores() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Temporary Password</label>
-                  <input type="text" required minLength={6} value={ownerPassword} onChange={e => setOwnerPassword(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none" placeholder="At least 6 characters" />
+                  <input type="password" required minLength={6} value={ownerPassword} onChange={e => setOwnerPassword(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none" placeholder="At least 6 characters" />
                 </div>
               </div>
 

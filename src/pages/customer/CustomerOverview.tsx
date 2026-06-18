@@ -1,15 +1,74 @@
 import { useState, useEffect } from "react";
-import { QRCodeSVG } from "qrcode.react";
+import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../../contexts/AuthContext";
 import { doc, getDoc, collection, query, where, getCountFromServer } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
-import { Star, ShieldCheck, CreditCard, Gift, TrendingUp, Info } from "lucide-react";
+import { Star, ShieldCheck, CreditCard, Gift, Info, Download } from "lucide-react";
 import { Link } from "react-router-dom";
+import { issueCustomerQr, IssuedCustomerQr } from "@/src/lib/secureQr";
+
+const APP_NAME = "PerkUp";
+const LOGO_SRC = "/icons/icon-192.png?v=20260618-logo";
+
+type AppContact = {
+  address?: string;
+  email?: string;
+  phone?: string;
+  socialLinks?: {
+    facebook?: string;
+    instagram?: string;
+    twitter?: string;
+  };
+};
+
+const loadImage = (src: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = src;
+  });
+
+const sanitizeFilename = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "customer";
+
+const drawFittedText = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  weight: number,
+  maxSize: number,
+  minSize: number,
+  family: string
+) => {
+  let size = maxSize;
+  do {
+    ctx.font = `${weight} ${size}px ${family}`;
+    if (ctx.measureText(text).width <= maxWidth) break;
+    size -= 1;
+  } while (size > minSize);
+
+  ctx.fillText(text, x, y);
+};
+
+const getSocialRows = (contact: AppContact | null) =>
+  Object.entries(contact?.socialLinks || {})
+    .filter(([, value]) => Boolean(value))
+    .map(([name, value]) => `${name.charAt(0).toUpperCase()}${name.slice(1)}: ${value}`);
 
 export default function CustomerOverview() {
   const { user } = useAuth();
   const [lifetimeStars, setLifetimeStars] = useState<number>(0);
   const [activeCards, setActiveCards] = useState<number>(0);
+  const [appContact, setAppContact] = useState<AppContact | null>(null);
+  const [qrTicket, setQrTicket] = useState<IssuedCustomerQr | null>(null);
+  const [qrError, setQrError] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -25,6 +84,11 @@ export default function CustomerOverview() {
         const cardsQuery = query(collection(db, "cards"), where("customerId", "==", user.id));
         const cardsSnapshot = await getCountFromServer(cardsQuery);
         setActiveCards(cardsSnapshot.data().count);
+
+        const homepageSnap = await getDoc(doc(db, "settings", "homepage"));
+        if (homepageSnap.exists()) {
+          setAppContact(homepageSnap.data().footerInfo || null);
+        }
       } catch (error) {
         handleDataError(error, OperationType.GET, "overview");
       } finally {
@@ -34,10 +98,140 @@ export default function CustomerOverview() {
     fetchCustomerData();
   }, [user]);
 
+  useEffect(() => {
+    if (!user?.id) return;
+
+    let active = true;
+    let refreshTimer: number | undefined;
+
+    const refreshQr = async () => {
+      try {
+        const ticket = await issueCustomerQr();
+        if (!active) return;
+        setQrTicket(ticket);
+        setQrError("");
+
+        const expiresInMs = new Date(ticket.expiresAt).getTime() - Date.now();
+        refreshTimer = window.setTimeout(refreshQr, Math.max(expiresInMs - 60_000, 60_000));
+      } catch (error) {
+        console.error("Failed to issue customer QR", error);
+        if (!active) return;
+        setQrError(error instanceof Error ? error.message : "Could not generate secure QR code.");
+        refreshTimer = window.setTimeout(refreshQr, 60_000);
+      }
+    };
+
+    refreshQr();
+
+    return () => {
+      active = false;
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+    };
+  }, [user?.id]);
+
+  const downloadQrPng = async () => {
+    if (!qrTicket?.token) return;
+
+    const qrCanvas = document.getElementById("customer-overview-download-qr") as HTMLCanvasElement | null;
+    if (!qrCanvas) return;
+
+    const canvas = document.createElement("canvas");
+    const width = 900;
+    const height = 1250;
+    const scale = window.devicePixelRatio || 1;
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#fff7ed";
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowColor = "rgba(15, 23, 42, 0.12)";
+    ctx.shadowBlur = 32;
+    ctx.shadowOffsetY = 16;
+    ctx.beginPath();
+    ctx.roundRect(70, 70, width - 140, height - 140, 42);
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+
+    try {
+      const logo = await loadImage(LOGO_SRC);
+      ctx.drawImage(logo, 330, 132, 72, 72);
+    } catch {
+      ctx.fillStyle = "#ea580c";
+      ctx.beginPath();
+      ctx.arc(366, 168, 36, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#111827";
+    ctx.textAlign = "left";
+    ctx.font = "700 44px Inter, Arial, sans-serif";
+    ctx.fillText(APP_NAME, 420, 180);
+
+    ctx.fillStyle = "#6b7280";
+    ctx.textAlign = "center";
+    ctx.font = "600 19px Inter, Arial, sans-serif";
+    ctx.fillText("Secure Customer QR", width / 2, 242);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#fed7aa";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(236, 300, 428, 428, 32);
+    ctx.fill();
+    ctx.stroke();
+    ctx.drawImage(qrCanvas, 270, 334, 360, 360);
+
+    ctx.fillStyle = "#111827";
+    drawFittedText(ctx, user.name || "PerkUp User", width / 2, 810, 650, 700, 36, 22, "Inter, Arial, sans-serif");
+
+    ctx.fillStyle = "#4b5563";
+    drawFittedText(ctx, "PerkUp scanner required", width / 2, 852, 650, 500, 18, 12, "Inter, Arial, sans-serif");
+    drawFittedText(ctx, `Expires ${new Date(qrTicket.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`, width / 2, 880, 650, 500, 16, 12, "Inter, Arial, sans-serif");
+
+    const footerRows = [
+      appContact?.email ? `Email: ${appContact.email}` : null,
+      appContact?.address ? `Location: ${appContact.address}` : null,
+      appContact?.phone ? `Phone: ${appContact.phone}` : null,
+      ...getSocialRows(appContact),
+    ].filter(Boolean) as string[];
+
+    if (footerRows.length > 0) {
+      ctx.strokeStyle = "#fed7aa";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(170, 940);
+      ctx.lineTo(730, 940);
+      ctx.stroke();
+
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = "700 14px Inter, Arial, sans-serif";
+      ctx.fillText("Contact PerkUp", width / 2, 982);
+
+      ctx.fillStyle = "#4b5563";
+      footerRows.slice(0, 6).forEach((row, index) => {
+        drawFittedText(ctx, row, width / 2, 1020 + index * 32, 650, 500, 18, 12, "Inter, Arial, sans-serif");
+      });
+    }
+
+    const link = document.createElement("a");
+    link.href = canvas.toDataURL("image/png");
+    link.download = `${APP_NAME.toLowerCase()}-${sanitizeFilename(user.name || user.email || user.id)}-qr.png`;
+    link.click();
+  };
+
   if (loading) return <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading your dashboard...</div>;
 
   return (
     <div className="space-y-8">
+      <div className="sr-only" aria-hidden="true">
+        <QRCodeCanvas id="customer-overview-download-qr" value={qrTicket?.token || ""} size={512} marginSize={4} />
+      </div>
+
       <div>
         <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
           Welcome back, {user?.name?.split(' ')[0] || 'User'}! 👋
@@ -89,15 +283,33 @@ export default function CustomerOverview() {
           
           <div className="w-full max-w-[280px] bg-gray-50 dark:bg-gray-800/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-700/50 flex flex-col items-center self-center sm:self-start">
             <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-200">
-              <QRCodeSVG value={user?.id || ""} size={160} className="w-full max-w-[160px] h-auto" />
+              {qrTicket?.token ? (
+                <QRCodeSVG value={qrTicket.token} size={160} className="w-full max-w-[160px] h-auto" />
+              ) : (
+                <div className="w-[160px] h-[160px] flex items-center justify-center text-center text-xs font-semibold text-gray-500">
+                  Generating secure QR...
+                </div>
+              )}
             </div>
             <div className="mt-4 text-center">
-              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Unique ID (Manual Entry)</p>
-              <p className="mt-1 font-mono text-xs text-gray-500 dark:text-gray-400 tracking-widest uppercase break-all">{user?.id}</p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Secure Scanner Only</p>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {qrTicket
+                  ? `Refreshes automatically. Expires ${new Date(qrTicket.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`
+                  : qrError || "Preparing your private scan code."}
+              </p>
             </div>
             <div className="mt-4 text-center text-xs text-orange-600 dark:text-orange-400 font-medium">
               1 Visit = 1 Sticker
             </div>
+            <button
+              onClick={downloadQrPng}
+              disabled={!qrTicket?.token}
+              className="mt-5 inline-flex w-full items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-xl text-sm font-semibold hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Download PNG
+            </button>
           </div>
         </div>
 

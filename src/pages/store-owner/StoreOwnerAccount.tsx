@@ -2,34 +2,43 @@ import React, { useState, useEffect } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { doc, updateDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { UserCircle, Mail, Key, Phone, MapPin, AtSign, Upload, Save, CheckCircle2 } from "lucide-react";
+import { UserCircle, Mail, Phone, MapPin, AtSign, Save, CheckCircle2, X, Calendar, FileText } from "lucide-react";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import AccountSecurity from "@/src/components/AccountSecurity";
 
 export default function StoreOwnerAccount() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [formData, setFormData] = useState({
     name: "",
     address: "",
     phone: "",
     username: "",
-    avatarUrl: ""
+    avatarUrl: "",
+    bio: "",
+    birthday: "",
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+
+  const buildFormData = () => ({
+    name: user?.name || "",
+    address: user?.address || "",
+    phone: user?.phone || "",
+    username: user?.username || "",
+    avatarUrl: user?.avatarUrl || user?.photoURL || "",
+    bio: user?.bio || "",
+    birthday: user?.birthday || "",
+  });
 
   useEffect(() => {
     if (user) {
-      setFormData({
-        name: user.name || "",
-        address: user.address || "",
-        phone: user.phone || "",
-        username: user.username || "",
-        avatarUrl: user.avatarUrl || ""
-      });
+      setFormData(buildFormData());
     }
   }, [user]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isEditing) return;
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -54,11 +63,16 @@ export default function StoreOwnerAccount() {
         name: formData.name,
         address: formData.address,
         phone: formData.phone,
+        number: formData.phone,
         username: formData.username,
-        avatarUrl: formData.avatarUrl
+        avatarUrl: formData.avatarUrl,
+        photoURL: formData.avatarUrl,
+        bio: formData.bio,
+        birthday: formData.birthday,
       });
-      // Context should ideally reload but this handles UI immediately
+      await refreshUser();
       setSaved(true);
+      setIsEditing(false);
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {
       console.error(error);
@@ -67,6 +81,22 @@ export default function StoreOwnerAccount() {
       setSaving(false);
     }
   };
+
+  const handleCancel = () => {
+    setFormData(buildFormData());
+    setSaved(false);
+    setIsEditing(false);
+  };
+
+  const infoRow = (label: string, value?: string, icon?: React.ReactNode) => (
+    <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 px-4 py-3">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        {icon}
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-medium text-gray-900 dark:text-white break-words">{value || "Not set"}</div>
+    </div>
+  );
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -79,25 +109,63 @@ export default function StoreOwnerAccount() {
         
         <form onSubmit={handleSave} className="space-y-6 flex flex-col items-start w-full">
           {/* Profile Picture */}
-          <div className="flex items-center gap-6 mb-4">
+          <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-4">
+            <div className="flex items-center gap-6">
             <div className="relative w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full border-4 border-white dark:border-gray-950 shadow-sm overflow-hidden group">
               {formData.avatarUrl ? (
                 <img src={getDisplayImageUrl(formData.avatarUrl)} alt="Profile" className="w-full h-full object-cover" />
               ) : (
                 <UserCircle className="w-full h-full text-gray-300 p-2" />
               )}
+              {isEditing && (
               <label className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity text-white text-xs font-semibold">
                 Upload
                 <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
               </label>
+              )}
             </div>
             <div>
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">{formData.name || 'Store Owner'}</h3>
               <p className="text-gray-500 text-sm">{user?.role.toUpperCase().replace('_', ' ')}</p>
             </div>
+            </div>
+            {!isEditing ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSaved(false);
+                  setIsEditing(true);
+                }}
+                className="inline-flex items-center justify-center rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
+              >
+                Edit Profile
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <button type="button" onClick={handleCancel} className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800">
+                  <X className="w-4 h-4" />
+                  Cancel
+                </button>
+                <button type="submit" disabled={saving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-gray-900">
+                  <Save className="w-4 h-4" />
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            )}
           </div>
 
-          <div className="grid gap-6 sm:grid-cols-2 w-full">
+          {!isEditing ? (
+            <div className="grid gap-4 sm:grid-cols-2 w-full">
+              {infoRow("Full Name", formData.name)}
+              {infoRow("Username", formData.username, <AtSign className="w-3.5 h-3.5" />)}
+              {infoRow("Address", formData.address, <MapPin className="w-3.5 h-3.5" />)}
+              {infoRow("Number", formData.phone, <Phone className="w-3.5 h-3.5" />)}
+              {infoRow("Email", user?.email || "", <Mail className="w-3.5 h-3.5" />)}
+              {infoRow("Birthday", formData.birthday, <Calendar className="w-3.5 h-3.5" />)}
+              {infoRow("Bio", formData.bio, <FileText className="w-3.5 h-3.5" />)}
+            </div>
+          ) : (
+            <div className="grid gap-6 sm:grid-cols-2 w-full">
             <div className="space-y-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Full Name</label>
               <input 
@@ -123,29 +191,44 @@ export default function StoreOwnerAccount() {
             </div>
             
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Phone className="w-4 h-4 text-gray-400" /> Contact Number</label>
+              <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Phone className="w-4 h-4 text-gray-400" /> Number</label>
               <input 
                 type="tel" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})}
                 className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500" 
               />
             </div>
-            
+
             <div className="space-y-2">
+              <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Calendar className="w-4 h-4 text-gray-400" /> Birthday</label>
+              <input 
+                type="date" value={formData.birthday} onChange={e => setFormData({...formData, birthday: e.target.value})}
+                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500" 
+              />
+            </div>
+            
+            <div className="space-y-2 sm:col-span-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2">
-                <Mail className="w-4 h-4 text-gray-400" /> Email Address
+                <Mail className="w-4 h-4 text-gray-400" /> Email
               </label>
               <input 
                 type="email" readOnly value={user?.email || ''} 
                 className="w-full px-4 py-2.5 bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800 text-gray-500 rounded-xl outline-none cursor-not-allowed" 
               />
             </div>
+
+            <div className="space-y-2 sm:col-span-2">
+              <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><FileText className="w-4 h-4 text-gray-400" /> Bio</label>
+              <textarea
+                value={formData.bio}
+                onChange={e => setFormData({...formData, bio: e.target.value})}
+                rows={4}
+                className="w-full resize-none px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500" 
+              />
+            </div>
           </div>
+          )}
 
           <div className="w-full pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center gap-4">
-            <button type="submit" disabled={saving} className="flex items-center gap-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-6 py-2.5 rounded-xl font-medium hover:bg-gray-800 transition-colors disabled:opacity-50">
-              <Save className="w-5 h-5" />
-              {saving ? 'Saving...' : 'Save Profile'}
-            </button>
             {saved && (
               <span className="flex items-center gap-2 text-green-600 dark:text-green-400 text-sm font-medium animate-in fade-in slide-in-from-left-2">
                 <CheckCircle2 className="w-5 h-5" />
@@ -155,17 +238,8 @@ export default function StoreOwnerAccount() {
           </div>
         </form>
 
-        <div className="pt-6 mt-6 border-t border-gray-100 dark:border-gray-800 space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2">
-              <Key className="w-4 h-4 text-gray-400" />
-              Authentication & Password
-            </label>
-            <p className="text-xs text-gray-500 mb-2">Need to change your password? We will send a secure link to your email.</p>
-            <button type="button" onClick={() => alert("Password reset email sent!")} className="text-sm font-bold bg-orange-50 text-orange-600 hover:bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 px-4 py-2 rounded-lg transition-colors">
-              Send password reset email
-            </button>
-          </div>
+        <div className="pt-6 mt-6 border-t border-gray-100 dark:border-gray-800">
+          <AccountSecurity />
         </div>
 
       </div>

@@ -1,9 +1,17 @@
 import React, { useState, useEffect } from "react";
-import { doc, getDoc, updateDoc, deleteDoc, collection, query, where, getDocs, deleteField } from "@/src/lib/dataCompat";
+import { doc, getDoc, updateDoc, deleteDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { ArrowLeft, Edit, Trash2, ShieldAlert, Key, Loader2, Save } from "lucide-react";
 
 import { CustomDropdown } from "../../components/CustomDropdown";
+import {
+  DEFAULT_SUBSCRIPTION_PLANS,
+  dateInputToDate,
+  formatBillingDate,
+  formatMoney,
+  getSubscriptionOwedAmount,
+  toDateInputValue,
+} from "../../lib/subscriptionBilling";
 
 export default function AdminStoreDetail({ storeId, onBack }: { storeId: string, onBack: () => void }) {
   const [store, setStore] = useState<any>(null);
@@ -36,11 +44,22 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
         const storeDoc = await getDoc(doc(db, "stores", storeId));
         if (storeDoc.exists()) {
           const storeData = storeDoc.data();
+          const subDoc = await getDoc(doc(db, "settings", "subscriptions"));
+          const loadedPlans = subDoc.exists() && subDoc.data().plans
+            ? subDoc.data().plans
+            : DEFAULT_SUBSCRIPTION_PLANS;
+          const subscriptionLevel = storeData.subscriptionLevel || loadedPlans[0]?.name || 'Standard';
+          const owedAmount = getSubscriptionOwedAmount(loadedPlans, subscriptionLevel, Number(storeData.owedAmount || 0));
+
+          setPlans(loadedPlans);
           setStore({ id: storeDoc.id, ...storeData });
           setEditData({
             name: storeData.name || '',
-            subscriptionLevel: storeData.subscriptionLevel || 'Standard',
-            owedAmount: storeData.owedAmount || 0,
+            subscriptionLevel,
+            owedAmount,
+            subscriptionStart: toDateInputValue(storeData.subscriptionStart),
+            subscriptionEnd: toDateInputValue(storeData.subscriptionEnd),
+            paymentDate: toDateInputValue(storeData.paymentDate),
             status: storeData.status || 'active',
           });
 
@@ -54,14 +73,6 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
           const staffQuery = query(collection(db, "users"), where("storeId", "==", storeId), where("role", "==", "staff"));
           const staffSnap = await getDocs(staffQuery);
           setStaff(staffSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-          // Fetch Plans
-          const subDoc = await getDoc(doc(db, "settings", "subscriptions"));
-          if (subDoc.exists() && subDoc.data().plans) {
-            setPlans(subDoc.data().plans);
-          } else {
-            setPlans([{ name: "Standard" }, { name: "Premium" }, { name: "Enterprise" }]);
-          }
 
           // Fetch Analytics (Mocked up via actual queries)
           const customersQuery = query(collection(db, "users"), where("storeId", "==", storeId), where("role", "==", "customer"));
@@ -91,13 +102,34 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
 
   const handleUpdateStore = async () => {
     try {
-      await updateDoc(doc(db, "stores", storeId), editData);
-      setStore({ ...store, ...editData });
+      const nextData = {
+        ...editData,
+        owedAmount: getSubscriptionOwedAmount(plans, editData.subscriptionLevel, Number(editData.owedAmount || 0)),
+        subscriptionStart: dateInputToDate(editData.subscriptionStart),
+        subscriptionEnd: dateInputToDate(editData.subscriptionEnd),
+        paymentDate: dateInputToDate(editData.paymentDate),
+        updatedAt: serverTimestamp(),
+      };
+
+      await updateDoc(doc(db, "stores", storeId), nextData);
+      setStore({ ...store, ...nextData });
+      setEditData({
+        ...editData,
+        owedAmount: nextData.owedAmount,
+      });
       setIsEditing(false);
     } catch (error) {
       console.error(error);
       alert("Failed to update store");
     }
+  };
+
+  const handleSubscriptionLevelChange = (level: string) => {
+    setEditData({
+      ...editData,
+      subscriptionLevel: level,
+      owedAmount: getSubscriptionOwedAmount(plans, level, Number(editData.owedAmount || 0)),
+    });
   };
 
   const handleDeleteStore = async () => {
@@ -229,7 +261,7 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
                     <CustomDropdown
                       options={plans.map(p => ({ label: p.name, value: p.name }))}
                       value={editData.subscriptionLevel}
-                      onChange={v => setEditData({...editData, subscriptionLevel: v})}
+                      onChange={handleSubscriptionLevelChange}
                     />
                   ) : (
                     <p className="text-gray-900 dark:text-white font-medium">{store.subscriptionLevel || 'Standard'}</p>
@@ -238,19 +270,37 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-1">Owed Amount</label>
                   {isEditing ? (
-                    <input type="number" value={editData.owedAmount} onChange={e => setEditData({...editData, owedAmount: Number(e.target.value)})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                    <div className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm font-medium text-gray-900 dark:text-white">
+                      {formatMoney(editData.owedAmount)}
+                    </div>
                   ) : (
-                    <p className="text-red-600 font-medium">₱{store.owedAmount || 0}</p>
+                    <p className="text-red-600 font-medium">{formatMoney(getSubscriptionOwedAmount(plans, store.subscriptionLevel, Number(store.owedAmount || 0)))}</p>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">Sub Start</label>
-                    <p className="text-sm text-gray-900 dark:text-gray-300">{store.subscriptionStart ? new Date(store.subscriptionStart.seconds * 1000).toLocaleDateString() : 'N/A'}</p>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Subscription Start</label>
+                    {isEditing ? (
+                      <input type="date" value={editData.subscriptionStart || ""} onChange={e => setEditData({...editData, subscriptionStart: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                    ) : (
+                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatBillingDate(store.subscriptionStart)}</p>
+                    )}
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">Next Payment</label>
-                    <p className="text-sm text-gray-900 dark:text-gray-300">{store.subscriptionEnd ? new Date(store.subscriptionEnd.seconds * 1000).toLocaleDateString() : 'N/A'}</p>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Subscription End</label>
+                    {isEditing ? (
+                      <input type="date" value={editData.subscriptionEnd || ""} onChange={e => setEditData({...editData, subscriptionEnd: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                    ) : (
+                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatBillingDate(store.subscriptionEnd)}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Payment Date</label>
+                    {isEditing ? (
+                      <input type="date" value={editData.paymentDate || ""} onChange={e => setEditData({...editData, paymentDate: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                    ) : (
+                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatBillingDate(store.paymentDate)}</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -390,7 +440,7 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
               {newPasswordType === 'custom' && (
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-2">Custom Password</label>
-                  <input type="text" value={customPassword} onChange={e => setCustomPassword(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" placeholder="Enter new password" />
+                  <input type="password" value={customPassword} onChange={e => setCustomPassword(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" placeholder="Enter new password" />
                 </div>
               )}
 
