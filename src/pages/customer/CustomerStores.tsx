@@ -4,7 +4,7 @@ import { db, handleDataError, OperationType } from "../../lib/backend";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import * as ReactDOMServer from "react-dom/server";
 import L from "leaflet";
-import { Store as StoreIcon, Search, Star, MapPin } from "lucide-react";
+import { Store as StoreIcon, Search, MapPin } from "lucide-react";
 import { Link } from "react-router-dom";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
 

@@ -8,6 +8,7 @@ import { SkeletonBlock } from "@/src/components/LoadingSkeleton";
 import { updateEmail } from "@/src/lib/supabaseAuthCompat";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { doc, serverTimestamp, setDoc } from "@/src/lib/dataCompat";
+import { getActiveTrustedDevices, updateTrustedDevicePreference } from "@/src/lib/trustedDevice";
 
 type Message = {
   text: string;
@@ -51,6 +52,7 @@ export default function AccountSecurity() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMfaCode, setPasswordMfaCode] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
   const [showEmailForm, setShowEmailForm] = useState(false);
@@ -73,7 +75,11 @@ export default function AccountSecurity() {
   const [removeCode, setRemoveCode] = useState("");
   const [mfaBusy, setMfaBusy] = useState(false);
   const [mfaMessage, setMfaMessage] = useState<Message | null>(null);
+  const [trustedDeviceEnabled, setTrustedDeviceEnabled] = useState(true);
+  const [trustedDeviceBusy, setTrustedDeviceBusy] = useState(false);
+  const [trustedDeviceMessage, setTrustedDeviceMessage] = useState<Message | null>(null);
   const passwordStrength = useMemo(() => getPasswordStrength(newPassword), [newPassword]);
+  const activeTrustedDevices = useMemo(() => getActiveTrustedDevices(user), [user]);
 
   const loadFactors = async () => {
     setLoadingFactors(true);
@@ -92,6 +98,10 @@ export default function AccountSecurity() {
   useEffect(() => {
     loadFactors();
   }, []);
+
+  useEffect(() => {
+    setTrustedDeviceEnabled(user?.skipMfaOnTrustedDevice !== false);
+  }, [user?.skipMfaOnTrustedDevice]);
 
   useEffect(() => {
     if (!emailOtpExpiresAt) {
@@ -118,6 +128,7 @@ export default function AccountSecurity() {
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
+    setPasswordMfaCode("");
     setShowPasswordForm(false);
   };
 
@@ -234,6 +245,28 @@ export default function AccountSecurity() {
 
     setIsChangingPassword(true);
     try {
+      const factorsResponse = await supabase.auth.mfa.listFactors();
+      if (factorsResponse.error) throw factorsResponse.error;
+      setFactors(factorsResponse.data.totp ?? []);
+
+      const passwordMfaFactor = (factorsResponse.data.totp ?? []).find((factor) => factor.status === "verified");
+      if (passwordMfaFactor && !passwordMfaCode.trim()) {
+        setMessage({ text: "Enter the code from your authenticator app.", type: "error" });
+        return;
+      }
+
+      if (passwordMfaFactor) {
+        const challenge = await supabase.auth.mfa.challenge({ factorId: passwordMfaFactor.id });
+        if (challenge.error) throw challenge.error;
+
+        const verify = await supabase.auth.mfa.verify({
+          factorId: passwordMfaFactor.id,
+          challengeId: challenge.data.id,
+          code: passwordMfaCode.trim(),
+        });
+        if (verify.error) throw verify.error;
+      }
+
       const { error } = await supabase.auth.updateUser({
         password: newPassword,
         current_password: currentPassword,
@@ -361,12 +394,38 @@ export default function AccountSecurity() {
     }
   };
 
+  const handleTrustedDeviceToggle = async (enabled: boolean) => {
+    if (!user?.id) return;
+
+    setTrustedDeviceBusy(true);
+    setTrustedDeviceMessage(null);
+    try {
+      await updateTrustedDevicePreference(user.id, enabled);
+      setTrustedDeviceEnabled(enabled);
+      await refreshUser();
+      setTrustedDeviceMessage({
+        type: "success",
+        text: enabled
+          ? "Trusted-device skipping is enabled."
+          : "Trusted-device skipping is off. Saved trusted devices were cleared.",
+      });
+    } catch (error) {
+      console.error("Trusted device preference update failed:", error);
+      setTrustedDeviceMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Could not update trusted-device settings.",
+      });
+    } finally {
+      setTrustedDeviceBusy(false);
+    }
+  };
+
   const verifiedFactors = factors.filter((factor) => factor.status === "verified");
 
   return (
     <div className="space-y-6">
       <section id="email-security" className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-3xl border border-gray-200 dark:border-gray-800 scroll-mt-24">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
               <KeyRound className="w-5 h-5 text-gray-400" />
@@ -382,9 +441,9 @@ export default function AccountSecurity() {
               setMessage(null);
               setShowPasswordForm(true);
             }}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-gray-900 font-medium hover:bg-black dark:hover:bg-gray-100 transition-colors"
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
           >
-            <Lock className="w-4 h-4" />
+            <Lock className="h-3.5 w-3.5" />
             Change Password
           </button>
         </div>
@@ -462,11 +521,29 @@ export default function AccountSecurity() {
                 className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-orange-500 dark:text-white transition-colors"
               />
             </div>
-            <div className="sm:col-span-2 flex flex-col sm:flex-row gap-3">
+            {verifiedFactors.length > 0 && (
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Authenticator Code</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                  value={passwordMfaCode}
+                  onChange={(event) => setPasswordMfaCode(event.target.value.replace(/\s/g, "").slice(0, 6))}
+                  className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-orange-500 dark:text-white transition-colors"
+                  placeholder="123456"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Required because this account has an authenticator app enrolled.
+                </p>
+              </div>
+            )}
+            <div className="flex flex-col gap-2 sm:col-span-2 sm:flex-row">
               <button
                 type="submit"
                 disabled={isChangingPassword}
-                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-orange-600 text-white font-medium hover:bg-orange-700 disabled:opacity-50 transition-colors"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
               >
                 {isChangingPassword && <Loader2 className="w-4 h-4 animate-spin" />}
                 Save Password
@@ -474,7 +551,7 @@ export default function AccountSecurity() {
               <button
                 type="button"
                 onClick={resetPasswordForm}
-                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
               >
                 <X className="w-4 h-4" />
                 Cancel
@@ -485,7 +562,7 @@ export default function AccountSecurity() {
       </section>
 
       <section className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-3xl border border-gray-200 dark:border-gray-800">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
               <Mail className="w-5 h-5 text-gray-400" />
@@ -502,9 +579,9 @@ export default function AccountSecurity() {
               setEmailMessage(null);
               setShowEmailForm(true);
             }}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-gray-900 font-medium hover:bg-black dark:hover:bg-gray-100 transition-colors"
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
           >
-            <Mail className="w-4 h-4" />
+            <Mail className="h-3.5 w-3.5" />
             Change Email
           </button>
         </div>
@@ -574,11 +651,11 @@ export default function AccountSecurity() {
                 </button>
               </div>
             )}
-            <div className="sm:col-span-2 flex flex-col sm:flex-row gap-3">
+            <div className="flex flex-col gap-2 sm:col-span-2 sm:flex-row">
               <button
                 type="submit"
                 disabled={isChangingEmail}
-                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-orange-600 text-white font-medium hover:bg-orange-700 disabled:opacity-50 transition-colors"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
               >
                 {isChangingEmail && <Loader2 className="w-4 h-4 animate-spin" />}
                 {emailOtpToken ? "Verify OTP and Save Email" : "Send OTP"}
@@ -586,7 +663,7 @@ export default function AccountSecurity() {
               <button
                 type="button"
                 onClick={resetEmailForm}
-                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
               >
                 <X className="w-4 h-4" />
                 Cancel
@@ -597,7 +674,61 @@ export default function AccountSecurity() {
       </section>
 
       <section className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-3xl border border-gray-200 dark:border-gray-800">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-gray-400" />
+              Trusted Devices
+            </h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Allow trusted browsers to skip authenticator codes for 30 days. A new device or location will still require a code.
+            </p>
+            <p className="mt-2 text-xs font-medium text-gray-500 dark:text-gray-400">
+              {activeTrustedDevices.length} trusted {activeTrustedDevices.length === 1 ? "device" : "devices"} active.
+            </p>
+          </div>
+
+          <label className="flex shrink-0 items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
+            <input
+              type="checkbox"
+              checked={trustedDeviceEnabled}
+              disabled={trustedDeviceBusy}
+              onChange={(event) => handleTrustedDeviceToggle(event.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500 disabled:opacity-50"
+            />
+            <span className="text-sm font-semibold text-gray-900 dark:text-white">
+              Skip on trusted devices
+            </span>
+          </label>
+        </div>
+
+        {activeTrustedDevices.length > 0 && (
+          <div className="mt-4 space-y-2 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+            {activeTrustedDevices.map((device) => (
+              <div key={device.id} className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <span className="font-medium text-gray-900 dark:text-gray-100">{device.label || "Trusted browser"}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  Trusted until {formatEnrollmentDate(device.trustedUntil)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {trustedDeviceMessage && (
+          <div className={`mt-4 p-4 rounded-2xl text-sm font-medium flex items-center gap-2 ${
+            trustedDeviceMessage.type === "success"
+              ? "bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800"
+              : "bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800"
+          }`}>
+            {trustedDeviceMessage.type === "success" ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+            {trustedDeviceMessage.text}
+          </div>
+        )}
+      </section>
+
+      <section className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-3xl border border-gray-200 dark:border-gray-800">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-gray-400" />
@@ -611,9 +742,9 @@ export default function AccountSecurity() {
             type="button"
             onClick={startMfaEnrollment}
             disabled={mfaBusy}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-orange-600 text-white font-medium hover:bg-orange-700 disabled:opacity-50 transition-colors"
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
           >
-            {mfaBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
+            {mfaBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <QrCode className="h-3.5 w-3.5" />}
             Enroll App
           </button>
         </div>
@@ -708,11 +839,11 @@ export default function AccountSecurity() {
                 </div>
               </div>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 type="submit"
                 disabled={mfaBusy || !verificationCode}
-                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-orange-600 text-white font-medium hover:bg-orange-700 disabled:opacity-50 transition-colors"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
               >
                 {mfaBusy && <Loader2 className="w-4 h-4 animate-spin" />}
                 Verify and Enable
@@ -721,7 +852,7 @@ export default function AccountSecurity() {
                 type="button"
                 onClick={cancelMfaEnrollment}
                 disabled={mfaBusy}
-                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
               >
                 Cancel
               </button>
@@ -750,11 +881,11 @@ export default function AccountSecurity() {
                 placeholder="123456"
               />
             </div>
-            <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 type="submit"
                 disabled={mfaBusy || !removeCode}
-                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50 transition-colors"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
               >
                 {mfaBusy && <Loader2 className="w-4 h-4 animate-spin" />}
                 Remove App
@@ -763,7 +894,7 @@ export default function AccountSecurity() {
                 type="button"
                 onClick={cancelRemoveFactor}
                 disabled={mfaBusy}
-                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
               >
                 <X className="w-4 h-4" />
                 Cancel

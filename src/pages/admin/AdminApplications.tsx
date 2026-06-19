@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, getDocs, doc, setDoc, updateDoc, serverTimestamp, getDoc } from "@/src/lib/dataCompat";
+import { collection, getDocs, doc, setDoc, updateDoc, serverTimestamp, getDoc } from "@/src/lib/dataCompat";
 import { createUserWithEmailAndPassword, signOut } from "@/src/lib/supabaseAuthCompat";
 import { db, secondaryAuth } from "../../lib/backend";
-import { ShieldAlert, CheckCircle, Ban, Store, Plus, Calendar, X, FileText, Upload, Image as ImageIcon } from "lucide-react";
+import { Ban, X, FileText, Upload, Image as ImageIcon } from "lucide-react";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 import {
@@ -92,7 +92,7 @@ export default function AdminApplications() {
     try {
        await updateDoc(doc(db, "applications", appId), { status: "rejected" });
        setApplications(applications.map(a => a.id === appId ? { ...a, status: "rejected" } : a));
-    } catch (error) {}
+    } catch {}
   };
 
   const handleAddStore = async (e: React.FormEvent) => {
@@ -213,7 +213,7 @@ export default function AdminApplications() {
 
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 pointer-events-auto">
-          <div className="bg-white dark:bg-gray-900 w-full max-w-[600px] max-h-[90vh] overflow-y-auto rounded-[2rem] shadow-xl relative border border-gray-100 dark:border-gray-800 transition-colors" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-gray-900 w-full max-w-150 max-h-[90vh] overflow-y-auto rounded-4xl shadow-xl relative border border-gray-100 dark:border-gray-800 transition-colors" onClick={e => e.stopPropagation()}>
             <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-900/50 sticky top-0 z-10 backdrop-blur-sm">
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">New Store Setup</h3>
               <button type="button" onClick={() => setShowAddModal(false)} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-full transition-colors border border-gray-200 dark:border-gray-700">
@@ -303,9 +303,9 @@ export default function AdminApplications() {
                 </div>
               </div>
 
-              <div className="pt-4 flex gap-3">
-                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-medium py-3 px-4 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="flex-1 bg-orange-600 dark:bg-orange-600 text-white font-medium py-3 px-4 rounded-xl hover:bg-orange-700 dark:hover:bg-orange-700 transition-colors disabled:opacity-50">
+              <div className="flex justify-end gap-2 pt-4">
+                <button type="button" onClick={() => setShowAddModal(false)} className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-orange-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50 dark:bg-orange-600 dark:hover:bg-orange-700">
                   {isSubmitting ? 'Creating...' : 'Create Record'}
                 </button>
               </div>

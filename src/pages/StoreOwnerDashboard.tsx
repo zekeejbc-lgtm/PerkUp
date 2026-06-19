@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useState, useEffect } from "react";
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Store, ShoppingBag, Gift, Users, BadgeCheck, UserCircle, CreditCard, ChevronRight, Building, Menu } from "lucide-react";
+import { Store, ShoppingBag, Gift, Users, BadgeCheck, UserCircle, CreditCard, ChevronRight, Building, Menu, ArrowLeft } from "lucide-react";
 import { DashboardShellSkeleton, PageSkeleton } from "../components/LoadingSkeleton";
 
 const StoreOwnerInfo = lazy(() => import("./store-owner/StoreOwnerInfo"));
@@ -21,6 +21,8 @@ export default function StoreOwnerDashboard() {
   const [selectedStore, setSelectedStore] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const isAccountOnlyRoute = location.pathname === '/owner/account' || location.pathname === '/owner/subscription';
+  const activeStore = isAccountOnlyRoute ? null : selectedStore;
 
   useEffect(() => {
     async function fetchStores() {
@@ -39,22 +41,29 @@ export default function StoreOwnerDashboard() {
     fetchStores();
   }, [user]);
 
+  useEffect(() => {
+    if (isAccountOnlyRoute) {
+      setSelectedStore(null);
+    }
+  }, [isAccountOnlyRoute]);
+
   const navigation = [
-    { name: 'Store Info', href: '/owner', icon: Store },
-    { name: 'Products', href: '/owner/products', icon: ShoppingBag },
-    { name: 'Promotions', href: '/owner/promotions', icon: Gift },
-    { name: 'Customers', href: '/owner/customers', icon: Users },
-    { name: 'Staff', href: '/owner/staff', icon: BadgeCheck },
-    { name: 'Account', href: '/owner/account', icon: UserCircle },
-    { name: 'Subscription', href: '/owner/subscription', icon: CreditCard },
+    { name: 'Store Info', href: '/owner', icon: Store, requiresBranch: true },
+    { name: 'Products', href: '/owner/products', icon: ShoppingBag, requiresBranch: true },
+    { name: 'Promotions', href: '/owner/promotions', icon: Gift, requiresBranch: true },
+    { name: 'Customers', href: '/owner/customers', icon: Users, requiresBranch: true },
+    { name: 'Staff', href: '/owner/staff', icon: BadgeCheck, requiresBranch: true },
+    { name: 'Account', href: '/owner/account', icon: UserCircle, requiresBranch: false },
+    { name: 'Subscription', href: '/owner/subscription', icon: CreditCard, requiresBranch: false },
   ];
+  const visibleNavigation = navigation.filter((item) => activeStore || !item.requiresBranch);
 
   if (loading) {
     return <DashboardShellSkeleton />;
   }
 
   // Branch Selector View
-  if (!selectedStore && location.pathname !== '/owner/account' && location.pathname !== '/owner/subscription') {
+  if (!activeStore && !isAccountOnlyRoute) {
     return (
       <div className="max-w-4xl mx-auto space-y-8">
         <div>
@@ -104,24 +113,29 @@ export default function StoreOwnerDashboard() {
             </button>
         </div>
 
-        {selectedStore && (
+        {activeStore && (
           <div className="hidden md:block overflow-hidden transition-all duration-300">
             {isSidebarOpen ? (
-              <button 
-                onClick={() => {
-                  if (stores.length > 1) setSelectedStore(null);
-                }}
-                className={`w-full text-left px-4 py-3 bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800/50 rounded-2xl border ${stores.length > 1 ? 'hover:bg-orange-100 dark:hover:bg-orange-900/40 cursor-pointer' : 'cursor-default'}`}
-              >
+              <div className="w-full px-4 py-3 bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800/50 rounded-2xl border">
                 <p className="text-xs font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-widest mb-1">Current Branch</p>
-                <p className="font-bold text-gray-900 dark:text-white truncate">{selectedStore.name}</p>
-              </button>
+                <p className="font-bold text-gray-900 dark:text-white truncate">{activeStore.name}</p>
+                {stores.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStore(null)}
+                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-orange-700 dark:text-orange-300 hover:text-orange-900 dark:hover:text-orange-100"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Back to branches
+                  </button>
+                )}
+              </div>
             ) : (
               <button 
                 onClick={() => {
                   if (stores.length > 1) setSelectedStore(null);
                 }}
-                title={`Branch: ${selectedStore.name}`}
+                title={`Branch: ${activeStore.name}`}
                 className={`w-full flex items-center justify-center p-3 bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800/50 rounded-2xl border ${stores.length > 1 ? 'hover:bg-orange-100 dark:hover:bg-orange-900/40 cursor-pointer' : 'cursor-default'}`}
               >
                 <Building className="w-6 h-6 text-orange-600 dark:text-orange-400" />
@@ -131,7 +145,7 @@ export default function StoreOwnerDashboard() {
         )}
 
         <nav className="flex flex-col gap-2">
-          {navigation.map((item) => {
+          {visibleNavigation.map((item) => {
             const isActive = location.pathname === item.href;
             return (
               <Link
@@ -154,7 +168,7 @@ export default function StoreOwnerDashboard() {
 
       {/* Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-gray-950/90 backdrop-blur-xl border-t border-gray-200 dark:border-gray-800 flex items-center justify-start sm:justify-center overflow-x-auto pb-[env(safe-area-inset-bottom)] px-2 py-2 shadow-[0_-10px_40px_-20px_rgba(0,0,0,0.1)] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] gap-2 sm:gap-6">
-        {navigation.map((item) => {
+        {visibleNavigation.map((item) => {
           const isActive = location.pathname === item.href;
           return (
             <Link
@@ -175,16 +189,26 @@ export default function StoreOwnerDashboard() {
 
       {/* Main Content Area */}
       <div className="flex-1 min-w-0 bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-4 sm:p-6 md:p-8 shadow-sm">
+        {activeStore && stores.length > 1 && (
+          <button
+            type="button"
+            onClick={() => setSelectedStore(null)}
+            className="mb-5 inline-flex md:hidden items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-800 px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to branches
+          </button>
+        )}
         <Suspense fallback={<PageSkeleton />}>
           <Routes>
-            <Route path="/" element={<StoreOwnerInfo store={selectedStore} setStore={(updatedStore: any) => {
+            <Route path="/" element={<StoreOwnerInfo store={activeStore} setStore={(updatedStore: any) => {
               setSelectedStore(updatedStore);
               setStores(stores.map(s => s.id === updatedStore.id ? updatedStore : s));
             }} />} />
-            <Route path="/products" element={<StoreOwnerProducts store={selectedStore} />} />
-            <Route path="/promotions" element={<StoreOwnerPromotions store={selectedStore} />} />
-            <Route path="/customers" element={<StoreOwnerCustomers store={selectedStore} />} />
-            <Route path="/staff" element={<StoreOwnerStaff store={selectedStore} />} />
+            <Route path="/products" element={<StoreOwnerProducts store={activeStore} />} />
+            <Route path="/promotions" element={<StoreOwnerPromotions store={activeStore} />} />
+            <Route path="/customers" element={<StoreOwnerCustomers store={activeStore} />} />
+            <Route path="/staff" element={<StoreOwnerStaff store={activeStore} />} />
             <Route path="/account" element={<StoreOwnerAccount />} />
             <Route path="/subscription" element={<StoreOwnerSubscription />} />
           </Routes>

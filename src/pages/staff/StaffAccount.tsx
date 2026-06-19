@@ -1,8 +1,8 @@
 import AccountSecurity from "@/src/components/AccountSecurity";
 import { useAuth } from "../../contexts/AuthContext";
 import { doc, updateDoc } from "@/src/lib/dataCompat";
-import { db } from "../../lib/backend";
-import { AtSign, Calendar, CheckCircle2, FileText, ImagePlus, Mail, Phone, Save, Shield, User, X } from "lucide-react";
+import { db, logOut } from "../../lib/backend";
+import { AtSign, Calendar, CheckCircle2, FileText, ImagePlus, LogOut, Mail, Phone, Save, Shield, User, X } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 
@@ -102,9 +102,19 @@ export default function StaffAccount() {
 
   return (
     <div className="max-w-2xl space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Account Settings</h2>
-        <p className="text-gray-500 dark:text-gray-400 mt-2">Manage your staff profile and security preferences.</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Account Settings</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-2">Manage your staff profile and security preferences.</p>
+        </div>
+        <button
+          type="button"
+          onClick={logOut}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+        >
+          <LogOut className="w-4 h-4" />
+          Log out
+        </button>
       </div>
 
       <form onSubmit={handleSave} className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-3xl border border-gray-200 dark:border-gray-800">

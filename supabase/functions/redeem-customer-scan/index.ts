@@ -25,6 +25,35 @@ const isValidUsername = (username: string) =>
   !username.includes("._") &&
   !username.includes("_.");
 
+const normalizeScannerLocation = (value: unknown) => {
+  if (!value || typeof value !== "object") return null;
+  const location = value as { lat?: unknown; lng?: unknown; accuracy?: unknown };
+  const lat = Number(location.lat);
+  const lng = Number(location.lng);
+  const accuracy = Number(location.accuracy);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return {
+    lat,
+    lng,
+    accuracy: Number.isFinite(accuracy) ? accuracy : null,
+  };
+};
+
+const distanceInMeters = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
+  const earthRadiusMeters = 6371e3;
+  const lat1 = from.lat * Math.PI / 180;
+  const lat2 = to.lat * Math.PI / 180;
+  const dLat = (to.lat - from.lat) * Math.PI / 180;
+  const dLon = (to.lng - from.lng) * Math.PI / 180;
+
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusMeters * c;
+};
+
 const maskName = (value: string) => {
   const compact = value.trim().replace(/\s+/g, "");
   if (!compact) return "C***R";
@@ -101,6 +130,7 @@ Deno.serve(async (req) => {
     const promotionId = String(body.promotionId || "").trim();
     const points = normalizePoints(body.points);
     const previewOnly = Boolean(body.previewOnly);
+    const scannerLocation = normalizeScannerLocation(body.scannerLocation);
 
     const isManualLookup = Boolean(manualUsername);
     const isSignedToken = scanToken.startsWith(SIGNED_TOKEN_PREFIX);
@@ -141,6 +171,78 @@ Deno.serve(async (req) => {
       staff?.role === "staff" && String(staff.storeId || "") === storeId;
     if (!isAuthorizedStaff) {
       return jsonResponse({ error: "This staff account is not authorized for this store." }, 403);
+    }
+
+    const { data: storeRow, error: storeError } = await admin
+      .from("stores")
+      .select("data")
+      .eq("id", storeId)
+      .maybeSingle();
+    if (storeError) throw storeError;
+    const store = storeRow?.data as { lat?: number | string; lng?: number | string } | null;
+
+    if (promotionId) {
+      const { data: promotionRow, error: promotionError } = await admin
+        .from("promotions")
+        .select("data")
+        .eq("id", promotionId)
+        .maybeSingle();
+      if (promotionError) throw promotionError;
+
+      const promotion = promotionRow?.data as {
+        storeId?: string;
+        active?: boolean;
+        startDate?: string;
+        endDate?: string;
+        maxRedemptions?: number | null;
+        geofenceEnabled?: boolean;
+        geofenceLat?: number | string | null;
+        geofenceLng?: number | string | null;
+        geofenceRadiusMeters?: number | string | null;
+      } | null;
+
+      if (!promotion || String(promotion.storeId || "") !== storeId) {
+        return jsonResponse({ error: "Promotion is not available for this store." }, 403);
+      }
+      if (promotion.active === false) {
+        return jsonResponse({ error: "Promotion is not active." }, 409);
+      }
+      if (promotion.startDate && new Date(promotion.startDate).getTime() > Date.now()) {
+        return jsonResponse({ error: "Promotion has not started yet." }, 409);
+      }
+      if (promotion.endDate && new Date(promotion.endDate).getTime() <= Date.now()) {
+        return jsonResponse({ error: "Promotion has already ended." }, 410);
+      }
+
+      const geofenceLat = promotion.geofenceEnabled ? Number(promotion.geofenceLat) : Number(store?.lat);
+      const geofenceLng = promotion.geofenceEnabled ? Number(promotion.geofenceLng) : Number(store?.lng);
+      const geofenceRadiusMeters = promotion.geofenceEnabled
+        ? Math.max(Number(promotion.geofenceRadiusMeters || 500), 25)
+        : 500;
+      if (promotion.geofenceEnabled && (!Number.isFinite(geofenceLat) || !Number.isFinite(geofenceLng))) {
+        return jsonResponse({ error: "Promotion geofence is not configured correctly." }, 409);
+      }
+      if (Number.isFinite(geofenceLat) && Number.isFinite(geofenceLng)) {
+        if (!scannerLocation) {
+          return jsonResponse({ error: "Scanner location is required for this scan." }, 400);
+        }
+        const distance = distanceInMeters(scannerLocation, { lat: geofenceLat, lng: geofenceLng });
+        if (distance > geofenceRadiusMeters) {
+          return jsonResponse({ error: `Scanner is outside the allowed geofence (${Math.round(distance)}m away).` }, 403);
+        }
+      }
+
+      const maxRedemptions = Number(promotion.maxRedemptions || 0);
+      if (maxRedemptions > 0) {
+        const { count, error: countError } = await admin
+          .from("promotions_scanned")
+          .select("id", { count: "exact", head: true })
+          .eq("data->>promotionId", promotionId);
+        if (countError) throw countError;
+        if (Number(count || 0) >= maxRedemptions) {
+          return jsonResponse({ error: "Promotion has run out of available redemptions." }, 409);
+        }
+      }
     }
 
     let customerId = "";
@@ -187,6 +289,9 @@ Deno.serve(async (req) => {
     const customer = customerRow?.data as {
       name?: string;
       username?: string;
+      profilePic?: string;
+      avatarUrl?: string;
+      photoURL?: string;
       qrVersion?: number;
     } | null;
     if (isSignedToken) {
@@ -251,6 +356,7 @@ Deno.serve(async (req) => {
         promotionId: promotionId || null,
         type: "points",
         points,
+        scannerLocation,
         timestamp: {
           seconds: Math.floor(Date.now() / 1000),
           nanoseconds: 0,
@@ -276,7 +382,7 @@ Deno.serve(async (req) => {
         id: customerId,
         username: customerUsername,
         maskedName: maskName(customer?.name || customerUsername || "Customer"),
-        profilePic: null,
+        profilePic: customer?.profilePic || customer?.avatarUrl || customer?.photoURL || null,
         existingStars,
         newStars: previewOnly ? existingStars : existingStars + points,
       },

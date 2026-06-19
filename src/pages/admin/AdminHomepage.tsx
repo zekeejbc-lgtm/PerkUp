@@ -81,7 +81,7 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
         <span className="truncate text-xs font-semibold text-gray-500 dark:text-gray-400">Live admin preview</span>
       </div>
 
-      <div className="max-h-[640px] overflow-y-auto overflow-x-hidden bg-[#fafafa] dark:bg-gray-950">
+      <div className="max-h-160 overflow-y-auto overflow-x-hidden bg-[#fafafa] dark:bg-gray-950">
         <header className="relative z-20 bg-[#fafafa] dark:bg-gray-950 border-b border-gray-200/50 dark:border-gray-800/50">
           <nav className="flex min-w-0 items-center justify-between gap-4 px-4 py-3 sm:px-5">
             <div className="flex min-w-0 items-center gap-2">
@@ -99,7 +99,7 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
 
         <section className="isolate relative z-0 overflow-hidden px-4 pb-10 pt-8 sm:px-5 lg:pb-12 lg:pt-10">
           <div className="absolute inset-0 z-0">
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#fafafa]/80 dark:via-gray-950/80 to-[#fafafa] dark:to-gray-950 z-10" />
+            <div className="absolute inset-0 bg-linear-to-b from-transparent via-[#fafafa]/80 dark:via-gray-950/80 to-[#fafafa] dark:to-gray-950 z-10" />
             <img src={getDisplayImageUrl(config.heroImageUrl)} alt="Hero image" className="w-full h-full object-cover opacity-30 dark:opacity-20" />
           </div>
 
@@ -114,10 +114,10 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
                   <span className="truncate">Digital Loyalty Starts Here</span>
                 </div>
 
-                <h1 className="break-words text-3xl font-semibold tracking-tight text-gray-900 dark:text-white leading-[1.1] mb-4 whitespace-pre-wrap md:text-4xl xl:text-5xl">
+                <h1 className="wrap-break-word text-3xl font-semibold tracking-tight text-gray-900 dark:text-white leading-[1.1] mb-4 whitespace-pre-wrap md:text-4xl xl:text-5xl">
                   {config.heroHeadline}
                 </h1>
-                <p className="max-w-md break-words text-sm text-gray-500 dark:text-gray-400 mb-6 leading-relaxed md:text-base">
+                <p className="max-w-md wrap-break-word text-sm text-gray-500 dark:text-gray-400 mb-6 leading-relaxed md:text-base">
                   {config.heroSubheadline}
                 </p>
                 <span className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gray-900 dark:bg-white px-5 py-3 text-xs font-medium text-white dark:text-gray-900 shadow-sm">
@@ -126,7 +126,7 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
                 </span>
               </div>
 
-              <div className="relative min-w-0 overflow-hidden rounded-[1.5rem] border border-gray-200 bg-gray-100 p-4 shadow-sm aspect-[4/3] dark:border-gray-800 dark:bg-gray-900 sm:p-6">
+              <div className="relative min-w-0 overflow-hidden rounded-3xl border border-gray-200 bg-gray-100 p-4 shadow-sm aspect-4/3 dark:border-gray-800 dark:bg-gray-900 sm:p-6">
                 <div className="relative h-full flex flex-col items-center justify-center space-y-5">
                   <div className="w-[min(14rem,82%)] -rotate-6 rounded-3xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950">
                     <div className="flex justify-between items-start mb-5">
@@ -175,7 +175,7 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
                 <div className="w-14 h-14 bg-gray-50 dark:bg-gray-900 rounded-3xl flex items-center justify-center text-gray-400 dark:text-gray-500 border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
                   {logo.logoUrl ? <img src={getDisplayImageUrl(logo.logoUrl)} className="w-full h-full object-cover" alt={logo.name} /> : <StoreIcon className="w-7 h-7" />}
                 </div>
-                <span className="max-w-full break-words text-center text-xs font-semibold tracking-tight text-gray-400 dark:text-gray-500">{logo.name}</span>
+                <span className="max-w-full wrap-break-word text-center text-xs font-semibold tracking-tight text-gray-400 dark:text-gray-500">{logo.name}</span>
               </div>
             ))}
           </div>
@@ -193,8 +193,8 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
                 </div>
               </div>
             </div>
-            <div className="rounded-[1.5rem] overflow-hidden border border-gray-200 dark:border-gray-800 shadow-sm h-56 bg-gray-100 dark:bg-gray-900 relative">
-              <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(148,163,184,0.15)_1px,transparent_1px),linear-gradient(rgba(148,163,184,0.15)_1px,transparent_1px)] bg-[size:32px_32px]" />
+            <div className="rounded-3xl overflow-hidden border border-gray-200 dark:border-gray-800 shadow-sm h-56 bg-gray-100 dark:bg-gray-900 relative">
+              <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(148,163,184,0.15)_1px,transparent_1px),linear-gradient(rgba(148,163,184,0.15)_1px,transparent_1px)] bg-size-[32px_32px]" />
               <div className="absolute left-1/2 top-1/2 h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white border-2 border-orange-600 shadow flex items-center justify-center">
                 <MapPin className="w-5 h-5 text-orange-600" />
               </div>
@@ -454,7 +454,7 @@ export default function AdminHomepage() {
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
             <input type="checkbox" className="sr-only peer" checked={config.applicationsOpen} onChange={e => setConfig({...config, applicationsOpen: e.target.checked})} />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-orange-300 dark:peer-focus:ring-orange-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-orange-600"></div>
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-orange-300 dark:peer-focus:ring-orange-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-orange-600"></div>
           </label>
         </div>
 
@@ -473,7 +473,7 @@ export default function AdminHomepage() {
                 <textarea rows={3} value={config.heroSubheadline} onChange={e => setConfig({...config, heroSubheadline: e.target.value})} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm resize-none" />
               </div>
               <div>
-                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><ImagePlus className="w-3 h-3"/> Hero Image</label>
+                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><ImagePlus className="w-3 h-3"/> Hero Image</label>
                  <label className="flex items-center justify-center gap-2 px-4 py-2 w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300">
                     <Upload className="w-4 h-4" />
                     Upload Image
@@ -482,7 +482,7 @@ export default function AdminHomepage() {
               </div>
             </div>
             
-            <div className="flex items-center justify-center bg-gray-100 dark:bg-gray-900 rounded-xl overflow-hidden relative min-h-[200px]">
+            <div className="flex items-center justify-center bg-gray-100 dark:bg-gray-900 rounded-xl overflow-hidden relative min-h-50">
               {config.heroImageUrl ? (
                  <img src={getDisplayImageUrl(config.heroImageUrl)} alt="Hero Preview" className="absolute inset-0 w-full h-full object-cover" />
               ) : (

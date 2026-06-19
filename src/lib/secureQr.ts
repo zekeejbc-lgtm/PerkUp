@@ -21,6 +21,33 @@ export type RedeemedCustomerScan = {
   points: number;
 };
 
+export type ScannerLocation = {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+};
+
+export type StoreReferralCode = {
+  referralCode: string;
+  promotionCount: number;
+};
+
+export type RedeemedStoreReferral = {
+  referralCode: string;
+  storeId: string;
+  storeName: string;
+  points: number;
+  existingStars: number;
+  newStars: number;
+};
+
+export type ValidatedStoreReferral = {
+  referralCode: string;
+  storeId: string;
+  storeName: string;
+  promotionCount: number;
+};
+
 const getFunctionErrorMessage = async (error: unknown, fallback: string) => {
   if (!error || typeof error !== "object") return fallback;
   const maybeContext = error as { context?: { json?: () => Promise<{ error?: string }> }; message?: string };
@@ -39,9 +66,9 @@ export const isSecureCustomerQr = (value: string) =>
   value.trim().startsWith(SECURE_CUSTOMER_QR_PREFIX) ||
   value.trim().startsWith(LEGACY_CUSTOMER_QR_PREFIX);
 
-export async function issueCustomerQr(): Promise<IssuedCustomerQr> {
+export async function issueCustomerQr(input?: { rotate?: boolean }): Promise<IssuedCustomerQr> {
   const { data, error } = await supabase.functions.invoke<IssuedCustomerQr>("issue-customer-qr", {
-    body: {},
+    body: input || {},
   });
 
   if (error || !data?.token) {
@@ -57,6 +84,7 @@ export async function redeemCustomerScan(input: {
   storeId: string;
   promotionId?: string;
   points: number;
+  scannerLocation?: ScannerLocation;
   previewOnly?: boolean;
 }): Promise<RedeemedCustomerScan> {
   const { data, error } = await supabase.functions.invoke<RedeemedCustomerScan>("redeem-customer-scan", {
@@ -87,4 +115,40 @@ export async function updateCustomerProfile(input: {
   }
 
   return data.profile;
+}
+
+export async function getStoreReferralCode(storeId: string): Promise<StoreReferralCode> {
+  const { data, error } = await supabase.functions.invoke<StoreReferralCode>("store-referrals", {
+    body: { action: "get-code", storeId },
+  });
+
+  if (error || !data?.referralCode) {
+    throw new Error(await getFunctionErrorMessage(error, "Could not get referral code."));
+  }
+
+  return data;
+}
+
+export async function redeemStoreReferralCode(referralCode: string): Promise<RedeemedStoreReferral> {
+  const { data, error } = await supabase.functions.invoke<RedeemedStoreReferral>("store-referrals", {
+    body: { action: "redeem", referralCode },
+  });
+
+  if (error || !data?.storeId) {
+    throw new Error(await getFunctionErrorMessage(error, "Could not redeem referral code."));
+  }
+
+  return data;
+}
+
+export async function validateStoreReferralCode(referralCode: string): Promise<ValidatedStoreReferral> {
+  const { data, error } = await supabase.functions.invoke<ValidatedStoreReferral>("store-referrals", {
+    body: { action: "validate", referralCode },
+  });
+
+  if (error || !data?.storeId) {
+    throw new Error(await getFunctionErrorMessage(error, "Referral code could not be verified."));
+  }
+
+  return data;
 }

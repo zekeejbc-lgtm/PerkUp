@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { doc, updateDoc } from "@/src/lib/dataCompat";
-import { db } from "../../lib/backend";
-import { UserCircle, Mail, Phone, MapPin, AtSign, Save, CheckCircle2, X, Calendar, FileText } from "lucide-react";
+import { db, logOut } from "../../lib/backend";
+import { UserCircle, Mail, Phone, MapPin, AtSign, Save, CheckCircle2, X, Calendar, FileText, LogOut } from "lucide-react";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 import AccountSecurity from "@/src/components/AccountSecurity";
 
@@ -104,9 +104,19 @@ export default function StoreOwnerAccount() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Account Settings</h2>
-        <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Manage your personal information, profile, and credentials.</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Account Settings</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Manage your personal information, profile, and credentials.</p>
+        </div>
+        <button
+          type="button"
+          onClick={logOut}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+        >
+          <LogOut className="w-4 h-4" />
+          Log out
+        </button>
       </div>
 
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8 space-y-8">

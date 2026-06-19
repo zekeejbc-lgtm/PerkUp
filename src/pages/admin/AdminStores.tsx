@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { collection, getDocs, doc, setDoc, updateDoc, serverTimestamp, getDoc } from "@/src/lib/dataCompat";
 import { createUserWithEmailAndPassword, signOut } from "@/src/lib/supabaseAuthCompat";
 import { db, secondaryAuth, handleDataError, OperationType } from "../../lib/backend";
-import { ShieldAlert, CheckCircle, Ban, Store, Plus, Calendar, X, Trash2, Edit, Upload, Image as ImageIcon } from "lucide-react";
+import { ShieldAlert, CheckCircle, Ban, Store, Plus, X, Upload, Image as ImageIcon } from "lucide-react";
 import AdminStoreDetail from "./AdminStoreDetail";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
@@ -330,9 +330,9 @@ export default function AdminStores() {
                 </div>
               </div>
 
-              <div className="pt-4 flex gap-3">
-                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-medium py-3 px-4 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="flex-1 bg-orange-600 dark:bg-orange-600 text-white font-medium py-3 px-4 rounded-xl hover:bg-orange-700 dark:hover:bg-orange-700 transition-colors disabled:opacity-50">
+              <div className="flex justify-end gap-2 pt-4">
+                <button type="button" onClick={() => setShowAddModal(false)} className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-orange-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50 dark:bg-orange-600 dark:hover:bg-orange-700">
                   {isSubmitting ? 'Creating...' : 'Create Record'}
                 </button>
               </div>

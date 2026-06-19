@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { collection, query, where, getDocs, doc, setDoc, deleteDoc, serverTimestamp, updateDoc } from "@/src/lib/dataCompat";
 import { createUserWithEmailAndPassword, signOut } from "@/src/lib/supabaseAuthCompat";
-import { db, secondaryAuth } from "../../lib/backend";
+import { db, logOut, secondaryAuth } from "../../lib/backend";
 import { useAuth } from "../../contexts/AuthContext";
-import { User, Mail, Key, Plus, Trash2, Shield, UserCog, Loader2, Save, X, AtSign, Phone, Calendar, FileText, ImagePlus } from "lucide-react";
+import { User, Mail, Plus, Trash2, Shield, UserCog, Save, X, AtSign, Phone, Calendar, FileText, ImagePlus, LogOut } from "lucide-react";
 import AccountSecurity from "@/src/components/AccountSecurity";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
@@ -110,6 +110,10 @@ export default function AdminAccount() {
     }
   };
 
+  const scrollToEmailSecurity = () => {
+    document.getElementById("email-security")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const handleAddAssistantAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -158,9 +162,19 @@ export default function AdminAccount() {
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-300">
-      <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3 bg-gray-50/50 dark:bg-gray-900/50">
-        <UserCog className="w-5 h-5 text-gray-500" />
-        <h3 className="font-semibold text-gray-900 dark:text-white text-lg">Account & Admins</h3>
+      <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex flex-col gap-4 bg-gray-50/50 dark:bg-gray-900/50 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <UserCog className="w-5 h-5 text-gray-500" />
+          <h3 className="font-semibold text-gray-900 dark:text-white text-lg">Account & Admins</h3>
+        </div>
+        <button
+          type="button"
+          onClick={logOut}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+        >
+          <LogOut className="w-4 h-4" />
+          Log out
+        </button>
       </div>
 
       <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -205,7 +219,7 @@ export default function AdminAccount() {
 
              <div className="space-y-4">
                <div>
-                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><User className="w-3 h-3" /> Name</label>
+                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><User className="w-3 h-3" /> Name</label>
                  {isEditingMyAccount ? (
                    <input type="text" value={myName} onChange={e => setMyName(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
                  ) : (
@@ -213,7 +227,7 @@ export default function AdminAccount() {
                  )}
                </div>
                <div>
-                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><AtSign className="w-3 h-3" /> Username</label>
+                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><AtSign className="w-3 h-3" /> Username</label>
                  {isEditingMyAccount ? (
                    <input type="text" value={myUsername} onChange={e => setMyUsername(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
                  ) : (
@@ -221,7 +235,7 @@ export default function AdminAccount() {
                  )}
                </div>
                <div>
-                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><Phone className="w-3 h-3" /> Number</label>
+                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><Phone className="w-3 h-3" /> Number</label>
                  {isEditingMyAccount ? (
                    <input type="tel" value={myPhone} onChange={e => setMyPhone(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
                  ) : (
@@ -229,7 +243,7 @@ export default function AdminAccount() {
                  )}
                </div>
                <div>
-                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><Calendar className="w-3 h-3" /> Birthday</label>
+                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><Calendar className="w-3 h-3" /> Birthday</label>
                  {isEditingMyAccount ? (
                    <input type="date" value={myBirthday} onChange={e => setMyBirthday(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
                  ) : (
@@ -237,15 +251,24 @@ export default function AdminAccount() {
                  )}
                </div>
                <div>
-                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><Mail className="w-3 h-3" /> Email</label>
+                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><Mail className="w-3 h-3" /> Email</label>
                  {isEditingMyAccount ? (
-                   <input type="email" value={myEmail} disabled className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm text-gray-400 cursor-not-allowed" title="Email change requires special flow" />
+                   <div className="flex flex-col gap-2 sm:flex-row">
+                     <input type="email" value={myEmail} readOnly className="min-w-0 flex-1 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm text-gray-500 cursor-not-allowed" />
+                     <button
+                       type="button"
+                       onClick={scrollToEmailSecurity}
+                       className="inline-flex items-center justify-center rounded-lg bg-orange-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-orange-700"
+                     >
+                       Change email
+                     </button>
+                   </div>
                  ) : (
                    <p className="text-gray-900 dark:text-white text-sm font-medium">{user?.email}</p>
                  )}
                </div>
                <div>
-                 <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1"><FileText className="w-3 h-3" /> Bio</label>
+                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><FileText className="w-3 h-3" /> Bio</label>
                  {isEditingMyAccount ? (
                    <textarea value={myBio} onChange={e => setMyBio(e.target.value)} rows={3} className="w-full resize-none bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
                  ) : (
@@ -310,7 +333,7 @@ export default function AdminAccount() {
 
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-gray-900 w-full max-w-sm rounded-[2rem] shadow-xl p-6 border border-gray-100 dark:border-gray-800">
+          <div className="bg-white dark:bg-gray-900 w-full max-w-sm rounded-4xl shadow-xl p-6 border border-gray-100 dark:border-gray-800">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Add Assistant Admin</h3>
             <form onSubmit={handleAddAssistantAdmin} className="space-y-4">
               <div>
@@ -326,9 +349,9 @@ export default function AdminAccount() {
                 <input type="password" required value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} minLength={6} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" placeholder="Min 6 characters" />
               </div>
               
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-medium py-2 px-4 rounded-xl hover:bg-gray-200 transition-colors">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="flex-1 bg-orange-600 text-white font-medium py-2 px-4 rounded-xl hover:bg-orange-700 transition-colors disabled:opacity-50">
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowAddModal(false)} className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-orange-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50">
                   {isSubmitting ? 'Creating...' : 'Create Admin'}
                 </button>
               </div>

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Mail, Lock, Eye, EyeOff, X } from 'lucide-react';
-import { signInWithGoogle, auth } from '../lib/backend';
+import { AlertTriangle, AtSign, Calendar, Eye, EyeOff, Lock, Mail, Phone, ShieldCheck, Ticket, User, X } from 'lucide-react';
+import { AUTH_REDIRECT_MESSAGE_KEY, signInWithGoogle, auth, db } from '../lib/backend';
 import { 
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -8,6 +8,16 @@ import {
 } from '@/src/lib/supabaseAuthCompat';
 import { getPasswordStrength } from '@/src/lib/passwordStrength';
 import { requestEmailOtp, verifyEmailOtp } from '@/src/lib/emailOtp';
+import { redeemStoreReferralCode, updateCustomerProfile, validateStoreReferralCode } from '@/src/lib/secureQr';
+import { useToast } from './ToastProvider';
+import { supabase } from '@/src/lib/supabase';
+import { doc, getDoc } from '@/src/lib/dataCompat';
+import {
+  findTrustedLoginDevice,
+  getMfaPromptReason,
+  trustCurrentDeviceForUser,
+  TrustedLoginProfile,
+} from '@/src/lib/trustedDevice';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -15,7 +25,41 @@ interface AuthModalProps {
   initialMode?: 'signin' | 'signup' | 'forgot';
 }
 
+const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
+const RESERVED_USERNAMES = new Set(["admin", "administrator", "api", "help", "perkup", "staff", "store", "support"]);
+
+const emptySignupProfile = {
+  name: '',
+  accountUsername: '',
+  phone: '',
+  birthday: '',
+  referralCode: '',
+};
+
+const normalizeSignupUsername = (value: string) => value.trim().toLowerCase();
+
+const getSignupUsernameError = (value: string) => {
+  const username = normalizeSignupUsername(value);
+  if (!username) return 'Username is required.';
+  if (username.length < 4) return 'Username must be at least 4 characters.';
+  if (username.length > 24) return 'Username must be 24 characters or fewer.';
+  if (!USERNAME_PATTERN.test(username)) return 'Start with a letter; use letters, numbers, dots, or underscores.';
+  if (username.includes('..') || username.includes('__') || username.includes('._') || username.includes('_.')) {
+    return 'Do not repeat or mix separators.';
+  }
+  if (RESERVED_USERNAMES.has(username)) return 'This username is reserved.';
+  return '';
+};
+
+type PendingMfa = {
+  userId: string;
+  factorId: string;
+  factorName: string;
+  reason: string;
+};
+
 export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModalProps) {
+  const toast = useToast();
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(initialMode);
   const [hasAgreedToPrivacy, setHasAgreedToPrivacy] = useState(initialMode !== 'signup');
 
@@ -25,16 +69,26 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
       setHasAgreedToPrivacy(initialMode !== 'signup');
       setUsername('');
       setPassword('');
+      setSignupProfile(emptySignupProfile);
       setOtpCode('');
       setOtpToken('');
       setOtpEmail('');
       setOtpExpiresAt(0);
-      setError('');
+      setPendingMfa(null);
+      setMfaCode('');
+      setTrustDevice(false);
+      const redirectMessage = window.sessionStorage.getItem(AUTH_REDIRECT_MESSAGE_KEY);
+      setError(redirectMessage || '');
+      if (redirectMessage) {
+        toast.error(redirectMessage);
+        window.sessionStorage.removeItem(AUTH_REDIRECT_MESSAGE_KEY);
+      }
       setMessage('');
     }
-  }, [isOpen, initialMode]);
+  }, [isOpen, initialMode, toast]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [signupProfile, setSignupProfile] = useState(emptySignupProfile);
   const [otpCode, setOtpCode] = useState('');
   const [otpToken, setOtpToken] = useState('');
   const [otpEmail, setOtpEmail] = useState('');
@@ -44,6 +98,9 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [pendingMfa, setPendingMfa] = useState<PendingMfa | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [trustDevice, setTrustDevice] = useState(false);
   const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
 
   useEffect(() => {
@@ -75,7 +132,94 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     setOtpEmail(targetEmail);
     setOtpCode('');
     setOtpExpiresAt(Date.now() + otp.expiresInSeconds * 1000);
-    setMessage(`We sent a 6-digit OTP to ${targetEmail}. Enter it below to create your account.`);
+    const otpMessage = `We sent a 6-digit OTP to ${targetEmail}. Enter it below to create your account.`;
+    setMessage(otpMessage);
+    toast.success(otpMessage);
+  };
+
+  const showInlineError = (text: string) => {
+    setError(text);
+    toast.error(text);
+  };
+
+  const showInlineSuccess = (text: string) => {
+    setMessage(text);
+    toast.success(text);
+  };
+
+  const getUserProfile = async (userId: string) => {
+    const userDoc = await getDoc(doc(db, 'users', userId));
+    return userDoc.data() as TrustedLoginProfile;
+  };
+
+  const prepareMfaChallengeIfNeeded = async (userId: string) => {
+    const factors = await supabase.auth.mfa.listFactors();
+    if (factors.error) throw factors.error;
+
+    const factor = factors.data.totp.find((item) => item.status === 'verified');
+    if (!factor) return false;
+
+    const profile = await getUserProfile(userId);
+    const trustedDevice = await findTrustedLoginDevice(profile);
+    if (trustedDevice) return false;
+
+    setPendingMfa({
+      userId,
+      factorId: factor.id,
+      factorName: factor.friendly_name || 'Authenticator app',
+      reason: await getMfaPromptReason(profile),
+    });
+    setMfaCode('');
+    setTrustDevice(false);
+    return true;
+  };
+
+  const verifyPendingMfa = async () => {
+    if (!pendingMfa || !mfaCode.trim()) return;
+
+    setLoading(true);
+    setError('');
+    setMessage('');
+    try {
+      const challenge = await supabase.auth.mfa.challenge({ factorId: pendingMfa.factorId });
+      if (challenge.error) throw challenge.error;
+
+      const verify = await supabase.auth.mfa.verify({
+        factorId: pendingMfa.factorId,
+        challengeId: challenge.data.id,
+        code: mfaCode.trim(),
+      });
+      if (verify.error) throw verify.error;
+
+      if (trustDevice) {
+        await trustCurrentDeviceForUser(pendingMfa.userId);
+      }
+
+      toast.success('Signed in successfully.');
+      setPendingMfa(null);
+      setMfaCode('');
+      onClose();
+    } catch (err: any) {
+      showInlineError(err.message || 'Invalid authentication code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancelPendingMfa = async () => {
+    setLoading(true);
+    await auth.client.signOut().catch(() => undefined);
+    setPendingMfa(null);
+    setMfaCode('');
+    setTrustDevice(false);
+    setLoading(false);
+  };
+
+  const handleClose = async () => {
+    if (pendingMfa) {
+      await cancelPendingMfa();
+    }
+    onClose();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -85,18 +229,40 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     setMessage('');
 
     if (mode === 'signup' && !hasAgreedToPrivacy) {
-      setError('Please review and agree to the Data Privacy Act notice before creating an account.');
+      showInlineError('Please review and agree to the Data Privacy Act notice before creating an account.');
       setLoading(false);
       return;
     }
 
     const targetEmail = username.trim().toLowerCase();
+    const normalizedAccountUsername = normalizeSignupUsername(signupProfile.accountUsername);
 
     try {
       if (mode === 'signup') {
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetEmail)) {
-          setError('Enter a valid email address.');
+          showInlineError('Enter a valid email address.');
           return;
+        }
+        if (!signupProfile.name.trim()) {
+          showInlineError('Enter your full name.');
+          return;
+        }
+        const usernameError = getSignupUsernameError(normalizedAccountUsername);
+        if (usernameError) {
+          showInlineError(usernameError);
+          return;
+        }
+        if (!signupProfile.phone.trim()) {
+          showInlineError('Enter your phone number.');
+          return;
+        }
+        if (!signupProfile.birthday) {
+          showInlineError('Enter your birthday.');
+          return;
+        }
+        const referralCode = signupProfile.referralCode.trim().toUpperCase();
+        if (referralCode) {
+          await validateStoreReferralCode(referralCode);
         }
 
         if (!otpToken || otpEmail !== targetEmail) {
@@ -105,44 +271,71 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
         }
 
         if (otpSecondsRemaining <= 0) {
-          setError('This OTP has expired. Request a new code.');
+          showInlineError('This OTP has expired. Request a new code.');
           return;
         }
 
         if (!otpCode.trim()) {
-          setError('Enter the OTP sent to your email.');
+          showInlineError('Enter the OTP sent to your email.');
           return;
         }
 
         await verifyEmailOtp(otpToken, otpCode, targetEmail, 'signup');
-        await createUserWithEmailAndPassword(auth, targetEmail, password);
+        await createUserWithEmailAndPassword(auth, targetEmail, password, {
+          name: signupProfile.name,
+          username: normalizedAccountUsername,
+          phone: signupProfile.phone,
+          birthday: signupProfile.birthday,
+        });
+        await updateCustomerProfile({
+          name: signupProfile.name,
+          username: normalizedAccountUsername,
+          phone: signupProfile.phone,
+          bio: '',
+          birthday: signupProfile.birthday,
+          avatarUrl: '',
+        });
+        if (referralCode) {
+          const referral = await redeemStoreReferralCode(referralCode);
+          toast.success(`Account created. You received ${referral.points} stamp from ${referral.storeName}.`);
+        } else {
+          toast.success('Account created successfully.');
+        }
         onClose();
       } else if (mode === 'signin') {
-        await signInWithEmailAndPassword(auth, targetEmail, password);
+        const creds = await signInWithEmailAndPassword(auth, targetEmail, password);
+        const mfaRequired = await prepareMfaChallengeIfNeeded(creds.user.uid);
+        if (mfaRequired) {
+          setMessage('Enter the code from your authenticator app to finish signing in.');
+          return;
+        }
+        toast.success('Signed in successfully.');
         onClose();
       } else if (mode === 'forgot') {
         await sendPasswordResetEmail(auth, username); // Must provide a valid email to reset
-        setMessage('Password reset email sent! Check your inbox.');
+        showInlineSuccess('Password reset email sent. Check your inbox.');
       }
     } catch (err: any) {
       // Improve error messages
+      let errorMessage = '';
       if (err.code === 'auth/email-already-in-use') {
-        setError('This email is already registered.');
+        errorMessage = 'This email is already registered.';
       } else if (mode === 'signin' && (err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential')) {
-        setError('Invalid email or password.');
+        errorMessage = 'No account was found, try registering.';
       } else if (err.code === 'auth/weak-password') {
-        setError('Password should be at least 6 characters.');
+        errorMessage = 'Password should be at least 6 characters.';
       } else if (err.code === 'auth/operation-not-allowed') {
-        setError('Email/password sign-in is disabled. Please enable it in Supabase Auth.');
+        errorMessage = 'Email/password sign-in is disabled. Please enable it in Supabase Auth.';
       } else if (err.code === 'auth/email-not-authorized') {
-        setError('Supabase rejected this email address. Use a real email address, disable email confirmation for local testing, or configure custom SMTP.');
+        errorMessage = 'Supabase rejected this email address. Use a real email address, disable email confirmation for local testing, or configure custom SMTP.';
       } else if (err.code === 'auth/invalid-email') {
-        setError('Enter a valid email address.');
+        errorMessage = 'Enter a valid email address.';
       } else if (mode === 'signup' && err.code === 'auth/signup-failed') {
-        setError(err.message || 'Supabase could not create the account.');
+        errorMessage = err.message || 'Supabase could not create the account.';
       } else {
-        setError(err.message || 'An error occurred. Make sure email/password sign-in is enabled in Supabase Auth.');
+        errorMessage = err.message || 'An error occurred. Make sure email/password sign-in is enabled in Supabase Auth.';
       }
+      showInlineError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -150,18 +343,18 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
 
   const handleGoogleSignIn = async () => {
     if (mode === 'signup' && !hasAgreedToPrivacy) {
-      setError('Please review and agree to the Data Privacy Act notice before continuing.');
+      showInlineError('Please review and agree to the Data Privacy Act notice before continuing.');
       return;
     }
 
     setLoading(true);
     setError('');
     try {
-      await signInWithGoogle();
+      await signInWithGoogle(mode === 'signup' ? 'signup' : 'signin');
       onClose();
     } catch (err: any) {
       if (err?.code !== 'auth/cancelled-popup-request' && err?.code !== 'auth/popup-closed-by-user') {
-        setError('Google sign in failed. Please try again.');
+        showInlineError(mode === 'signup' ? 'Google sign up failed. Please try again.' : 'Google sign in failed. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -181,6 +374,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
         const { db } = await import('../lib/backend');
         await setDoc(doc(db, 'users', creds.user.uid), { storeId: 'demo1' }, { merge: true });
       }
+      toast.success(`Signed in as demo ${role.replace('_', ' ')}.`);
       onClose();
     } catch (err: any) {
       if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
@@ -205,14 +399,15 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
               window.location.reload();
             }, 500);
           }
+          toast.success(`Created and signed in as demo ${role.replace('_', ' ')}.`);
           onClose();
         } catch (createErr: any) {
-          setError('Failed to create demo account: ' + createErr.message);
+          showInlineError('Failed to create demo account: ' + createErr.message);
         }
       } else if (err.code === 'auth/operation-not-allowed') {
-        setError('Email/password sign-in is disabled. Please enable it in Supabase Auth.');
+        showInlineError('Email/password sign-in is disabled. Please enable it in Supabase Auth.');
       } else {
-        setError('Demo login failed: ' + err.message);
+        showInlineError('Demo login failed: ' + err.message);
       }
     } finally {
       setLoading(false);
@@ -225,10 +420,14 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     setError('');
     setMessage('');
     setPassword('');
+    setSignupProfile(emptySignupProfile);
     setOtpCode('');
     setOtpToken('');
     setOtpEmail('');
     setOtpExpiresAt(0);
+    setPendingMfa(null);
+    setMfaCode('');
+    setTrustDevice(false);
   };
 
   const handlePrivacyAgreement = () => {
@@ -242,7 +441,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     setHasAgreedToPrivacy(true);
     setPassword('');
     setError('');
-    setMessage('Signup was cancelled because the privacy notice was not accepted.');
+    showInlineError('Signup was cancelled because the privacy notice was not accepted.');
   };
 
   return (
@@ -252,7 +451,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
         onClick={e => e.stopPropagation()}
       >
         <button 
-          onClick={onClose}
+          onClick={handleClose}
           className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-full transition-colors z-10"
         >
           <X className="w-5 h-5" />
@@ -322,6 +521,81 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
             </div>
           )}
 
+          {pendingMfa ? (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                verifyPendingMfa();
+              }}
+              className="space-y-4"
+            >
+              <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4 text-left dark:border-orange-900/50 dark:bg-orange-900/20">
+                <div className="flex items-start gap-3">
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-orange-600 dark:text-orange-400" />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">Authenticator code required</p>
+                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{pendingMfa.reason}</p>
+                    {pendingMfa.reason.startsWith('We noticed') && (
+                      <p className="mt-2 flex items-start gap-1.5 text-xs text-orange-700 dark:text-orange-300">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        We noticed an attempt to log in. Verify it was you to continue.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1 text-left">
+                <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">
+                  Authentication Code
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  className="block w-full px-4 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                  placeholder="123456"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Use the 6-digit code from {pendingMfa.factorName}.
+                </p>
+              </div>
+
+              <label className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-3 text-left dark:border-gray-800 dark:bg-gray-800/70">
+                <input
+                  type="checkbox"
+                  checked={trustDevice}
+                  onChange={(event) => setTrustDevice(event.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-gray-900 dark:text-white">Trust this device for 30 days</span>
+                  <span className="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
+                    Skip the authenticator prompt on this browser unless the device or location changes. You can turn this off in your profile.
+                  </span>
+                </span>
+              </label>
+
+              <button
+                type="submit"
+                disabled={loading || !mfaCode}
+                className="w-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium py-3 px-4 rounded-xl hover:bg-gray-800 dark:hover:bg-gray-100 transition-all active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {loading ? 'Verifying...' : 'Verify and sign in'}
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={cancelPendingMfa}
+                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                Cancel sign in
+              </button>
+            </form>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1 text-left">
               <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">
@@ -350,6 +624,99 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                 />
               </div>
             </div>
+
+            {mode === 'signup' && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1 text-left sm:col-span-2">
+                  <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Full Name</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                      <User className="h-5 w-5" />
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={signupProfile.name}
+                      onChange={(e) => setSignupProfile({ ...signupProfile, name: e.target.value })}
+                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                      placeholder="Juan Dela Cruz"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1 text-left sm:col-span-2">
+                  <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Username</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                      <AtSign className="h-5 w-5" />
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={signupProfile.accountUsername}
+                      onChange={(e) => setSignupProfile({ ...signupProfile, accountUsername: normalizeSignupUsername(e.target.value) })}
+                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                      placeholder="juan.delacruz"
+                    />
+                  </div>
+                  <p className={`text-xs font-medium ${getSignupUsernameError(signupProfile.accountUsername) ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>
+                    {getSignupUsernameError(signupProfile.accountUsername) || 'Strong format. Uniqueness is verified when your account is created.'}
+                  </p>
+                </div>
+
+                <div className="space-y-1 text-left">
+                  <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Phone Number</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                      <Phone className="h-5 w-5" />
+                    </div>
+                    <input
+                      type="tel"
+                      required
+                      value={signupProfile.phone}
+                      onChange={(e) => setSignupProfile({ ...signupProfile, phone: e.target.value })}
+                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                      placeholder="0917 123 4567"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1 text-left">
+                  <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Birthday</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                      <Calendar className="h-5 w-5" />
+                    </div>
+                    <input
+                      type="date"
+                      required
+                      value={signupProfile.birthday}
+                      onChange={(e) => setSignupProfile({ ...signupProfile, birthday: e.target.value })}
+                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1 text-left sm:col-span-2">
+                  <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Referral Code (Optional)</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                      <Ticket className="h-5 w-5" />
+                    </div>
+                    <input
+                      type="text"
+                      value={signupProfile.referralCode}
+                      onChange={(e) => setSignupProfile({ ...signupProfile, referralCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) })}
+                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors uppercase"
+                      placeholder="STORE123"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    New customers can redeem one store referral code during signup for 1 stamp.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {mode !== 'forgot' && (
               <div className="space-y-1 text-left">
@@ -429,7 +796,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                   onClick={async () => {
                     const targetEmail = username.trim().toLowerCase();
                     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetEmail)) {
-                      setError('Enter a valid email address.');
+                      showInlineError('Enter a valid email address.');
                       return;
                     }
                     setLoading(true);
@@ -437,7 +804,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                     try {
                       await requestSignupOtp(targetEmail);
                     } catch (err: any) {
-                      setError(err.message || 'Could not send a new OTP.');
+                      showInlineError(err.message || 'Could not send a new OTP.');
                     } finally {
                       setLoading(false);
                     }
@@ -469,8 +836,9 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
               {loading ? 'Please wait...' : mode === 'signin' ? 'Sign in' : mode === 'signup' ? (otpToken ? 'Verify OTP & create account' : 'Send OTP') : 'Send reset link'}
             </button>
           </form>
+          )}
 
-          {mode !== 'forgot' && (
+          {mode !== 'forgot' && !pendingMfa && (
             <>
               <div className="mt-6 flex items-center text-xs text-gray-400 dark:text-gray-500 uppercase tracking-widest before:flex-1 before:border-t before:border-gray-200 dark:before:border-gray-800 before:mr-4 after:flex-1 after:border-t after:border-gray-200 dark:after:border-gray-800 after:ml-4">
                 Or
@@ -488,12 +856,12 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                   <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
                   <path d="M1 1h22v22H1z" fill="none"/>
                 </svg>
-                Continue with Google
+                {mode === 'signup' ? 'Sign up with Google' : 'Sign in with Google'}
               </button>
             </>
           )}
 
-          <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
+          {!pendingMfa && <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
             {mode === 'signin' ? (
               <>
                 Don't have an account?{' '}
@@ -513,9 +881,9 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                 Back to sign in
               </button>
             )}
-          </div>
+          </div>}
 
-          <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-800">
+          {!pendingMfa && <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-800">
             <p className="text-xs text-center text-gray-500 dark:text-gray-400 mb-3 uppercase tracking-widest font-semibold">Demo Accounts</p>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -547,7 +915,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                 Admin
               </button>
             </div>
-          </div>
+          </div>}
             </>
           )}
         </div>

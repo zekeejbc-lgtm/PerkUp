@@ -1,7 +1,17 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { User as AuthUser } from "@/src/lib/supabaseAuthCompat";
 import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
-import { auth, db, handleDataError, OperationType, testConnection } from "../lib/backend";
+import {
+  AUTH_REDIRECT_MESSAGE_KEY,
+  GOOGLE_AUTH_INTENT_KEY,
+  auth,
+  db,
+  handleDataError,
+  OperationType,
+  testConnection,
+} from "../lib/backend";
+import { signOut } from "@/src/lib/supabaseAuthCompat";
+import type { TrustedLoginDevice } from "@/src/lib/trustedDevice";
 
 export type Role = "customer" | "staff" | "store_owner" | "admin" | "auditor";
 
@@ -19,6 +29,8 @@ export interface AppUser {
   photoURL?: string;
   address?: string;
   storeId?: string;
+  skipMfaOnTrustedDevice?: boolean;
+  trustedLoginDevices?: TrustedLoginDevice[];
 }
 
 interface AuthContextType {
@@ -40,21 +52,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const rejectGoogleRedirect = async (message: string) => {
+    window.sessionStorage.setItem(AUTH_REDIRECT_MESSAGE_KEY, message);
+    window.sessionStorage.removeItem(GOOGLE_AUTH_INTENT_KEY);
+    setAuthUser(null);
+    setUser(null);
+    await signOut();
+  };
+
+  const getAuthProfile = (sessionUser: AuthUser) => ({
+    email: sessionUser.email || "",
+    name: sessionUser.displayName || "User",
+    avatarUrl: sessionUser.photoURL || "",
+    photoURL: sessionUser.photoURL || "",
+  });
+
   const loadUserProfile = async (sessionUser: AuthUser) => {
     const userDocRef = doc(db, "users", sessionUser.uid);
     const userDoc = await getDoc(userDocRef);
+    const googleAuthIntent = window.sessionStorage.getItem(GOOGLE_AUTH_INTENT_KEY);
 
     if (userDoc.exists()) {
+      if (googleAuthIntent === "signup") {
+        await rejectGoogleRedirect("An account already exists for this Google account. Please sign in instead.");
+        return;
+      }
+
+      window.sessionStorage.removeItem(GOOGLE_AUTH_INTENT_KEY);
+      const existingUser = userDoc.data() as AppUser;
+      const authProfile = getAuthProfile(sessionUser);
+      const profilePatch: Partial<AppUser> = {};
+      if (!existingUser.name && authProfile.name) profilePatch.name = authProfile.name;
+      if (!existingUser.avatarUrl && authProfile.avatarUrl) profilePatch.avatarUrl = authProfile.avatarUrl;
+      if (!existingUser.photoURL && authProfile.photoURL) profilePatch.photoURL = authProfile.photoURL;
+      if (Object.keys(profilePatch).length > 0) {
+        await setDoc(userDocRef, { ...profilePatch, updatedAt: serverTimestamp() }, { merge: true });
+      }
       setUser({
         id: sessionUser.uid,
-        ...userDoc.data(),
+        ...existingUser,
+        ...profilePatch,
       } as AppUser);
       return;
     }
 
+    if (googleAuthIntent === "signin") {
+      await rejectGoogleRedirect("No account was found, try registering.");
+      return;
+    }
+
+    window.sessionStorage.removeItem(GOOGLE_AUTH_INTENT_KEY);
+    const authProfile = getAuthProfile(sessionUser);
     const newUser = {
-      email: sessionUser.email || "",
-      name: sessionUser.displayName || "User",
+      ...authProfile,
       role: "customer" as Role,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),

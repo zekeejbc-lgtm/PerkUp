@@ -9,3 +9,6 @@ verify_jwt = false
 
 [functions.drive-image]
 verify_jwt = false
+
+[functions.store-referrals]
+verify_jwt = false

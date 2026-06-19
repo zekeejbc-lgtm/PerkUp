@@ -20,6 +20,12 @@ type RedemptionInput = {
   manualUsername?: string;
 };
 
+type ScannerLocation = {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+};
+
 const LEGACY_OFFLINE_QUEUE_KEY = "offlineScanQueue";
 const OFFLINE_QUEUE_PREFIX = "perkup:offlineScanQueue";
 const OFFLINE_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -35,6 +41,46 @@ const isValidCustomerQr = (scanToken: string) => isSecureCustomerQr(scanToken);
 
 const normalizePoints = (points: number) =>
   Math.min(Math.max(Math.trunc(Number(points) || 1), 1), MAX_POINTS_PER_SCAN);
+
+const distanceInMeters = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
+  const earthRadiusMeters = 6371e3;
+  const lat1 = from.lat * Math.PI / 180;
+  const lat2 = to.lat * Math.PI / 180;
+  const dLat = (to.lat - from.lat) * Math.PI / 180;
+  const dLon = (to.lng - from.lng) * Math.PI / 180;
+
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusMeters * c;
+};
+
+const getPromotionGeofence = (promo: any, store: any) => {
+  const promoLat = Number(promo?.geofenceLat);
+  const promoLng = Number(promo?.geofenceLng);
+  if (promo?.geofenceEnabled && Number.isFinite(promoLat) && Number.isFinite(promoLng)) {
+    return {
+      lat: promoLat,
+      lng: promoLng,
+      radiusMeters: Number(promo.geofenceRadiusMeters || 500),
+      label: "promotion",
+    };
+  }
+
+  const storeLat = Number(store?.lat);
+  const storeLng = Number(store?.lng);
+  if (Number.isFinite(storeLat) && Number.isFinite(storeLng)) {
+    return {
+      lat: storeLat,
+      lng: storeLng,
+      radiusMeters: 500,
+      label: "store",
+    };
+  }
+
+  return null;
+};
 
 const normalizeOfflineQueue = (
   value: unknown,
@@ -99,6 +145,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   // Geofencing state
   const [locationError, setLocationError] = useState<string | null>(null);
   const [isWithinGeofence, setIsWithinGeofence] = useState<boolean>(true); // Default true if no store coordinates
+  const [scannerLocation, setScannerLocation] = useState<ScannerLocation | null>(null);
 
   // Scanner state
   const [isScannerActive, setIsScannerActive] = useState(false);
@@ -198,8 +245,10 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
   useEffect(() => {
     const checkLocation = () => {
-      if (!store?.lat || !store?.lng) {
+      const geofence = getPromotionGeofence(promo, store);
+      if (!geofence) {
         setIsWithinGeofence(true);
+        setScannerLocation(null);
         return;
       }
 
@@ -211,31 +260,24 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          const userLat = position.coords.latitude;
-          const userLng = position.coords.longitude;
-          const MAX_DISTANCE_METERS = 500; 
+          const currentLocation = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+          };
+          const distance = distanceInMeters(currentLocation, geofence);
 
-          const R = 6371e3;
-          const lat1 = userLat * Math.PI/180;
-          const lat2 = store.lat * Math.PI/180;
-          const dLat = (store.lat - userLat) * Math.PI/180;
-          const dLon = (store.lng - userLng) * Math.PI/180;
-
-          const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                    Math.cos(lat1) * Math.cos(lat2) *
-                    Math.sin(dLon/2) * Math.sin(dLon/2);
-          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-          const distance = R * c;
-
-          if (distance <= MAX_DISTANCE_METERS) {
+          setScannerLocation(currentLocation);
+          if (distance <= geofence.radiusMeters) {
             setIsWithinGeofence(true);
             setLocationError(null);
           } else {
             setIsWithinGeofence(false);
-            setLocationError(`You are too far from the store. Distance: ${Math.round(distance)}m (Max: ${MAX_DISTANCE_METERS}m).`);
+            setLocationError(`You are too far from the ${geofence.label} geofence. Distance: ${Math.round(distance)}m (Max: ${geofence.radiusMeters}m).`);
           }
         },
-        (error) => {
+        () => {
+          setScannerLocation(null);
           setIsWithinGeofence(false);
           setLocationError("Unable to retrieve your location for security check.");
         }
@@ -243,7 +285,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     };
 
     checkLocation();
-  }, [store]);
+  }, [store, promo]);
 
   const handleScan = async (rawScannedId: string) => {
     const scannedId = String(rawScannedId || "").trim();
@@ -300,6 +342,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
         storeId: store.id,
         promotionId: id,
         points: pointsToAdd,
+        scannerLocation,
         previewOnly: true,
       });
 
@@ -308,6 +351,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
         redemptionInput: { scanToken: scannedId },
         username: result.customer.username,
         maskedName: result.customer.maskedName,
+        profilePic: result.customer.profilePic,
         existingStars: result.customer.existingStars,
       });
 
@@ -337,6 +381,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       storeId: store.id,
       promotionId: id,
       points: safePoints,
+      scannerLocation,
     });
   };
 
@@ -362,6 +407,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
         storeId: store.id,
         promotionId: id,
         points: pointsToAdd,
+        scannerLocation,
         previewOnly: true,
       });
 
@@ -370,6 +416,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
         redemptionInput: { manualUsername: username },
         username: result.customer.username,
         maskedName: result.customer.maskedName,
+        profilePic: result.customer.profilePic,
         existingStars: result.customer.existingStars,
       });
       setShowConfirmModal(true);
@@ -664,7 +711,16 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                  <p className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">Valid Until</p>
                  <p className="text-xl font-bold text-gray-900 dark:text-white">{promo.endDate ? new Date(promo.endDate).toLocaleDateString() : 'Continuous'}</p>
                </div>
+               <div>
+                 <p className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">Availability</p>
+                 <p className="text-xl font-bold text-gray-900 dark:text-white">{promo.maxRedemptions ? `${promo.maxRedemptions} total` : "Unlimited"}</p>
+               </div>
              </div>
+             {promo.geofenceEnabled && (
+               <div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-800 dark:border-orange-900/50 dark:bg-orange-900/20 dark:text-orange-300">
+                 Scanner is limited to {promo.geofenceRadiusMeters || 500}m from this promotion's geofence.
+               </div>
+             )}
           </div>
 
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8">
@@ -703,9 +759,13 @@ export default function StaffPromotionScan({ store }: { store: any }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white dark:bg-gray-900 rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-800 animate-in zoom-in-95">
             <div className="p-8 text-center border-b border-gray-100 dark:border-gray-800 bg-orange-50 dark:bg-orange-900/10">
-              <div className="w-20 h-20 rounded-full bg-white dark:bg-gray-800 border-4 border-orange-100 dark:border-gray-700 mx-auto flex items-center justify-center shadow-sm mb-4">
-                <UserCircle className="w-10 h-10 text-gray-400" />
-              </div>
+              {scannedCustomer.profilePic ? (
+                <img src={scannedCustomer.profilePic} alt="Customer" className="w-20 h-20 rounded-full mx-auto mb-4 border-4 border-white dark:border-gray-800 shadow-sm object-cover" />
+              ) : (
+                <div className="w-20 h-20 rounded-full bg-white dark:bg-gray-800 border-4 border-orange-100 dark:border-gray-700 mx-auto flex items-center justify-center shadow-sm mb-4">
+                  <UserCircle className="w-10 h-10 text-gray-400" />
+                </div>
+              )}
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">{scannedCustomer.maskedName}</h3>
               <p className="text-sm text-gray-500 mt-1 font-mono tracking-widest">@{scannedCustomer.username}</p>
             </div>

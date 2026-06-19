@@ -1,6 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { signInWithGoogle, db, handleDataError, OperationType } from "../lib/backend";
+import { AUTH_REDIRECT_MESSAGE_KEY, db } from "../lib/backend";
 import { QrCode, Star, Coffee, ArrowRight, MapPin, Pizza, Scissors, BookOpen, Shirt, Dumbbell, Glasses, Anchor, Search, Store as StoreIcon, Mail, Phone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
@@ -96,6 +96,14 @@ export default function LandingPage() {
     setAuthMode(mode);
     setShowAuthModal(true);
   };
+
+  useEffect(() => {
+    const redirectMessage = window.sessionStorage.getItem(AUTH_REDIRECT_MESSAGE_KEY);
+    if (!loading && !user && redirectMessage) {
+      setAuthMode("signin");
+      setShowAuthModal(true);
+    }
+  }, [loading, user]);
 
   useEffect(() => {
     async function fetchStores() {

@@ -3,7 +3,7 @@ import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../../contexts/AuthContext";
 import { doc, getDoc, collection, query, where, getCountFromServer } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
-import { Star, ShieldCheck, CreditCard, Gift, Info, Download } from "lucide-react";
+import { Star, ShieldCheck, CreditCard, Gift, Info, Download, RotateCcw, X, AlertTriangle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { issueCustomerQr, IssuedCustomerQr } from "@/src/lib/secureQr";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
@@ -80,6 +80,8 @@ export default function CustomerOverview() {
   const [appContact, setAppContact] = useState<AppContact | null>(null);
   const [qrTicket, setQrTicket] = useState<IssuedCustomerQr | null>(null);
   const [qrError, setQrError] = useState("");
+  const [qrRefreshing, setQrRefreshing] = useState(false);
+  const [showRefreshModal, setShowRefreshModal] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -141,6 +143,28 @@ export default function CustomerOverview() {
       active = false;
     };
   }, [user]);
+
+  const refreshQr = async () => {
+    if (!qrTicket?.token || qrRefreshing) return;
+
+    setShowRefreshModal(false);
+    setQrRefreshing(true);
+    try {
+      const ticket = await issueCustomerQr({ rotate: true });
+      setQrTicket(ticket);
+      setQrError("");
+    } catch (error) {
+      console.error("Failed to refresh customer QR", error);
+      setQrError(error instanceof Error ? error.message : "Could not refresh secure QR code.");
+    } finally {
+      setQrRefreshing(false);
+    }
+  };
+
+  const openRefreshModal = () => {
+    if (!qrTicket?.token || qrRefreshing) return;
+    setShowRefreshModal(true);
+  };
 
   const downloadQrPng = async () => {
     if (!qrTicket?.token) return;
@@ -323,6 +347,14 @@ export default function CustomerOverview() {
               <Download className="w-4 h-4" />
               Download PNG
             </button>
+            <button
+              onClick={openRefreshModal}
+              disabled={!qrTicket?.token || qrRefreshing}
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 px-4 py-3 bg-white text-gray-700 rounded-xl text-sm font-semibold border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors dark:bg-gray-900 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-800"
+            >
+              <RotateCcw className={`w-4 h-4 ${qrRefreshing ? "animate-spin" : ""}`} />
+              {qrRefreshing ? "Refreshing QR..." : "Refresh QR"}
+            </button>
           </div>
         </div>
 
@@ -359,6 +391,62 @@ export default function CustomerOverview() {
           </div>
         </div>
       </div>
+
+      {showRefreshModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="refresh-qr-title"
+          onClick={() => setShowRefreshModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-[2rem] border border-gray-100 bg-white shadow-2xl transition-colors dark:border-gray-800 dark:bg-gray-900"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="relative p-6 sm:p-7">
+              <button
+                type="button"
+                onClick={() => setShowRefreshModal(false)}
+                className="absolute right-4 top-4 rounded-full bg-gray-50 p-2 text-gray-400 transition-colors hover:text-gray-600 dark:bg-gray-800 dark:hover:text-gray-300"
+                aria-label="Close refresh QR confirmation"
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+
+              <h3 id="refresh-qr-title" className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">
+                Refresh your QR code?
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                A new secure QR will replace your current one. Any QR image you previously downloaded or shared will stop working.
+              </p>
+
+              <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRefreshModal(false)}
+                  className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+                >
+                  Keep Current QR
+                </button>
+                <button
+                  type="button"
+                  onClick={refreshQr}
+                  disabled={qrRefreshing}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RotateCcw className={`h-4 w-4 ${qrRefreshing ? "animate-spin" : ""}`} />
+                  {qrRefreshing ? "Refreshing..." : "Refresh QR"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

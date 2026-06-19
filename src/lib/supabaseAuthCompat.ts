@@ -15,10 +15,19 @@ export interface User {
   uid: string;
   email: string | null;
   displayName: string | null;
+  photoURL?: string | null;
   emailVerified?: boolean;
   isAnonymous?: boolean;
   tenantId?: string | null;
   providerData?: { providerId?: string | null; email?: string | null }[];
+}
+
+interface SignUpProfileData {
+  name?: string;
+  username?: string;
+  phone?: string;
+  birthday?: string;
+  avatarUrl?: string;
 }
 
 export interface AuthCompat {
@@ -33,13 +42,21 @@ export interface UserCredential {
 
 const toCompatUser = (user: SupabaseUser | null): User | null => {
   if (!user) return null;
+  const displayName =
+    (user.user_metadata?.full_name as string | undefined) ??
+    (user.user_metadata?.name as string | undefined) ??
+    null;
+  const photoURL =
+    (user.user_metadata?.avatar_url as string | undefined) ??
+    (user.user_metadata?.picture as string | undefined) ??
+    (user.user_metadata?.photoURL as string | undefined) ??
+    null;
+
   return {
     uid: user.id,
     email: user.email ?? null,
-    displayName:
-      (user.user_metadata?.full_name as string | undefined) ??
-      (user.user_metadata?.name as string | undefined) ??
-      null,
+    displayName,
+    photoURL,
     emailVerified: Boolean(user.email_confirmed_at),
     isAnonymous: user.is_anonymous,
     tenantId: null,
@@ -179,10 +196,24 @@ export async function createUserWithEmailAndPassword(
   authClient: AuthCompat,
   email: string,
   password: string,
+  profile?: SignUpProfileData,
 ): Promise<UserCredential> {
   const { data, error } = await authClient.client.signUp({
     email: normalizeEmail(email),
     password,
+    options: profile
+      ? {
+          data: {
+            full_name: profile.name?.trim(),
+            name: profile.name?.trim(),
+            username: profile.username?.trim().toLowerCase(),
+            phone: profile.phone?.trim(),
+            birthday: profile.birthday?.trim(),
+            avatar_url: profile.avatarUrl?.trim(),
+            photoURL: profile.avatarUrl?.trim(),
+          },
+        }
+      : undefined,
   });
   if (error) throw toSignUpError(error);
 

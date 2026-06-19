@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { doc, updateDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Save, MapPin, Clock, Image as ImageIcon, CheckCircle2, Navigation, Upload, X, Store } from "lucide-react";
+import { Save, MapPin, Clock, Image as ImageIcon, CheckCircle2, Upload, X, Store } from "lucide-react";
 import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 
-function LocationPicker({ position, setPosition }: { position: [number, number], setPosition: (p: [number, number]) => void }) {
+function LocationPicker({ setPosition }: { position: [number, number], setPosition: (p: [number, number]) => void }) {
   useMapEvents({
     click(e) {
       setPosition([e.latlng.lat, e.latlng.lng]);

@@ -55,7 +55,7 @@ export function PageSkeleton({ variant = "dashboard" }: { variant?: "dashboard" 
         <SkeletonBlock className="h-28 rounded-3xl" />
         <SkeletonBlock className="h-28 rounded-3xl" />
       </div>
-      <div className="rounded-[2rem] border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+      <div className="rounded-4xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <SkeletonBlock className="mb-5 h-7 w-48 rounded-xl" />
         <div className="grid gap-4 md:grid-cols-2">
           <SkeletonBlock className="h-40 rounded-3xl" />

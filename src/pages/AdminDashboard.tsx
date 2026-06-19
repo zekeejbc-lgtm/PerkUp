@@ -1,7 +1,6 @@
 import React, { lazy, Suspense, useState } from "react";
 import { Store, FileText, Layout, CreditCard } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ThemeToggle } from "../components/ThemeToggle";
 import { PageSkeleton } from "../components/LoadingSkeleton";
 
 const AdminStores = lazy(() => import("./admin/AdminStores"));
@@ -23,7 +22,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center gap-4">
         <div className="flex flex-wrap gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl w-max">
           {[
             { id: 'stores', label: 'Partner Stores', icon: Store },
@@ -45,7 +44,6 @@ export default function AdminDashboard() {
             </button>
           ))}
         </div>
-        <ThemeToggle />
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm transition-colors">

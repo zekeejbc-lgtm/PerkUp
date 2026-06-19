@@ -33,6 +33,8 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
 
   try {
+    const body = await req.json().catch(() => ({}));
+    const shouldRotateQr = Boolean(body.rotate);
     const supabaseUrl = requiredEnv("SUPABASE_URL");
     const anonKey = requiredEnv("SUPABASE_ANON_KEY");
     const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -56,11 +58,13 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (userError) throw userError;
-    if ((userRow?.data as { role?: string } | null)?.role !== "customer") {
+
+    const existingUser = (userRow?.data || {}) as Record<string, unknown>;
+    if (existingUser.role !== "customer") {
       return jsonResponse({ error: "Only customer accounts can generate customer QR codes." }, 403);
     }
 
-    const profile = (userRow?.data || {}) as {
+    const profile = existingUser as {
       name?: string;
       username?: string;
       phone?: string;
@@ -93,7 +97,24 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Save a unique username before generating a QR code." }, 422);
     }
 
-    const qrVersion = Number.isFinite(Number(profile.qrVersion)) ? Number(profile.qrVersion) : 1;
+    let qrVersion = Number.isFinite(Number(profile.qrVersion)) ? Number(profile.qrVersion) : 1;
+    if (shouldRotateQr) {
+      qrVersion += 1;
+      const nextUser = {
+        ...existingUser,
+        qrVersion,
+        updatedAt: {
+          seconds: Math.floor(Date.now() / 1000),
+          nanoseconds: 0,
+        },
+      };
+      const { error: updateError } = await admin
+        .from("users")
+        .update({ data: nextUser })
+        .eq("id", authData.user.id);
+      if (updateError) throw updateError;
+    }
+
     const payload = `${authData.user.id}.${qrVersion}`;
     const encodedPayload = base64Url(new TextEncoder().encode(payload));
     const signature = await signPayload(payload, serviceKey);

@@ -3,11 +3,18 @@ import { auth, secondaryAuth, signInWithOAuth, signOut } from "./supabaseAuthCom
 
 export { auth, db, secondaryAuth };
 
-export const signInWithGoogle = async () => {
+export type GoogleAuthIntent = "signin" | "signup";
+
+export const GOOGLE_AUTH_INTENT_KEY = "perkup:google-auth-intent";
+export const AUTH_REDIRECT_MESSAGE_KEY = "perkup:auth-redirect-message";
+
+export const signInWithGoogle = async (intent: GoogleAuthIntent = "signin") => {
   try {
+    window.sessionStorage.setItem(GOOGLE_AUTH_INTENT_KEY, intent);
     await signInWithOAuth("google");
     return null;
   } catch (error: any) {
+    window.sessionStorage.removeItem(GOOGLE_AUTH_INTENT_KEY);
     if (error?.code !== 'auth/cancelled-popup-request' && error?.code !== 'auth/popup-closed-by-user') {
       console.error("Sign in failed", error);
     }

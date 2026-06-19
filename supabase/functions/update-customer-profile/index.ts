@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
     if (userError) throw userError;
 
     const existingUser = (userRow?.data || {}) as Record<string, unknown>;
-    if (existingUser.role !== "customer") {
+    if (existingUser.role && existingUser.role !== "customer") {
       return jsonResponse({ error: "Only customer accounts can update customer usernames." }, 403);
     }
 
@@ -108,6 +108,10 @@ Deno.serve(async (req) => {
       ...payload,
       role: "customer",
       email: existingUser.email || authData.user.email || "",
+      createdAt: existingUser.createdAt || {
+        seconds: Math.floor(Date.now() / 1000),
+        nanoseconds: 0,
+      },
     };
 
     const { data: customerRow, error: customerReadError } = await admin
@@ -163,6 +167,7 @@ Deno.serve(async (req) => {
       ...((customerRow?.data || {}) as Record<string, unknown>),
       ...payload,
       userId: authData.user.id,
+      lifetimeStars: (customerRow?.data as Record<string, unknown> | undefined)?.lifetimeStars || 0,
     };
 
     const { error: customerUpdateError } = await admin

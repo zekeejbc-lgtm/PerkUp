@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useState } from "react";
 import AccountSecurity from "@/src/components/AccountSecurity";
 import { useAuth } from "../../contexts/AuthContext";
+import { logOut } from "../../lib/backend";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { updateCustomerProfile } from "@/src/lib/secureQr";
 import {
@@ -9,6 +10,7 @@ import {
   CheckCircle2,
   FileText,
   ImagePlus,
+  LogOut,
   Mail,
   Phone,
   Save,
@@ -182,9 +184,19 @@ export default function CustomerProfile() {
 
   return (
     <div className="max-w-3xl space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Profile</h2>
-        <p className="text-gray-500 dark:text-gray-400 mt-2">Manage your profile and account security.</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Profile</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-2">Manage your profile and account security.</p>
+        </div>
+        <button
+          type="button"
+          onClick={logOut}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+        >
+          <LogOut className="w-4 h-4" />
+          Log out
+        </button>
       </div>
 
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8">

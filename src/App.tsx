@@ -6,6 +6,8 @@ import { supabase } from "./lib/supabase";
 import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
 import { getDisplayImageUrl } from "./lib/imageStorage";
 import { DashboardShellSkeleton, PageSkeleton } from "./components/LoadingSkeleton";
+import { ThemeToggle } from "./components/ThemeToggle";
+import { findTrustedLoginDevice, getMfaPromptReason, trustCurrentDeviceForUser, TrustedLoginProfile } from "./lib/trustedDevice";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const StorePage = lazy(() => import("./pages/StorePage"));
@@ -14,10 +16,16 @@ const StaffDashboard = lazy(() => import("./pages/StaffDashboard"));
 const StoreOwnerDashboard = lazy(() => import("./pages/StoreOwnerDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 
-function MfaChallenge({ onVerified }: { onVerified: () => void }) {
+function MfaChallenge({ onVerified, profile }: { onVerified: () => void; profile?: TrustedLoginProfile | null }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
+  const [reason, setReason] = useState("Enter the code from your authentication app.");
+  const [trustDevice, setTrustDevice] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    getMfaPromptReason(profile).then(setReason).catch(() => undefined);
+  }, [profile]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -41,6 +49,12 @@ function MfaChallenge({ onVerified }: { onVerified: () => void }) {
       });
       if (verify.error) throw verify.error;
 
+      const userResponse = await supabase.auth.getUser();
+      const userId = userResponse.data.user?.id;
+      if (trustDevice && userId) {
+        await trustCurrentDeviceForUser(userId);
+      }
+
       onVerified();
     } catch (challengeError) {
       console.error("MFA challenge failed:", challengeError);
@@ -59,7 +73,7 @@ function MfaChallenge({ onVerified }: { onVerified: () => void }) {
           </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">Authenticator Required</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Enter the code from your authentication app.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{reason}</p>
           </div>
         </div>
 
@@ -83,6 +97,21 @@ function MfaChallenge({ onVerified }: { onVerified: () => void }) {
             placeholder="123456"
           />
         </div>
+
+        <label className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-3 text-left dark:border-gray-800 dark:bg-gray-800/70">
+          <input
+            type="checkbox"
+            checked={trustDevice}
+            onChange={(event) => setTrustDevice(event.target.checked)}
+            className="mt-1 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+          />
+          <span>
+            <span className="block text-sm font-semibold text-gray-900 dark:text-white">Trust this device for 30 days</span>
+            <span className="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
+              Skip this prompt on this browser unless the device or location changes.
+            </span>
+          </span>
+        </label>
 
         <div className="flex flex-col sm:flex-row gap-3">
           <button
@@ -127,7 +156,12 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode, allow
       try {
         const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
         if (error) throw error;
-        if (active) setMfaRequired(data.nextLevel === "aal2" && data.currentLevel !== "aal2");
+        if (data.nextLevel === "aal2" && data.currentLevel !== "aal2") {
+          const trustedDevice = await findTrustedLoginDevice(user);
+          if (active) setMfaRequired(!trustedDevice);
+          return;
+        }
+        if (active) setMfaRequired(false);
       } catch (error) {
         console.error("MFA assurance check failed:", error);
         if (active) setMfaRequired(false);
@@ -152,7 +186,7 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode, allow
   if (checkingMfa) return <PageSkeleton variant="auth" />;
 
   if (mfaRequired) {
-    return <MfaChallenge onVerified={() => setMfaRequired(false)} />;
+    return <MfaChallenge profile={user} onVerified={() => setMfaRequired(false)} />;
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
@@ -233,12 +267,7 @@ function Layout({ children }: { children: ReactNode }) {
                   <span className="text-xs text-gray-500 dark:text-gray-400 leading-tight truncate max-w-[120px]">{user?.email}</span>
                 </div>
               </button>
-              <button
-                onClick={logOut}
-                className="text-sm font-medium px-4 py-2 rounded-xl bg-gray-50 text-gray-600 hover:bg-gray-100 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:border dark:border-gray-800 transition-colors"
-              >
-                Sign out
-              </button>
+              <ThemeToggle />
             </div>
           </div>
         </div>

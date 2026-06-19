@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Store, User, Mail, PenTool, Image as ImageIcon, MapPin, Phone, CreditCard, Check, Upload } from 'lucide-react';
+import { X, Store, User, Mail, PenTool, Image as ImageIcon, MapPin, Phone, Check, Upload } from 'lucide-react';
 import { collection, doc, setDoc, getDoc, serverTimestamp } from '@/src/lib/dataCompat';
 import { db } from '../lib/backend';
 import 'leaflet/dist/leaflet.css';

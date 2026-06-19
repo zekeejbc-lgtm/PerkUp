@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Users, Star, CreditCard, ChevronRight } from "lucide-react";
+import { Users, Star } from "lucide-react";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
 
 export default function StaffCustomers({ store }: { store: any }) {
@@ -82,8 +82,8 @@ export default function StaffCustomers({ store }: { store: any }) {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                       <span className="flex items-center gap-2 font-bold text-gray-900 dark:text-white">
-                         <Star className="w-4 h-4 text-orange-500 fill-orange-500 cursor-help" title={`Total Stars: ${c.stars || 0}`} />
+                       <span className="flex items-center gap-2 font-bold text-gray-900 dark:text-white" title={`Total Stars: ${c.stars || 0}`}>
+                         <Star className="w-4 h-4 text-orange-500 fill-orange-500 cursor-help" />
                          {c.stars || 0}
                        </span>
                     </td>
