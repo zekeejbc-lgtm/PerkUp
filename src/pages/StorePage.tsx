@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { doc, getDoc } from "@/src/lib/dataCompat";
 import { db } from "../lib/backend";
 import { ArrowLeft, MapPin, Phone, Globe, Clock, Star, Share2 } from "lucide-react";
+import { PageSkeleton } from "../components/LoadingSkeleton";
 
 interface StoreContent {
   id: string;
@@ -73,11 +74,7 @@ export default function StorePage() {
   }, [storeId]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-[#fafafa] dark:bg-gray-950 flex justify-center items-center transition-colors">
-        <div className="animate-pulse flex items-center text-gray-400 dark:text-gray-600">Loading store details...</div>
-      </div>
-    );
+    return <PageSkeleton variant="store" />;
   }
 
   if (!store) {

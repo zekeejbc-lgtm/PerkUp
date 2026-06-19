@@ -3,6 +3,7 @@ import { collection, query, where, getDocs, doc, addDoc, updateDoc, deleteDoc, s
 import { db } from "../../lib/backend";
 import { Plus, Edit2, Trash2, X, Image as ImageIcon, Upload } from "lucide-react";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 export default function StoreOwnerProducts({ store }: { store: any }) {
   const [products, setProducts] = useState<any[]>([]);
@@ -105,7 +106,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
     }
   };
 
-  if (loading) return <div className="animate-pulse text-gray-500">Loading catalog...</div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="space-y-6">

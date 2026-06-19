@@ -4,6 +4,7 @@ import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
 import { Star, Coffee } from "lucide-react";
 import { Link } from "react-router-dom";
+import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 export default function CustomerCards() {
   const { user } = useAuth();
@@ -28,7 +29,7 @@ export default function CustomerCards() {
     fetchCards();
   }, [user]);
 
-  if (loading) return <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading cards...</div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="space-y-6">

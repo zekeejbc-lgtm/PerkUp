@@ -1,9 +1,8 @@
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useState } from "react";
 import AccountSecurity from "@/src/components/AccountSecurity";
 import { useAuth } from "../../contexts/AuthContext";
-import { doc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
-import { db } from "../../lib/backend";
-import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
+import { updateCustomerProfile } from "@/src/lib/secureQr";
 import {
   AtSign,
   Calendar,
@@ -16,6 +15,24 @@ import {
   UserCircle,
   X,
 } from "lucide-react";
+
+const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
+const RESERVED_USERNAMES = new Set(["admin", "administrator", "api", "help", "perkup", "staff", "store", "support"]);
+
+const normalizeUsername = (value: string) => value.trim().toLowerCase();
+
+const getUsernameValidationMessage = (value: string) => {
+  const username = normalizeUsername(value);
+  if (!username) return "Username is required for QR and staff manual lookup.";
+  if (username.length < 4) return "Use at least 4 characters.";
+  if (username.length > 24) return "Use 24 characters or fewer.";
+  if (!USERNAME_PATTERN.test(username)) return "Start with a letter; use letters, numbers, dots, or underscores.";
+  if (username.includes("..") || username.includes("__") || username.includes("._") || username.includes("_.")) {
+    return "Do not repeat or mix separators.";
+  }
+  if (RESERVED_USERNAMES.has(username)) return "This username is reserved.";
+  return "";
+};
 
 export default function CustomerProfile() {
   const { user, refreshUser } = useAuth();
@@ -30,7 +47,9 @@ export default function CustomerProfile() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [pendingAvatarPreviewUrl, setPendingAvatarPreviewUrl] = useState("");
+  const [formError, setFormError] = useState("");
 
   const buildFormData = () => ({
     name: user?.name || "",
@@ -47,53 +66,93 @@ export default function CustomerProfile() {
     }
   }, [user]);
 
-  const handleImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    return () => {
+      if (pendingAvatarPreviewUrl) URL.revokeObjectURL(pendingAvatarPreviewUrl);
+    };
+  }, [pendingAvatarPreviewUrl]);
+
+  const clearPendingAvatar = () => {
+    if (pendingAvatarPreviewUrl) {
+      URL.revokeObjectURL(pendingAvatarPreviewUrl);
+    }
+    setPendingAvatarFile(null);
+    setPendingAvatarPreviewUrl("");
+  };
+
+  const handleImageUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !user?.id) return;
 
-    setUploading(true);
-    try {
-      const avatarUrl = await uploadImageFileToDrive(file, {
-        owner: formData.username || user.email || user.id,
-        purpose: "customer-avatar",
-      });
-      setFormData((current) => ({ ...current, avatarUrl }));
-    } catch (error) {
-      console.error("Failed to upload customer profile picture:", error);
-      alert("Failed to upload profile picture.");
-    } finally {
-      setUploading(false);
+    if (!file.type.startsWith("image/")) {
+      setFormError("Only image uploads are supported.");
       event.target.value = "";
+      return;
     }
+
+    if (pendingAvatarPreviewUrl) URL.revokeObjectURL(pendingAvatarPreviewUrl);
+    setPendingAvatarFile(file);
+    setPendingAvatarPreviewUrl(URL.createObjectURL(file));
+    setFormError("");
+    event.target.value = "";
   };
 
   const handleSave = async (event: FormEvent) => {
     event.preventDefault();
     if (!user?.id) return;
 
+    const username = normalizeUsername(formData.username);
+    const usernameMessage = getUsernameValidationMessage(username);
+    if (usernameMessage) {
+      setFormError(usernameMessage);
+      return;
+    }
+
     setSaving(true);
     setSaved(false);
+    setFormError("");
+    let uploadedAvatarUrl = "";
     try {
-      const payload = {
+      let avatarUrl = formData.avatarUrl;
+      const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
+
+      if (pendingAvatarFile) {
+        avatarUrl = await uploadImageFileToDriveSecure(pendingAvatarFile, {
+          owner: username || user.email || user.id,
+          purpose: "customer-avatar",
+        });
+        uploadedAvatarUrl = avatarUrl;
+      }
+
+      await updateCustomerProfile({
         name: formData.name,
-        username: formData.username,
+        username,
         phone: formData.phone,
-        number: formData.phone,
         bio: formData.bio,
         birthday: formData.birthday,
-        avatarUrl: formData.avatarUrl,
-        photoURL: formData.avatarUrl,
-        updatedAt: serverTimestamp(),
-      };
-      await setDoc(doc(db, "users", user.id), payload, { merge: true });
-      await setDoc(doc(db, "customers", user.id), payload, { merge: true });
+        avatarUrl,
+      });
+
+      if (uploadedAvatarUrl && previousAvatarUrl && previousAvatarUrl !== uploadedAvatarUrl) {
+        deleteImageFromDriveSecure(previousAvatarUrl).catch((deleteError) => {
+          console.warn("Profile saved, but the previous Drive avatar could not be deleted:", deleteError);
+        });
+      }
+
       await refreshUser();
+      clearPendingAvatar();
+      setFormData((current) => ({ ...current, username, avatarUrl }));
       setSaved(true);
       setIsEditing(false);
       window.setTimeout(() => setSaved(false), 3000);
     } catch (error) {
+      if (uploadedAvatarUrl) {
+        deleteImageFromDriveSecure(uploadedAvatarUrl).catch((deleteError) => {
+          console.warn("Profile save failed, and the new Drive avatar could not be cleaned up:", deleteError);
+        });
+      }
       console.error("Failed to update customer profile:", error);
-      alert("Failed to update profile.");
+      setFormError(error instanceof Error ? error.message : "Failed to update profile.");
     } finally {
       setSaving(false);
     }
@@ -101,8 +160,14 @@ export default function CustomerProfile() {
 
   const handleCancel = () => {
     setFormData(buildFormData());
+    clearPendingAvatar();
     setSaved(false);
+    setFormError("");
     setIsEditing(false);
+  };
+
+  const scrollToEmailSecurity = () => {
+    document.getElementById("email-security")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const infoRow = (label: string, value?: string, icon?: ReactNode) => (
@@ -124,25 +189,30 @@ export default function CustomerProfile() {
 
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8">
         <form onSubmit={handleSave} className="space-y-6">
+          {formError && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+              {formError}
+            </div>
+          )}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-center gap-5">
               <div className="relative w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center overflow-hidden group">
-                {formData.avatarUrl ? (
-                  <img src={getDisplayImageUrl(formData.avatarUrl)} alt="Profile" className="h-full w-full object-cover" />
+                {pendingAvatarPreviewUrl || formData.avatarUrl ? (
+                  <img src={pendingAvatarPreviewUrl || getDisplayImageUrl(formData.avatarUrl)} alt="Profile" className="h-full w-full object-cover" />
                 ) : (
                   <UserCircle className="w-12 h-12 text-orange-600 dark:text-orange-400" />
                 )}
                 {isEditing && (
                   <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
                     <ImagePlus className="w-5 h-5" />
-                    <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={uploading} />
+                    <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={saving} />
                   </label>
                 )}
               </div>
               <div>
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">{formData.name || "Customer"}</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400">{user?.email}</p>
-                {uploading && <p className="mt-1 text-xs text-orange-600 dark:text-orange-400">Uploading profile picture...</p>}
+                {pendingAvatarFile && <p className="mt-1 text-xs text-orange-600 dark:text-orange-400">New profile picture ready to save.</p>}
               </div>
             </div>
             {!isEditing ? (
@@ -162,7 +232,7 @@ export default function CustomerProfile() {
                   <X className="w-4 h-4" />
                   Cancel
                 </button>
-                <button type="submit" disabled={saving || uploading} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-gray-900">
+                <button type="submit" disabled={saving || Boolean(getUsernameValidationMessage(formData.username))} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-gray-900">
                   <Save className="w-4 h-4" />
                   {saving ? "Saving..." : "Save"}
                 </button>
@@ -175,7 +245,15 @@ export default function CustomerProfile() {
               {infoRow("Name", formData.name)}
               {infoRow("Username", formData.username, <AtSign className="w-3.5 h-3.5" />)}
               {infoRow("Number", formData.phone, <Phone className="w-3.5 h-3.5" />)}
-              {infoRow("Email", user?.email || "", <Mail className="w-3.5 h-3.5" />)}
+              <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 px-4 py-3">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <Mail className="w-3.5 h-3.5" />
+                  Email
+                </div>
+                <div className="mt-1">
+                  <div className="text-sm font-medium text-gray-900 dark:text-white break-words">{user?.email || "Not set"}</div>
+                </div>
+              </div>
               {infoRow("Birthday", formData.birthday, <Calendar className="w-3.5 h-3.5" />)}
               {infoRow("Bio", formData.bio, <FileText className="w-3.5 h-3.5" />)}
             </div>
@@ -187,23 +265,41 @@ export default function CustomerProfile() {
               </label>
 
               <label className="space-y-2">
-                <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><AtSign className="w-4 h-4 text-gray-400" /> Username</span>
-                <input type="text" value={formData.username} onChange={(event) => setFormData({ ...formData, username: event.target.value })} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
+                <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><AtSign className="w-4 h-4 text-gray-400" /> Username <span className="text-orange-600">*</span></span>
+                <input
+                  type="text"
+                  required
+                  value={formData.username}
+                  onChange={(event) => setFormData({ ...formData, username: normalizeUsername(event.target.value) })}
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white"
+                />
+                <p className={`text-xs font-medium ${getUsernameValidationMessage(formData.username) ? "text-orange-600 dark:text-orange-400" : "text-green-600 dark:text-green-400"}`}>
+                  {getUsernameValidationMessage(formData.username) || "Strong format. Uniqueness is verified when you save."}
+                </p>
               </label>
 
               <label className="space-y-2">
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Phone className="w-4 h-4 text-gray-400" /> Number</span>
-                <input type="tel" value={formData.phone} onChange={(event) => setFormData({ ...formData, phone: event.target.value })} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
+                <input type="tel" required value={formData.phone} onChange={(event) => setFormData({ ...formData, phone: event.target.value })} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
               </label>
 
               <label className="space-y-2">
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Calendar className="w-4 h-4 text-gray-400" /> Birthday</span>
-                <input type="date" value={formData.birthday} onChange={(event) => setFormData({ ...formData, birthday: event.target.value })} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
+                <input type="date" required value={formData.birthday} onChange={(event) => setFormData({ ...formData, birthday: event.target.value })} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
               </label>
 
               <label className="space-y-2 sm:col-span-2">
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Mail className="w-4 h-4 text-gray-400" /> Email</span>
-                <input type="email" readOnly value={user?.email || ""} className="w-full px-4 py-2.5 bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800 text-gray-500 rounded-xl outline-none cursor-not-allowed" />
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <input type="email" readOnly value={user?.email || ""} className="min-w-0 flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800 text-gray-500 rounded-xl outline-none cursor-not-allowed" />
+                  <button
+                    type="button"
+                    onClick={scrollToEmailSecurity}
+                    className="inline-flex items-center justify-center rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-orange-700"
+                  >
+                    Change email
+                  </button>
+                </div>
               </label>
 
               <label className="space-y-2 sm:col-span-2">

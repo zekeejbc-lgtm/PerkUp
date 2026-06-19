@@ -1,18 +1,18 @@
-import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { FormEvent, lazy, ReactNode, Suspense, useEffect, useState } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { useAuth, Role } from "./contexts/AuthContext";
 import { logOut } from "./lib/backend";
 import { supabase } from "./lib/supabase";
 import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
-
-// Placeholders for views
-import LandingPage from "./pages/LandingPage";
-import StorePage from "./pages/StorePage";
-import CustomerDashboard from "./pages/CustomerDashboard";
-import StaffDashboard from "./pages/StaffDashboard";
-import StoreOwnerDashboard from "./pages/StoreOwnerDashboard";
-import AdminDashboard from "./pages/AdminDashboard";
 import { getDisplayImageUrl } from "./lib/imageStorage";
+import { DashboardShellSkeleton, PageSkeleton } from "./components/LoadingSkeleton";
+
+const LandingPage = lazy(() => import("./pages/LandingPage"));
+const StorePage = lazy(() => import("./pages/StorePage"));
+const CustomerDashboard = lazy(() => import("./pages/CustomerDashboard"));
+const StaffDashboard = lazy(() => import("./pages/StaffDashboard"));
+const StoreOwnerDashboard = lazy(() => import("./pages/StoreOwnerDashboard"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 
 function MfaChallenge({ onVerified }: { onVerified: () => void }) {
   const [code, setCode] = useState("");
@@ -143,13 +143,13 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode, allow
     };
   }, [loading, user?.id]);
 
-  if (loading) return <div className="flex items-center justify-center min-h-screen bg-[#fafafa]">Loading...</div>;
+  if (loading) return <PageSkeleton variant="auth" />;
 
   if (!user) {
     return <Navigate to="/" replace />;
   }
 
-  if (checkingMfa) return <div className="flex items-center justify-center min-h-screen bg-[#fafafa]">Loading...</div>;
+  if (checkingMfa) return <PageSkeleton variant="auth" />;
 
   if (mfaRequired) {
     return <MfaChallenge onVerified={() => setMfaRequired(false)} />;
@@ -253,31 +253,31 @@ function Layout({ children }: { children: ReactNode }) {
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<LandingPage />} />
-      <Route path="/store/:storeId" element={<StorePage />} />
+      <Route path="/" element={<Suspense fallback={<PageSkeleton variant="store" />}><LandingPage /></Suspense>} />
+      <Route path="/store/:storeId" element={<Suspense fallback={<PageSkeleton variant="store" />}><StorePage /></Suspense>} />
       <Route path="/dashboard" element={<RoleRouter />} />
       
       <Route path="/customer/*" element={
         <ProtectedRoute allowedRoles={["customer"]}>
-          <Layout><CustomerDashboard /></Layout>
+          <Layout><Suspense fallback={<DashboardShellSkeleton />}><CustomerDashboard /></Suspense></Layout>
         </ProtectedRoute>
       } />
       
       <Route path="/staff/*" element={
         <ProtectedRoute allowedRoles={["staff"]}>
-          <Layout><StaffDashboard /></Layout>
+          <Layout><Suspense fallback={<DashboardShellSkeleton />}><StaffDashboard /></Suspense></Layout>
         </ProtectedRoute>
       } />
       
       <Route path="/owner/*" element={
         <ProtectedRoute allowedRoles={["store_owner"]}>
-          <Layout><StoreOwnerDashboard /></Layout>
+          <Layout><Suspense fallback={<DashboardShellSkeleton />}><StoreOwnerDashboard /></Suspense></Layout>
         </ProtectedRoute>
       } />
       
       <Route path="/admin/*" element={
         <ProtectedRoute allowedRoles={["admin", "auditor"]}>
-          <Layout><AdminDashboard /></Layout>
+          <Layout><Suspense fallback={<PageSkeleton />}><AdminDashboard /></Suspense></Layout>
         </ProtectedRoute>
       } />
     </Routes>

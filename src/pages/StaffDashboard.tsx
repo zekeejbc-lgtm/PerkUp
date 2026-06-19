@@ -1,15 +1,17 @@
 import { Routes, Route, Link, useLocation } from "react-router-dom";
 import { Store, Gift, Users, UserCircle, Menu } from "lucide-react";
-import { useState, useEffect } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { doc, getDoc } from "@/src/lib/dataCompat";
 import { db } from "../lib/backend";
 
-import StaffStore from "./staff/StaffStore";
-import StaffPromotions from "./staff/StaffPromotions";
-import StaffPromotionScan from "./staff/StaffPromotionScan";
-import StaffCustomers from "./staff/StaffCustomers";
-import StaffAccount from "./staff/StaffAccount";
+import { DashboardShellSkeleton, PageSkeleton } from "../components/LoadingSkeleton";
+
+const StaffStore = lazy(() => import("./staff/StaffStore"));
+const StaffPromotions = lazy(() => import("./staff/StaffPromotions"));
+const StaffPromotionScan = lazy(() => import("./staff/StaffPromotionScan"));
+const StaffCustomers = lazy(() => import("./staff/StaffCustomers"));
+const StaffAccount = lazy(() => import("./staff/StaffAccount"));
 
 export default function StaffDashboard() {
   const location = useLocation();
@@ -71,7 +73,7 @@ export default function StaffDashboard() {
   ];
 
   if (loading) {
-    return <div className="animate-pulse p-8 text-gray-500 text-center">Loading staff dashboard...</div>;
+    return <DashboardShellSkeleton />;
   }
 
   if (!store && location.pathname !== '/staff/account') {
@@ -167,13 +169,15 @@ export default function StaffDashboard() {
 
       {/* Main Content Area */}
       <div className="flex-1 min-w-0 bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-4 sm:p-6 md:p-8 shadow-sm">
-        <Routes>
-          <Route path="/" element={<StaffStore store={store} />} />
-          <Route path="/promotions" element={<StaffPromotions store={store} />} />
-          <Route path="/promotions/:id" element={<StaffPromotionScan store={store} />} />
-          <Route path="/customers" element={<StaffCustomers store={store} />} />
-          <Route path="/account" element={<StaffAccount />} />
-        </Routes>
+        <Suspense fallback={<PageSkeleton />}>
+          <Routes>
+            <Route path="/" element={<StaffStore store={store} />} />
+            <Route path="/promotions" element={<StaffPromotions store={store} />} />
+            <Route path="/promotions/:id" element={<StaffPromotionScan store={store} />} />
+            <Route path="/customers" element={<StaffCustomers store={store} />} />
+            <Route path="/account" element={<StaffAccount />} />
+          </Routes>
+        </Suspense>
       </div>
     </div>
   );

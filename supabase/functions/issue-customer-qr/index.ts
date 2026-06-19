@@ -1,8 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
-import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 
-const TOKEN_PREFIX = "perkup:v1:";
-const TOKEN_TTL_SECONDS = 10 * 60;
+const PERMANENT_TOKEN_PREFIX = "perkup:v2:";
+const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
 
 const requiredEnv = (name: string) => {
   const value = Deno.env.get(name);
@@ -16,15 +16,20 @@ const base64Url = (bytes: Uint8Array) =>
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
 
-const sha256Hex = async (value: string) => {
-  const buffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(buffer))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+const signPayload = async (payload: string, secret: string) => {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return base64Url(new Uint8Array(signature));
 };
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return corsPreflightResponse();
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
 
   try {
@@ -55,29 +60,49 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Only customer accounts can generate customer QR codes." }, 403);
     }
 
-    const randomBytes = new Uint8Array(32);
-    crypto.getRandomValues(randomBytes);
-    const token = `${TOKEN_PREFIX}${base64Url(randomBytes)}`;
-    const tokenHash = await sha256Hex(token);
-    const expiresAt = new Date(Date.now() + TOKEN_TTL_SECONDS * 1000).toISOString();
+    const profile = (userRow?.data || {}) as {
+      name?: string;
+      username?: string;
+      phone?: string;
+      number?: string;
+      birthday?: string;
+      qrVersion?: number;
+    };
+    const username = String(profile.username || "").trim().toLowerCase();
+    const missingFields = [
+      String(profile.name || "").trim() ? "" : "name",
+      USERNAME_PATTERN.test(username) ? "" : "username",
+      String(profile.phone || profile.number || "").trim() ? "" : "phone number",
+      String(profile.birthday || "").trim() ? "" : "birthday",
+    ].filter(Boolean);
 
-    const { error: insertError } = await admin.from("customer_qr_tokens").insert({
-      token_hash: tokenHash,
-      customer_id: authData.user.id,
-      expires_at: expiresAt,
-    });
-    if (insertError) throw insertError;
+    if (missingFields.length > 0) {
+      return jsonResponse(
+        { error: `Complete your profile before generating a QR code. Missing: ${missingFields.join(", ")}.` },
+        422,
+      );
+    }
 
-    await admin
-      .from("customer_qr_tokens")
-      .delete()
-      .eq("customer_id", authData.user.id)
-      .lt("expires_at", new Date().toISOString());
+    const { data: usernameRow, error: usernameError } = await admin
+      .from("customer_usernames")
+      .select("customer_id")
+      .eq("username", username)
+      .maybeSingle();
+    if (usernameError) throw usernameError;
+    if (usernameRow?.customer_id !== authData.user.id) {
+      return jsonResponse({ error: "Save a unique username before generating a QR code." }, 422);
+    }
+
+    const qrVersion = Number.isFinite(Number(profile.qrVersion)) ? Number(profile.qrVersion) : 1;
+    const payload = `${authData.user.id}.${qrVersion}`;
+    const encodedPayload = base64Url(new TextEncoder().encode(payload));
+    const signature = await signPayload(payload, serviceKey);
+    const token = `${PERMANENT_TOKEN_PREFIX}${encodedPayload}.${signature}`;
 
     return jsonResponse({
       token,
-      expiresAt,
-      ttlSeconds: TOKEN_TTL_SECONDS,
+      expiresAt: null,
+      ttlSeconds: null,
     });
   } catch (error) {
     console.error("issue-customer-qr failed", error);

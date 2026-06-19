@@ -6,6 +6,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { User, Mail, Key, Plus, Trash2, Shield, UserCog, Loader2, Save, X, AtSign, Phone, Calendar, FileText, ImagePlus } from "lucide-react";
 import AccountSecurity from "@/src/components/AccountSecurity";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { SkeletonBlock } from "../../components/LoadingSkeleton";
 
 export default function AdminAccount() {
   const { user, refreshUser } = useAuth();
@@ -274,7 +275,10 @@ export default function AdminAccount() {
 
           <div className="bg-white dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
             {loading ? (
-              <div className="p-8 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
+              <div className="space-y-3 p-4">
+                <SkeletonBlock className="h-16 rounded-2xl" />
+                <SkeletonBlock className="h-16 rounded-2xl" />
+              </div>
             ) : (
               <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
                  {admins.map(admin => (

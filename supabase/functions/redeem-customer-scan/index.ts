@@ -1,8 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
-import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 
-const TOKEN_PREFIX = "perkup:v1:";
+const LEGACY_TOKEN_PREFIX = "perkup:v1:";
+const SIGNED_TOKEN_PREFIX = "perkup:v2:";
 const MAX_POINTS_PER_SCAN = 100;
+const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
 
 const requiredEnv = (name: string) => {
   const value = Deno.env.get(name);
@@ -13,6 +15,23 @@ const requiredEnv = (name: string) => {
 const normalizePoints = (points: unknown) =>
   Math.min(Math.max(Math.trunc(Number(points) || 1), 1), MAX_POINTS_PER_SCAN);
 
+const normalizeUsername = (value: unknown) =>
+  String(value || "").trim().toLowerCase();
+
+const isValidUsername = (username: string) =>
+  USERNAME_PATTERN.test(username) &&
+  !username.includes("..") &&
+  !username.includes("__") &&
+  !username.includes("._") &&
+  !username.includes("_.");
+
+const maskName = (value: string) => {
+  const compact = value.trim().replace(/\s+/g, "");
+  if (!compact) return "C***R";
+  if (compact.length === 1) return `${compact[0].toUpperCase()}***`;
+  return `${compact[0].toUpperCase()}***${compact[compact.length - 1].toUpperCase()}`;
+};
+
 const sha256Hex = async (value: string) => {
   const buffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(buffer))
@@ -20,19 +39,78 @@ const sha256Hex = async (value: string) => {
     .join("");
 };
 
+const base64UrlToBytes = (value: string) => {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(normalized.length + (4 - normalized.length % 4) % 4, "=");
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+};
+
+const signPayload = async (payload: string, secret: string) => {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload)));
+};
+
+const timingSafeEqual = (left: Uint8Array, right: Uint8Array) => {
+  if (left.length !== right.length) return false;
+  let diff = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    diff |= left[index] ^ right[index];
+  }
+  return diff === 0;
+};
+
+const verifySignedCustomerToken = async (scanToken: string, secret: string) => {
+  if (!scanToken.startsWith(SIGNED_TOKEN_PREFIX)) return null;
+
+  try {
+    const tokenBody = scanToken.slice(SIGNED_TOKEN_PREFIX.length);
+    const [encodedPayload, encodedSignature] = tokenBody.split(".");
+    if (!encodedPayload || !encodedSignature) return null;
+
+    const payload = new TextDecoder().decode(base64UrlToBytes(encodedPayload));
+    const [customerId, versionText] = payload.split(".");
+    const qrVersion = Number(versionText);
+    if (!customerId || !Number.isInteger(qrVersion) || qrVersion < 1) return null;
+
+    const expectedSignature = await signPayload(payload, secret);
+    const actualSignature = base64UrlToBytes(encodedSignature);
+    if (!timingSafeEqual(actualSignature, expectedSignature)) return null;
+
+    return { customerId, qrVersion };
+  } catch {
+    return null;
+  }
+};
+
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return corsPreflightResponse();
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
 
   try {
     const body = await req.json().catch(() => ({}));
     const scanToken = String(body.scanToken || "").trim();
+    const manualUsername = normalizeUsername(body.manualUsername);
     const storeId = String(body.storeId || "").trim();
     const promotionId = String(body.promotionId || "").trim();
     const points = normalizePoints(body.points);
     const previewOnly = Boolean(body.previewOnly);
 
-    if (!scanToken.startsWith(TOKEN_PREFIX)) return jsonResponse({ error: "Invalid PerkUp QR code." }, 400);
+    const isManualLookup = Boolean(manualUsername);
+    const isSignedToken = scanToken.startsWith(SIGNED_TOKEN_PREFIX);
+    const isLegacyToken = scanToken.startsWith(LEGACY_TOKEN_PREFIX);
+    if (!isManualLookup && !isSignedToken && !isLegacyToken) {
+      return jsonResponse({ error: "Invalid PerkUp QR code." }, 400);
+    }
+    if (isManualLookup && !isValidUsername(manualUsername)) {
+      return jsonResponse({ error: "Customer username could not be verified." }, 404);
+    }
     if (!storeId) return jsonResponse({ error: "Store is required." }, 400);
 
     const supabaseUrl = requiredEnv("SUPABASE_URL");
@@ -65,20 +143,40 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "This staff account is not authorized for this store." }, 403);
     }
 
-    const tokenHash = await sha256Hex(scanToken);
-    const { data: tokenRow, error: tokenError } = await admin
-      .from("customer_qr_tokens")
-      .select("customer_id, expires_at, used_at")
-      .eq("token_hash", tokenHash)
-      .maybeSingle();
-    if (tokenError) throw tokenError;
-    if (!tokenRow) return jsonResponse({ error: "QR code was not issued by PerkUp." }, 400);
-    if (tokenRow.used_at) return jsonResponse({ error: "QR code has already been used." }, 409);
-    if (new Date(tokenRow.expires_at).getTime() <= Date.now()) {
-      return jsonResponse({ error: "QR code has expired. Ask the customer to refresh it." }, 410);
-    }
+    let customerId = "";
+    let tokenHash = "";
 
-    const customerId = tokenRow.customer_id as string;
+    if (isManualLookup) {
+      const { data: usernameRow, error: usernameError } = await admin
+        .from("customer_usernames")
+        .select("customer_id")
+        .eq("username", manualUsername)
+        .maybeSingle();
+      if (usernameError) throw usernameError;
+      if (!usernameRow?.customer_id) {
+        return jsonResponse({ error: "Customer username could not be verified." }, 404);
+      }
+      customerId = usernameRow.customer_id as string;
+    } else if (isSignedToken) {
+      const verifiedToken = await verifySignedCustomerToken(scanToken, serviceKey);
+      if (!verifiedToken) return jsonResponse({ error: "QR code signature could not be verified." }, 400);
+
+      customerId = verifiedToken.customerId;
+    } else {
+      tokenHash = await sha256Hex(scanToken);
+      const { data: tokenRow, error: tokenError } = await admin
+        .from("customer_qr_tokens")
+        .select("customer_id, expires_at, used_at")
+        .eq("token_hash", tokenHash)
+        .maybeSingle();
+      if (tokenError) throw tokenError;
+      if (!tokenRow) return jsonResponse({ error: "QR code was not issued by PerkUp." }, 400);
+      if (tokenRow.used_at) return jsonResponse({ error: "QR code has already been used." }, 409);
+      if (new Date(tokenRow.expires_at).getTime() <= Date.now()) {
+        return jsonResponse({ error: "QR code has expired. Ask the customer to refresh it." }, 410);
+      }
+      customerId = tokenRow.customer_id as string;
+    }
     const { data: customerRow, error: customerError } = await admin
       .from("users")
       .select("data")
@@ -86,7 +184,22 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (customerError) throw customerError;
 
-    const customer = customerRow?.data as { name?: string; profilePic?: string; avatarUrl?: string; photoURL?: string } | null;
+    const customer = customerRow?.data as {
+      name?: string;
+      username?: string;
+      qrVersion?: number;
+    } | null;
+    if (isSignedToken) {
+      const verifiedToken = await verifySignedCustomerToken(scanToken, serviceKey);
+      const activeQrVersion = Number.isFinite(Number(customer?.qrVersion)) ? Number(customer?.qrVersion) : 1;
+      if (!verifiedToken || verifiedToken.qrVersion !== activeQrVersion) {
+        return jsonResponse({ error: "QR code has been replaced. Ask the customer for their latest QR." }, 410);
+      }
+    }
+    const customerUsername = normalizeUsername(customer?.username || manualUsername);
+    if (!customer || customerUsername !== (manualUsername || customerUsername)) {
+      return jsonResponse({ error: "Customer username could not be verified." }, 404);
+    }
     const { data: cardRows, error: cardQueryError } = await admin
       .from("cards")
       .select("id,data")
@@ -149,18 +262,21 @@ Deno.serve(async (req) => {
       });
       if (logError) throw logError;
 
-      const { error: consumeError } = await admin
-        .from("customer_qr_tokens")
-        .update({ used_at: new Date().toISOString() })
-        .eq("token_hash", tokenHash);
-      if (consumeError) throw consumeError;
+      if (isLegacyToken) {
+        const { error: consumeError } = await admin
+          .from("customer_qr_tokens")
+          .update({ used_at: new Date().toISOString() })
+          .eq("token_hash", tokenHash);
+        if (consumeError) throw consumeError;
+      }
     }
 
     return jsonResponse({
       customer: {
         id: customerId,
-        name: customer?.name || "Unknown Customer",
-        profilePic: customer?.profilePic || customer?.avatarUrl || customer?.photoURL || null,
+        username: customerUsername,
+        maskedName: maskName(customer?.name || customerUsername || "Customer"),
+        profilePic: null,
         existingStars,
         newStars: previewOnly ? existingStars : existingStars + points,
       },

@@ -88,6 +88,10 @@ export default function StoreOwnerAccount() {
     setIsEditing(false);
   };
 
+  const scrollToEmailSecurity = () => {
+    document.getElementById("email-security")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const infoRow = (label: string, value?: string, icon?: React.ReactNode) => (
     <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 px-4 py-3">
       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -160,7 +164,15 @@ export default function StoreOwnerAccount() {
               {infoRow("Username", formData.username, <AtSign className="w-3.5 h-3.5" />)}
               {infoRow("Address", formData.address, <MapPin className="w-3.5 h-3.5" />)}
               {infoRow("Number", formData.phone, <Phone className="w-3.5 h-3.5" />)}
-              {infoRow("Email", user?.email || "", <Mail className="w-3.5 h-3.5" />)}
+              <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 px-4 py-3">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <Mail className="w-3.5 h-3.5" />
+                  Email
+                </div>
+                <div className="mt-1">
+                  <div className="text-sm font-medium text-gray-900 dark:text-white break-words">{user?.email || "Not set"}</div>
+                </div>
+              </div>
               {infoRow("Birthday", formData.birthday, <Calendar className="w-3.5 h-3.5" />)}
               {infoRow("Bio", formData.bio, <FileText className="w-3.5 h-3.5" />)}
             </div>
@@ -210,10 +222,19 @@ export default function StoreOwnerAccount() {
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2">
                 <Mail className="w-4 h-4 text-gray-400" /> Email
               </label>
-              <input 
-                type="email" readOnly value={user?.email || ''} 
-                className="w-full px-4 py-2.5 bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800 text-gray-500 rounded-xl outline-none cursor-not-allowed" 
-              />
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <input 
+                  type="email" readOnly value={user?.email || ''} 
+                  className="min-w-0 flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800 text-gray-500 rounded-xl outline-none cursor-not-allowed" 
+                />
+                <button
+                  type="button"
+                  onClick={scrollToEmailSecurity}
+                  className="inline-flex items-center justify-center rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-orange-700"
+                >
+                  Change email
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2 sm:col-span-2">

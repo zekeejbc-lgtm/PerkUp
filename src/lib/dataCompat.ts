@@ -53,6 +53,9 @@ const tableNames = new Set([
   "users",
 ]);
 
+const READ_CACHE_TTL_MS = 45_000;
+const readCache = new Map<string, { expiresAt: number; value: unknown }>();
+
 const timestampNow = (): ServerTimestampValue => ({
   seconds: Math.floor(Date.now() / 1000),
   nanoseconds: 0,
@@ -127,6 +130,26 @@ export function query(collectionRef: CollectionRef, ...filters: FilterClause[]):
 
 const dataApi = (collectionName: string) => supabase.from(collectionName);
 
+const getCachedValue = <T>(key: string): T | null => {
+  const cached = readCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    readCache.delete(key);
+    return null;
+  }
+  return cached.value as T;
+};
+
+const setCachedValue = <T>(key: string, value: T) => {
+  readCache.set(key, { value, expiresAt: Date.now() + READ_CACHE_TTL_MS });
+};
+
+const clearCollectionCache = (collectionName: string) => {
+  for (const key of readCache.keys()) {
+    if (key.startsWith(`${collectionName}:`)) readCache.delete(key);
+  }
+};
+
 const applyFilters = (builder: any, filters: FilterClause[]) =>
   filters.reduce((current, filter) => {
     const column = `data->>${filter.field}`;
@@ -143,13 +166,19 @@ const docSnapshot = (id: string, data?: Record<string, unknown> | null): any => 
 });
 
 export async function getDoc(ref: DocumentRef) {
+  const cacheKey = `${ref.collectionName}:doc:${ref.id}`;
+  const cached = getCachedValue<Record<string, unknown> | null>(cacheKey);
+  if (cached !== null) return docSnapshot(ref.id, cached);
+
   const { data, error } = await dataApi(ref.collectionName)
     .select("id,data")
     .eq("id", ref.id)
     .maybeSingle();
 
   if (error) throw error;
-  return docSnapshot(ref.id, data?.data ?? null);
+  const value = data?.data ?? null;
+  setCachedValue(cacheKey, value);
+  return docSnapshot(ref.id, value);
 }
 
 export async function getDocFromServer(ref: DocumentRef) {
@@ -159,13 +188,25 @@ export async function getDocFromServer(ref: DocumentRef) {
 export async function getDocs(ref: CollectionRef | QueryRef) {
   const collectionName = ref.type === "collection" ? ref.name : ref.collectionName;
   const filters = ref.type === "query" ? ref.filters : [];
+  const cacheKey = `${collectionName}:query:${JSON.stringify(filters)}`;
+  const cached = getCachedValue<{ id: string; data: Record<string, unknown> }[]>(cacheKey);
+  if (cached) {
+    const docs = cached.map((row) => docSnapshot(row.id, row.data));
+    return {
+      docs,
+      empty: docs.length === 0,
+      size: docs.length,
+    };
+  }
+
   const { data, error } = await applyFilters(dataApi(collectionName).select("id,data"), filters);
 
   if (error) throw error;
 
-  const docs = (data ?? []).map((row: { id: string; data: Record<string, unknown> }) =>
-    docSnapshot(row.id, row.data),
-  );
+  const rows = (data ?? []) as { id: string; data: Record<string, unknown> }[];
+  setCachedValue(cacheKey, rows);
+
+  const docs = rows.map((row) => docSnapshot(row.id, row.data));
 
   return {
     docs,
@@ -208,6 +249,7 @@ export async function setDoc(
   });
 
   if (error) throw error;
+  clearCollectionCache(ref.collectionName);
 }
 
 export async function updateDoc(ref: DocumentRef, value: Record<string, unknown>) {
@@ -222,11 +264,13 @@ export async function updateDoc(ref: DocumentRef, value: Record<string, unknown>
     .eq("id", ref.id);
 
   if (error) throw error;
+  clearCollectionCache(ref.collectionName);
 }
 
 export async function deleteDoc(ref: DocumentRef) {
   const { error } = await dataApi(ref.collectionName).delete().eq("id", ref.id);
   if (error) throw error;
+  clearCollectionCache(ref.collectionName);
 }
 
 export async function addDoc(collectionRef: CollectionRef, value: Record<string, unknown>) {

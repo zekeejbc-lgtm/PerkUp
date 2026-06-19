@@ -3,6 +3,7 @@ import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Layout, Save, Upload, Plus, Trash2, Loader2, ImagePlus, RefreshCcw, CheckCircle2, XCircle, Edit3, QrCode, Star, Coffee, ArrowRight, Store as StoreIcon, Search, MapPin, Mail, Phone } from "lucide-react";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 type HomepageConfig = {
   heroHeadline: string;
@@ -32,9 +33,9 @@ const DEFAULT_CONFIG: HomepageConfig = {
   ],
   usePartnerStores: false,
   footerInfo: {
-    address: "123 Market St, San Francisco, CA",
-    email: "hello@localbites.com",
-    phone: "+1 (555) 123-4567",
+    address: "Tagum City, Davao del Norte, Philippines",
+    email: "perkup.shop@youthserviceph.org",
+    phone: "0962 232 8290",
     socialLinks: {
       facebook: "",
       instagram: "",
@@ -410,7 +411,7 @@ export default function AdminHomepage() {
     setConfig({ ...config, trustedBusinesses: newBusinesses });
   };
 
-  if (loading) return <div className="p-12 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-orange-600" /></div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-300">

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { collection, query, where, getDocs, doc, addDoc, serverTimestamp, deleteDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { BadgeCheck, Plus, Shield, UserCircle, X, Mail, Key, Trash2 } from "lucide-react";
+import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 export default function StoreOwnerStaff({ store }: { store: any }) {
   const [staff, setStaff] = useState<any[]>([]);
@@ -75,7 +76,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
     }
   };
 
-  if (loading) return <div className="text-gray-500 animate-pulse">Loading staff members...</div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="space-y-6">

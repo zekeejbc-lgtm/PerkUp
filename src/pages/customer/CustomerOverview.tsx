@@ -6,6 +6,7 @@ import { db, handleDataError, OperationType } from "../../lib/backend";
 import { Star, ShieldCheck, CreditCard, Gift, Info, Download } from "lucide-react";
 import { Link } from "react-router-dom";
 import { issueCustomerQr, IssuedCustomerQr } from "@/src/lib/secureQr";
+import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 const APP_NAME = "PerkUp";
 const LOGO_SRC = "/icons/icon-192.png?v=20260618-logo";
@@ -62,6 +63,16 @@ const getSocialRows = (contact: AppContact | null) =>
     .filter(([, value]) => Boolean(value))
     .map(([name, value]) => `${name.charAt(0).toUpperCase()}${name.slice(1)}: ${value}`);
 
+const missingQrProfileFields = (user: ReturnType<typeof useAuth>["user"]) => {
+  if (!user) return ["profile"];
+  return [
+    user.name?.trim() ? "" : "name",
+    user.username?.trim() ? "" : "username",
+    (user.phone || user.number)?.trim() ? "" : "phone number",
+    user.birthday?.trim() ? "" : "birthday",
+  ].filter(Boolean);
+};
+
 export default function CustomerOverview() {
   const { user } = useAuth();
   const [lifetimeStars, setLifetimeStars] = useState<number>(0);
@@ -102,32 +113,34 @@ export default function CustomerOverview() {
     if (!user?.id) return;
 
     let active = true;
-    let refreshTimer: number | undefined;
+    const missingFields = missingQrProfileFields(user);
+    if (missingFields.length > 0) {
+      setQrTicket(null);
+      setQrError(`Complete your profile before generating a QR code. Missing: ${missingFields.join(", ")}.`);
+      return () => {
+        active = false;
+      };
+    }
 
-    const refreshQr = async () => {
+    const loadQr = async () => {
       try {
         const ticket = await issueCustomerQr();
         if (!active) return;
         setQrTicket(ticket);
         setQrError("");
-
-        const expiresInMs = new Date(ticket.expiresAt).getTime() - Date.now();
-        refreshTimer = window.setTimeout(refreshQr, Math.max(expiresInMs - 60_000, 60_000));
       } catch (error) {
         console.error("Failed to issue customer QR", error);
         if (!active) return;
         setQrError(error instanceof Error ? error.message : "Could not generate secure QR code.");
-        refreshTimer = window.setTimeout(refreshQr, 60_000);
       }
     };
 
-    refreshQr();
+    loadQr();
 
     return () => {
       active = false;
-      if (refreshTimer) window.clearTimeout(refreshTimer);
     };
-  }, [user?.id]);
+  }, [user]);
 
   const downloadQrPng = async () => {
     if (!qrTicket?.token) return;
@@ -191,7 +204,7 @@ export default function CustomerOverview() {
 
     ctx.fillStyle = "#4b5563";
     drawFittedText(ctx, "PerkUp scanner required", width / 2, 852, 650, 500, 18, 12, "Inter, Arial, sans-serif");
-    drawFittedText(ctx, `Expires ${new Date(qrTicket.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`, width / 2, 880, 650, 500, 16, 12, "Inter, Arial, sans-serif");
+    drawFittedText(ctx, "Reusable offline copy", width / 2, 880, 650, 500, 16, 12, "Inter, Arial, sans-serif");
 
     const footerRows = [
       appContact?.email ? `Email: ${appContact.email}` : null,
@@ -224,7 +237,7 @@ export default function CustomerOverview() {
     link.click();
   };
 
-  if (loading) return <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading your dashboard...</div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="space-y-8">
@@ -287,7 +300,7 @@ export default function CustomerOverview() {
                 <QRCodeSVG value={qrTicket.token} size={160} className="w-full max-w-[160px] h-auto" />
               ) : (
                 <div className="w-[160px] h-[160px] flex items-center justify-center text-center text-xs font-semibold text-gray-500">
-                  Generating secure QR...
+                  {qrError ? "Profile required" : "Generating secure QR..."}
                 </div>
               )}
             </div>
@@ -295,12 +308,12 @@ export default function CustomerOverview() {
               <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Secure Scanner Only</p>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 {qrTicket
-                  ? `Refreshes automatically. Expires ${new Date(qrTicket.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`
+                  ? "Reusable QR. Staff scanner verifies it securely online."
                   : qrError || "Preparing your private scan code."}
               </p>
             </div>
             <div className="mt-4 text-center text-xs text-orange-600 dark:text-orange-400 font-medium">
-              1 Visit = 1 Sticker
+              {qrError ? <Link to="/customer/profile" className="hover:underline">Update profile</Link> : "1 Visit = 1 Sticker"}
             </div>
             <button
               onClick={downloadQrPng}

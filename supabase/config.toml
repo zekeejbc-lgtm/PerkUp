@@ -1,0 +1,11 @@
+[functions.issue-customer-qr]
+verify_jwt = false
+
+[functions.redeem-customer-scan]
+verify_jwt = false
+
+[functions.update-customer-profile]
+verify_jwt = false
+
+[functions.drive-image]
+verify_jwt = false

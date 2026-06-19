@@ -10,6 +10,7 @@ import L from "leaflet";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { AuthModal } from "../components/AuthModal";
 import { getDisplayImageUrl } from "../lib/imageStorage";
+import { PageSkeleton, SkeletonBlock } from "../components/LoadingSkeleton";
 
 import { PartnerApplicationModal } from "../components/PartnerApplicationModal";
 
@@ -80,9 +81,9 @@ export default function LandingPage() {
     usePartnerStores: false,
     applicationsOpen: true,
     footerInfo: {
-      address: "123 Market St, San Francisco, CA",
-      email: "hello@perkup.example.com",
-      phone: "(084) 123-4567",
+      address: "Tagum City, Davao del Norte, Philippines",
+      email: "perkup.shop@youthserviceph.org",
+      phone: "0962 232 8290",
       socialLinks: {
         facebook: "",
         instagram: "",
@@ -155,7 +156,7 @@ export default function LandingPage() {
     fetchConfig();
   }, []);
 
-  if (loading) return null;
+  if (loading) return <PageSkeleton variant="store" />;
 
   if (user) {
     return <Navigate to="/dashboard" replace />;
@@ -201,6 +202,9 @@ export default function LandingPage() {
             <img 
               src={getDisplayImageUrl(config.heroImageUrl)}
               alt="Hero image" 
+              data-eager="true"
+              loading="eager"
+              fetchPriority="high"
               className="w-full h-full object-cover opacity-30 dark:opacity-20" 
             />
           </div>
@@ -397,9 +401,7 @@ export default function LandingPage() {
                    ) : null)}
                  </MapContainer>
                ) : (
-                 <div className="w-full h-full bg-gray-50 flex items-center justify-center text-gray-400">
-                   Loading map...
-                 </div>
+                 <SkeletonBlock className="h-full w-full" />
                )}
             </div>
           </div>

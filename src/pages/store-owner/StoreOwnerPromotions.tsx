@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { collection, query, where, getDocs, doc, updateDoc, setDoc, serverTimestamp, deleteDoc, addDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Gift, Calendar, Plus, Save, Edit2, Trash2, X } from "lucide-react";
+import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 export default function StoreOwnerPromotions({ store }: { store: any }) {
   const [promotions, setPromotions] = useState<any[]>([]);
@@ -88,7 +89,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     }
   };
 
-  if (loading) return <div className="text-gray-500 animate-pulse">Loading promotions...</div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="space-y-6">

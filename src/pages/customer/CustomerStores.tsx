@@ -6,6 +6,7 @@ import * as ReactDOMServer from "react-dom/server";
 import L from "leaflet";
 import { Store as StoreIcon, Search, Star, MapPin } from "lucide-react";
 import { Link } from "react-router-dom";
+import { SkeletonBlock } from "../../components/LoadingSkeleton";
 
 export default function CustomerStores() {
   const [stores, setStores] = useState<any[]>([]);
@@ -40,7 +41,18 @@ export default function CustomerStores() {
     return name.includes(term) || category.includes(term);
   });
 
-  if (loading) return <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading affiliated stores...</div>;
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <SkeletonBlock className="h-[400px] rounded-[2rem]" />
+        <div className="space-y-4">
+          <SkeletonBlock className="h-20 rounded-2xl" />
+          <SkeletonBlock className="h-20 rounded-2xl" />
+          <SkeletonBlock className="h-20 rounded-2xl" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

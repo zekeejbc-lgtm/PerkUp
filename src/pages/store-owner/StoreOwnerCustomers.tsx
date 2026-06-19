@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { collection, query, where, getDocs, doc, getDoc, updateDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Search, User, Star, ArrowLeft, Minus, Plus, Users, Clock, MessageSquare, Heart, CheckCircle2, Gift } from "lucide-react";
+import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 export default function StoreOwnerCustomers({ store }: { store: any }) {
   const [customers, setCustomers] = useState<any[]>([]);
@@ -167,7 +168,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
 
   const filtered = customers.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || c.customerId.includes(search));
 
-  if (loading) return <div className="text-gray-500 animate-pulse">Loading customers...</div>;
+  if (loading) return <PageSkeleton />;
 
   if (selectedCustomer) {
     const isLoyal = selectedCustomer.lifetimeStars > 20;

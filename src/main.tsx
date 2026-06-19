@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App.tsx';
 import { AuthProvider } from './contexts/AuthContext';
+import { installLazyImageDefaults } from './lib/performance';
 import { registerServiceWorker } from './lib/pwa';
 import './index.css';
 import 'leaflet/dist/leaflet.css';
@@ -30,6 +31,8 @@ let DefaultIcon = L.icon({
 L.Marker.prototype.options.icon = DefaultIcon;
 
 import { ThemeProvider } from './contexts/ThemeContext';
+
+installLazyImageDefaults();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

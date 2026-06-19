@@ -4,6 +4,7 @@ import { db } from "../../lib/backend";
 import { ArrowLeft, Edit, Trash2, ShieldAlert, Key, Loader2, Save } from "lucide-react";
 
 import { CustomDropdown } from "../../components/CustomDropdown";
+import { PageSkeleton } from "../../components/LoadingSkeleton";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
   dateInputToDate,
@@ -173,7 +174,7 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
   };
 
   if (loading) {
-    return <div className="p-12 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-orange-600" /></div>;
+    return <PageSkeleton />;
   }
 
   if (!store) {

@@ -1,3 +1,5 @@
+import { supabase } from "./supabase";
+
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
 
@@ -24,7 +26,13 @@ type GasUploadResponse = {
   fileId?: string;
 };
 
-function extractDriveFileId(url: string): string | null {
+type DriveImageResponse = {
+  fileId?: string;
+  url?: string;
+  deleted?: boolean;
+};
+
+export function extractDriveFileId(url: string): string | null {
   if (!url) return null;
 
   try {
@@ -119,4 +127,44 @@ export async function uploadImageFileToDrive(file: File, options: UploadOptions)
   }
 
   return normalizeDriveImageUrl(uploadedUrl);
+}
+
+export async function uploadImageFileToDriveSecure(file: File, options: UploadOptions): Promise<string> {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Only image uploads are supported.");
+  }
+
+  const base64 = await fileToDataUrl(file);
+  const { data, error } = await supabase.functions.invoke<DriveImageResponse>("drive-image", {
+    body: {
+      action: "upload",
+      fileName: buildUploadFileName(file, options),
+      mimeType: file.type,
+      base64,
+      owner: options.owner,
+      purpose: options.purpose,
+    },
+  });
+
+  if (error || !data?.url) {
+    throw new Error(error?.message || "Google Drive upload failed.");
+  }
+
+  return normalizeDriveImageUrl(data.url);
+}
+
+export async function deleteImageFromDriveSecure(url: string): Promise<void> {
+  const fileId = extractDriveFileId(url);
+  if (!fileId) return;
+
+  const { error } = await supabase.functions.invoke<DriveImageResponse>("drive-image", {
+    body: {
+      action: "delete",
+      fileId,
+    },
+  });
+
+  if (error) {
+    throw new Error(error.message || "Google Drive delete failed.");
+  }
 }

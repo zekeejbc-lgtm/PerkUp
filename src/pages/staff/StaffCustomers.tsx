@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Users, Star, CreditCard, ChevronRight } from "lucide-react";
+import { SkeletonBlock } from "../../components/LoadingSkeleton";
 
 export default function StaffCustomers({ store }: { store: any }) {
   const [customers, setCustomers] = useState<any[]>([]);
@@ -36,9 +37,9 @@ export default function StaffCustomers({ store }: { store: any }) {
       </div>
 
       {loading ? (
-        <div className="animate-pulse space-y-4">
+        <div className="space-y-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-20 bg-gray-100 dark:bg-gray-800 rounded-2xl" />
+            <SkeletonBlock key={i} className="h-20 rounded-2xl" />
           ))}
         </div>
       ) : customers.length === 0 ? (

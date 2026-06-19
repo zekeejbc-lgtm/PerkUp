@@ -12,6 +12,7 @@ import {
   getSubscriptionOwedAmount,
   toDateInputValue,
 } from "../../lib/subscriptionBilling";
+import { SkeletonBlock } from "../../components/LoadingSkeleton";
 
 export default function AdminApplications() {
   const [applications, setApplications] = useState<any[]>([]);
@@ -153,7 +154,11 @@ export default function AdminApplications() {
       </div>
       
       {loadingApps ? (
-        <div className="p-12 text-center text-gray-400 dark:text-gray-500 animate-pulse">Loading applications...</div>
+        <div className="space-y-3 p-6">
+          <SkeletonBlock className="h-24 rounded-2xl" />
+          <SkeletonBlock className="h-24 rounded-2xl" />
+          <SkeletonBlock className="h-24 rounded-2xl" />
+        </div>
       ) : (
         <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
           {applications.filter((a: any) => a.status !== 'rejected').map(app => (

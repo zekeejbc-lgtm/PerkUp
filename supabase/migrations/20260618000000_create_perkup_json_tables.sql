@@ -111,3 +111,16 @@ grant select, insert, update, delete on
   public.promotions_scanned,
   public.test
 to authenticated;
+
+grant select, insert, update, delete on
+  public.users,
+  public.customers,
+  public.stores,
+  public.applications,
+  public.settings,
+  public.promotions,
+  public.products,
+  public.cards,
+  public.promotions_scanned,
+  public.test
+to service_role;

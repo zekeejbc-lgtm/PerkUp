@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from "react";
+import React, { lazy, Suspense, useState, useEffect } from "react";
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Store, ShoppingBag, Gift, Users, BadgeCheck, UserCircle, CreditCard, ChevronRight, Building, Menu } from "lucide-react";
-import StoreOwnerInfo from "./store-owner/StoreOwnerInfo";
-import StoreOwnerProducts from "./store-owner/StoreOwnerProducts";
-import StoreOwnerPromotions from "./store-owner/StoreOwnerPromotions";
-import StoreOwnerCustomers from "./store-owner/StoreOwnerCustomers";
-import StoreOwnerStaff from "./store-owner/StoreOwnerStaff";
-import StoreOwnerAccount from "./store-owner/StoreOwnerAccount";
-import StoreOwnerSubscription from "./store-owner/StoreOwnerSubscription";
+import { DashboardShellSkeleton, PageSkeleton } from "../components/LoadingSkeleton";
+
+const StoreOwnerInfo = lazy(() => import("./store-owner/StoreOwnerInfo"));
+const StoreOwnerProducts = lazy(() => import("./store-owner/StoreOwnerProducts"));
+const StoreOwnerPromotions = lazy(() => import("./store-owner/StoreOwnerPromotions"));
+const StoreOwnerCustomers = lazy(() => import("./store-owner/StoreOwnerCustomers"));
+const StoreOwnerStaff = lazy(() => import("./store-owner/StoreOwnerStaff"));
+const StoreOwnerAccount = lazy(() => import("./store-owner/StoreOwnerAccount"));
+const StoreOwnerSubscription = lazy(() => import("./store-owner/StoreOwnerSubscription"));
 import { useAuth } from "../contexts/AuthContext";
 import { query, where, getDocs, collection } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../lib/backend";
@@ -48,7 +50,7 @@ export default function StoreOwnerDashboard() {
   ];
 
   if (loading) {
-    return <div className="animate-pulse p-8 text-gray-500">Loading your store dashboard...</div>;
+    return <DashboardShellSkeleton />;
   }
 
   // Branch Selector View
@@ -173,18 +175,20 @@ export default function StoreOwnerDashboard() {
 
       {/* Main Content Area */}
       <div className="flex-1 min-w-0 bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-4 sm:p-6 md:p-8 shadow-sm">
-        <Routes>
-          <Route path="/" element={<StoreOwnerInfo store={selectedStore} setStore={(updatedStore: any) => {
-            setSelectedStore(updatedStore);
-            setStores(stores.map(s => s.id === updatedStore.id ? updatedStore : s));
-          }} />} />
-          <Route path="/products" element={<StoreOwnerProducts store={selectedStore} />} />
-          <Route path="/promotions" element={<StoreOwnerPromotions store={selectedStore} />} />
-          <Route path="/customers" element={<StoreOwnerCustomers store={selectedStore} />} />
-          <Route path="/staff" element={<StoreOwnerStaff store={selectedStore} />} />
-          <Route path="/account" element={<StoreOwnerAccount />} />
-          <Route path="/subscription" element={<StoreOwnerSubscription />} />
-        </Routes>
+        <Suspense fallback={<PageSkeleton />}>
+          <Routes>
+            <Route path="/" element={<StoreOwnerInfo store={selectedStore} setStore={(updatedStore: any) => {
+              setSelectedStore(updatedStore);
+              setStores(stores.map(s => s.id === updatedStore.id ? updatedStore : s));
+            }} />} />
+            <Route path="/products" element={<StoreOwnerProducts store={selectedStore} />} />
+            <Route path="/promotions" element={<StoreOwnerPromotions store={selectedStore} />} />
+            <Route path="/customers" element={<StoreOwnerCustomers store={selectedStore} />} />
+            <Route path="/staff" element={<StoreOwnerStaff store={selectedStore} />} />
+            <Route path="/account" element={<StoreOwnerAccount />} />
+            <Route path="/subscription" element={<StoreOwnerSubscription />} />
+          </Routes>
+        </Suspense>
       </div>
     </div>
   );

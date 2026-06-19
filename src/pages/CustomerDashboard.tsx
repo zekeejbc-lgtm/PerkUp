@@ -1,11 +1,13 @@
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { QrCode, Map, CreditCard, Gift, User as UserIcon, Menu } from "lucide-react";
-import CustomerOverview from "./customer/CustomerOverview";
-import CustomerProfile from "./customer/CustomerProfile";
-import CustomerStores from "./customer/CustomerStores";
-import CustomerCards from "./customer/CustomerCards";
-import CustomerPromotions from "./customer/CustomerPromotions";
+import { PageSkeleton } from "../components/LoadingSkeleton";
+
+const CustomerOverview = lazy(() => import("./customer/CustomerOverview"));
+const CustomerProfile = lazy(() => import("./customer/CustomerProfile"));
+const CustomerStores = lazy(() => import("./customer/CustomerStores"));
+const CustomerCards = lazy(() => import("./customer/CustomerCards"));
+const CustomerPromotions = lazy(() => import("./customer/CustomerPromotions"));
 
 export default function CustomerDashboard() {
   const location = useLocation();
@@ -80,13 +82,15 @@ export default function CustomerDashboard() {
 
       {/* Main Content Area */}
       <div className="flex-1 min-w-0">
-        <Routes>
-          <Route path="/" element={<CustomerOverview />} />
-          <Route path="/cards" element={<CustomerCards />} />
-          <Route path="/stores" element={<CustomerStores />} />
-          <Route path="/promotions" element={<CustomerPromotions />} />
-          <Route path="/profile" element={<CustomerProfile />} />
-        </Routes>
+        <Suspense fallback={<PageSkeleton />}>
+          <Routes>
+            <Route path="/" element={<CustomerOverview />} />
+            <Route path="/cards" element={<CustomerCards />} />
+            <Route path="/stores" element={<CustomerStores />} />
+            <Route path="/promotions" element={<CustomerPromotions />} />
+            <Route path="/profile" element={<CustomerProfile />} />
+          </Routes>
+        </Suspense>
       </div>
     </div>
   );

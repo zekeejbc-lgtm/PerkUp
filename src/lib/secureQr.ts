@@ -1,17 +1,19 @@
 import { supabase } from "./supabase";
 
-export const SECURE_CUSTOMER_QR_PREFIX = "perkup:v1:";
+export const LEGACY_CUSTOMER_QR_PREFIX = "perkup:v1:";
+export const SECURE_CUSTOMER_QR_PREFIX = "perkup:v2:";
 
 export type IssuedCustomerQr = {
   token: string;
-  expiresAt: string;
-  ttlSeconds: number;
+  expiresAt: string | null;
+  ttlSeconds: number | null;
 };
 
 export type RedeemedCustomerScan = {
   customer: {
     id: string;
-    name: string;
+    username: string;
+    maskedName: string;
     profilePic: string | null;
     existingStars: number;
     newStars: number;
@@ -34,7 +36,8 @@ const getFunctionErrorMessage = async (error: unknown, fallback: string) => {
 };
 
 export const isSecureCustomerQr = (value: string) =>
-  value.trim().startsWith(SECURE_CUSTOMER_QR_PREFIX);
+  value.trim().startsWith(SECURE_CUSTOMER_QR_PREFIX) ||
+  value.trim().startsWith(LEGACY_CUSTOMER_QR_PREFIX);
 
 export async function issueCustomerQr(): Promise<IssuedCustomerQr> {
   const { data, error } = await supabase.functions.invoke<IssuedCustomerQr>("issue-customer-qr", {
@@ -49,7 +52,8 @@ export async function issueCustomerQr(): Promise<IssuedCustomerQr> {
 }
 
 export async function redeemCustomerScan(input: {
-  scanToken: string;
+  scanToken?: string;
+  manualUsername?: string;
   storeId: string;
   promotionId?: string;
   points: number;
@@ -64,4 +68,23 @@ export async function redeemCustomerScan(input: {
   }
 
   return data;
+}
+
+export async function updateCustomerProfile(input: {
+  name: string;
+  username: string;
+  phone: string;
+  bio: string;
+  birthday: string;
+  avatarUrl: string;
+}) {
+  const { data, error } = await supabase.functions.invoke<{ profile: unknown }>("update-customer-profile", {
+    body: input,
+  });
+
+  if (error || !data?.profile) {
+    throw new Error(await getFunctionErrorMessage(error, "Could not update customer profile."));
+  }
+
+  return data.profile;
 }

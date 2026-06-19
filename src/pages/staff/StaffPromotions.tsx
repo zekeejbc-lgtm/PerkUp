@@ -3,6 +3,7 @@ import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Gift, Calendar, Star, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
+import { SkeletonBlock } from "../../components/LoadingSkeleton";
 
 export default function StaffPromotions({ store }: { store: any }) {
   const [promotions, setPromotions] = useState<any[]>([]);
@@ -36,7 +37,7 @@ export default function StaffPromotions({ store }: { store: any }) {
       {loading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-48 bg-gray-100 dark:bg-gray-800 rounded-3xl animate-pulse" />
+            <SkeletonBlock key={i} className="h-48 rounded-3xl" />
           ))}
         </div>
       ) : promotions.length === 0 ? (

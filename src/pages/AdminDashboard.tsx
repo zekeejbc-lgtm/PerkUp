@@ -1,12 +1,14 @@
-import React, { useState } from "react";
+import React, { lazy, Suspense, useState } from "react";
 import { Store, FileText, Layout, CreditCard } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import AdminStores from "./admin/AdminStores";
-import AdminApplications from "./admin/AdminApplications";
-import AdminAccount from "./admin/AdminAccount";
-import AdminHomepage from "./admin/AdminHomepage";
-import AdminSubscriptions from "./admin/AdminSubscriptions";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { PageSkeleton } from "../components/LoadingSkeleton";
+
+const AdminStores = lazy(() => import("./admin/AdminStores"));
+const AdminApplications = lazy(() => import("./admin/AdminApplications"));
+const AdminAccount = lazy(() => import("./admin/AdminAccount"));
+const AdminHomepage = lazy(() => import("./admin/AdminHomepage"));
+const AdminSubscriptions = lazy(() => import("./admin/AdminSubscriptions"));
 
 export default function AdminDashboard() {
   const location = useLocation();
@@ -47,16 +49,18 @@ export default function AdminDashboard() {
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm transition-colors">
-        {isAccountPage ? (
-          <AdminAccount />
-        ) : (
-          <>
-            {activeTab === 'stores' && <AdminStores />}
-            {activeTab === 'applications' && <AdminApplications />}
-            {activeTab === 'homepage' && <AdminHomepage />}
-            {activeTab === 'subscriptions' && <AdminSubscriptions />}
-          </>
-        )}
+        <Suspense fallback={<PageSkeleton variant="table" />}>
+          {isAccountPage ? (
+            <AdminAccount />
+          ) : (
+            <>
+              {activeTab === 'stores' && <AdminStores />}
+              {activeTab === 'applications' && <AdminApplications />}
+              {activeTab === 'homepage' && <AdminHomepage />}
+              {activeTab === 'subscriptions' && <AdminSubscriptions />}
+            </>
+          )}
+        </Suspense>
       </div>
     </div>
   );

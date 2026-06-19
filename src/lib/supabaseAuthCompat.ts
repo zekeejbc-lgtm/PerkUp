@@ -4,8 +4,11 @@ import { secondarySupabase, supabase } from "./supabase";
 type AuthClient = typeof supabase.auth;
 type CompatAuthErrorCode =
   | "auth/email-already-in-use"
+  | "auth/email-not-authorized"
+  | "auth/invalid-email"
   | "auth/invalid-credential"
   | "auth/operation-not-allowed"
+  | "auth/signup-failed"
   | "auth/weak-password";
 
 export interface User {
@@ -87,8 +90,22 @@ const createCompatAuthError = (message: string, code: CompatAuthErrorCode) => {
   return error;
 };
 
-const toSignInError = (error: { message?: string }) =>
-  createCompatAuthError(error.message || "Invalid login credentials", "auth/invalid-credential");
+const toSignInError = (error: { code?: string; message?: string }) => {
+  const code = String(error.code || "");
+  const message = String(error.message || "Invalid login credentials");
+  const normalizedMessage = message.toLowerCase();
+
+  if (
+    code.includes("email_provider_disabled") ||
+    code.includes("provider_disabled") ||
+    normalizedMessage.includes("email logins are disabled") ||
+    normalizedMessage.includes("email provider is disabled")
+  ) {
+    return createCompatAuthError(message, "auth/operation-not-allowed");
+  }
+
+  return createCompatAuthError(message, "auth/signup-failed");
+};
 
 const toSignUpError = (error: { code?: string; message?: string }) => {
   const code = String(error.code || "");
@@ -114,13 +131,31 @@ const toSignUpError = (error: { code?: string; message?: string }) => {
 
   if (
     code.includes("signup_disabled") ||
+    code.includes("email_provider_disabled") ||
+    code.includes("provider_disabled") ||
     normalizedMessage.includes("signups not allowed") ||
-    normalizedMessage.includes("signup is disabled")
+    normalizedMessage.includes("signup is disabled") ||
+    normalizedMessage.includes("email logins are disabled") ||
+    normalizedMessage.includes("email provider is disabled")
   ) {
     return createCompatAuthError(message, "auth/operation-not-allowed");
   }
 
-  return createCompatAuthError(message, "auth/operation-not-allowed");
+  if (
+    code.includes("email_address_invalid") ||
+    normalizedMessage.includes("email address") && normalizedMessage.includes("invalid")
+  ) {
+    return createCompatAuthError(message, "auth/invalid-email");
+  }
+
+  if (
+    code.includes("email_address_not_authorized") ||
+    normalizedMessage.includes("not authorized")
+  ) {
+    return createCompatAuthError(message, "auth/email-not-authorized");
+  }
+
+  return createCompatAuthError(message, "auth/invalid-credential");
 };
 
 export async function signInWithEmailAndPassword(

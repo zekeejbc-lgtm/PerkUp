@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { doc, getDoc, collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Scanner } from "@yudiel/react-qr-scanner";
-import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2 } from "lucide-react";
+import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2, Search } from "lucide-react";
 import { isSecureCustomerQr, redeemCustomerScan } from "@/src/lib/secureQr";
+import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 type OfflineScan = {
   id: string;
@@ -14,11 +15,18 @@ type OfflineScan = {
   promotionId: string;
 };
 
+type RedemptionInput = {
+  scanToken?: string;
+  manualUsername?: string;
+};
+
 const LEGACY_OFFLINE_QUEUE_KEY = "offlineScanQueue";
 const OFFLINE_QUEUE_PREFIX = "perkup:offlineScanQueue";
 const OFFLINE_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_OFFLINE_QUEUE_ITEMS = 100;
 const MAX_POINTS_PER_SCAN = 100;
+const DUPLICATE_SCAN_COOLDOWN_MS = 20000;
+const DUPLICATE_SCAN_ALERT_COOLDOWN_MS = 1500;
 
 const getOfflineQueueKey = (storeId: string, promotionId: string) =>
   `${OFFLINE_QUEUE_PREFIX}:${storeId}:${promotionId}`;
@@ -98,13 +106,15 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [scannedCustomer, setScannedCustomer] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [manualUsername, setManualUsername] = useState("");
+  const [manualError, setManualError] = useState("");
 
   // Batch & Feedback state
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [batchQueue, setBatchQueue] = useState<{ id: string, points: number }[]>([]);
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showScanSuccess, setShowScanSuccess] = useState(false);
-  const [lastScannedId, setLastScannedId] = useState<string | null>(null);
+  const duplicateScanRef = useRef<{ id: string; scannedAt: number; alertedAt: number } | null>(null);
 
   // Offline Sync Queue
   const [offlineQueueKey, setOfflineQueueKey] = useState("");
@@ -241,24 +251,38 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     if (!scannedId || isProcessing || !isWithinGeofence) return;
 
     if (!isValidCustomerQr(scannedId)) {
-      alert("Invalid PerkUp QR code. Ask the customer to refresh their QR from the PerkUp app.");
+      alert("Invalid PerkUp QR code. Ask the customer to open or download their QR from the PerkUp app.");
+      return;
+    }
+
+    const now = Date.now();
+    const lastDuplicateScan = duplicateScanRef.current;
+    
+    if (
+      lastDuplicateScan?.id === scannedId &&
+      now - lastDuplicateScan.scannedAt < DUPLICATE_SCAN_COOLDOWN_MS
+    ) {
+      if (now - lastDuplicateScan.alertedAt > DUPLICATE_SCAN_ALERT_COOLDOWN_MS) {
+        alert("This QR code has already been scanned. Please wait a few seconds before scanning it again.");
+        duplicateScanRef.current = { ...lastDuplicateScan, alertedAt: now };
+      }
+      return;
+    }
+
+    if (isBatchMode && batchQueue.some(item => item.id === scannedId)) {
+      alert("This QR code has already been scanned in the current batch.");
+      duplicateScanRef.current = { id: scannedId, scannedAt: now, alertedAt: now };
       return;
     }
     
-    if (scannedId === lastScannedId) return;
-    
-    setLastScannedId(scannedId);
-    setTimeout(() => setLastScannedId(null), 2500); // 2.5s cooldown for identical code mapping
+    duplicateScanRef.current = { id: scannedId, scannedAt: now, alertedAt: 0 };
 
     // Trigger visual feedback
     setShowScanSuccess(true);
     setTimeout(() => setShowScanSuccess(false), 1000);
 
     if (isBatchMode) {
-      setBatchQueue(prev => {
-        if (prev.some(item => item.id === scannedId)) return prev;
-        return [...prev, { id: scannedId, points: pointsToAdd }];
-      });
+      setBatchQueue(prev => [...prev, { id: scannedId, points: pointsToAdd }]);
       return;
     }
 
@@ -281,9 +305,9 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
       setScannedCustomer({
         id: result.customer.id,
-        scanToken: scannedId,
-        name: result.customer.name,
-        profilePic: result.customer.profilePic,
+        redemptionInput: { scanToken: scannedId },
+        username: result.customer.username,
+        maskedName: result.customer.maskedName,
         existingStars: result.customer.existingStars,
       });
 
@@ -298,17 +322,63 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     }
   };
 
-  const processPointsForCustomer = async (scannedId: string, points: number) => {
+  const processPointsForCustomerInput = async (redemptionInput: RedemptionInput, points: number) => {
     if (!store) throw new Error("Store context is missing.");
-    if (!isValidCustomerQr(scannedId)) throw new Error("Invalid PerkUp QR code.");
+    if (redemptionInput.scanToken && !isValidCustomerQr(redemptionInput.scanToken)) {
+      throw new Error("Invalid PerkUp QR code.");
+    }
+    if (!redemptionInput.scanToken && !redemptionInput.manualUsername) {
+      throw new Error("Customer scan or username is required.");
+    }
 
     const safePoints = normalizePoints(points);
     await redeemCustomerScan({
-      scanToken: scannedId,
+      ...redemptionInput,
       storeId: store.id,
       promotionId: id,
       points: safePoints,
     });
+  };
+
+  const processPointsForCustomer = async (scannedId: string, points: number) => {
+    await processPointsForCustomerInput({ scanToken: scannedId }, points);
+  };
+
+  const handleManualLookup = async () => {
+    const username = manualUsername.trim().toLowerCase();
+    if (!username || !store?.id || !isWithinGeofence || isProcessing) return;
+    if (!navigator.onLine) {
+      setManualError("Manual username verification requires an internet connection.");
+      return;
+    }
+
+    setIsProcessing(true);
+    setManualError("");
+    setIsScannerActive(false);
+
+    try {
+      const result = await redeemCustomerScan({
+        manualUsername: username,
+        storeId: store.id,
+        promotionId: id,
+        points: pointsToAdd,
+        previewOnly: true,
+      });
+
+      setScannedCustomer({
+        id: result.customer.id,
+        redemptionInput: { manualUsername: username },
+        username: result.customer.username,
+        maskedName: result.customer.maskedName,
+        existingStars: result.customer.existingStars,
+      });
+      setShowConfirmModal(true);
+    } catch (error) {
+      console.error(error);
+      setManualError("Customer username could not be verified.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleConfirmPoints = async () => {
@@ -322,12 +392,13 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     setIsProcessing(true);
 
     try {
-      await processPointsForCustomer(scannedCustomer.scanToken, pointsToAdd);
+      await processPointsForCustomerInput(scannedCustomer.redemptionInput, pointsToAdd);
 
-      alert(`Successfully credited ${pointsToAdd} points to ${scannedCustomer.name}!`);
+      alert(`Successfully credited ${pointsToAdd} points to @${scannedCustomer.username}.`);
       
       setShowConfirmModal(false);
       setScannedCustomer(null);
+      setManualUsername("");
       setPointsToAdd(1);
       
       const q = query(collection(db, "cards"), where("storeId", "==", store.id));
@@ -392,7 +463,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     setIsScannerActive(true); // resume scanner
   };
 
-  if (loading) return <div className="animate-pulse p-8">Loading scanner...</div>;
+  if (loading) return <PageSkeleton />;
 
   if (!promo) {
     return (
@@ -511,6 +582,38 @@ export default function StaffPromotionScan({ store }: { store: any }) {
           </div>
 
           <div className="w-full max-w-sm">
+            <div className="mb-5 rounded-2xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60">
+              <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2 block">
+                Manual Username
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={manualUsername}
+                  onChange={(event) => {
+                    setManualUsername(event.target.value.trim().toLowerCase());
+                    setManualError("");
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") handleManualLookup();
+                  }}
+                  placeholder="customer_username"
+                  disabled={!isWithinGeofence || isProcessing}
+                  className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-900 outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                />
+                <button
+                  type="button"
+                  onClick={handleManualLookup}
+                  disabled={!manualUsername.trim() || !isWithinGeofence || isProcessing}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-900 text-white transition-colors hover:bg-black disabled:opacity-50 dark:bg-white dark:text-gray-900"
+                  title="Verify username"
+                >
+                  <Search className="w-4 h-4" />
+                </button>
+              </div>
+              {manualError && <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">{manualError}</p>}
+            </div>
+
             <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-3 block text-center">Points (Default)</label>
             <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 p-2 rounded-2xl border border-gray-200 dark:border-gray-700">
                <button 
@@ -600,15 +703,11 @@ export default function StaffPromotionScan({ store }: { store: any }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white dark:bg-gray-900 rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-800 animate-in zoom-in-95">
             <div className="p-8 text-center border-b border-gray-100 dark:border-gray-800 bg-orange-50 dark:bg-orange-900/10">
-              {scannedCustomer.profilePic ? (
-                <img src={scannedCustomer.profilePic} alt="Customer" className="w-20 h-20 rounded-full mx-auto mb-4 border-4 border-white dark:border-gray-800 shadow-sm object-cover" />
-              ) : (
-                <div className="w-20 h-20 rounded-full bg-white dark:bg-gray-800 border-4 border-orange-100 dark:border-gray-700 mx-auto flex items-center justify-center shadow-sm mb-4">
-                  <UserCircle className="w-10 h-10 text-gray-400" />
-                </div>
-              )}
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white">{scannedCustomer.name}</h3>
-              <p className="text-sm text-gray-500 mt-1 font-mono tracking-widest">{scannedCustomer.id.slice(0, 8)}...</p>
+              <div className="w-20 h-20 rounded-full bg-white dark:bg-gray-800 border-4 border-orange-100 dark:border-gray-700 mx-auto flex items-center justify-center shadow-sm mb-4">
+                <UserCircle className="w-10 h-10 text-gray-400" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">{scannedCustomer.maskedName}</h3>
+              <p className="text-sm text-gray-500 mt-1 font-mono tracking-widest">@{scannedCustomer.username}</p>
             </div>
 
             <div className="p-6">

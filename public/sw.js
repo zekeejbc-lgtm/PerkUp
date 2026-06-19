@@ -1,4 +1,4 @@
-const CACHE_VERSION = "2026-06-18-v4";
+const CACHE_VERSION = "2026-06-19-v5";
 const STATIC_CACHE = `perkup-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `perkup-runtime-${CACHE_VERSION}`;
 const MAX_RUNTIME_ENTRIES = 80;
@@ -49,7 +49,7 @@ self.addEventListener("message", (event) => {
 self.addEventListener("fetch", (event) => {
   const { request } = event;
 
-  if (!isSafeSameOriginGet(request)) return;
+  if (!isSafeGet(request)) return;
 
   if (isNavigationRequest(request)) {
     event.respondWith(networkFirstNavigation(request));
@@ -57,20 +57,25 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (CACHEABLE_DESTINATIONS.has(request.destination)) {
-    event.respondWith(cacheFirst(request));
+    event.respondWith(staleWhileRevalidate(request));
   }
 });
 
-function isSafeSameOriginGet(request) {
+function isSafeGet(request) {
   if (request.method !== "GET") return false;
 
   const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return false;
-
   if (request.headers.has("authorization")) return false;
-  if (url.pathname.startsWith("/api/")) return false;
 
-  return true;
+  if (url.origin === self.location.origin) {
+    if (url.pathname.startsWith("/api/")) return false;
+    return true;
+  }
+
+  return (
+    url.hostname === "fonts.googleapis.com" ||
+    url.hostname === "fonts.gstatic.com"
+  );
 }
 
 function isNavigationRequest(request) {
@@ -96,17 +101,24 @@ async function networkFirstNavigation(request) {
   }
 }
 
-async function cacheFirst(request) {
+async function staleWhileRevalidate(request) {
   const cached = await caches.match(request);
-  if (cached) return cached;
+  const updateCache = fetch(request)
+    .then(async (response) => {
+      if (isCacheableResponse(response)) {
+        const cache = await caches.open(RUNTIME_CACHE);
+        await cache.put(request, response.clone());
+        await trimCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
+      }
+      return response;
+    })
+    .catch(() => cached);
 
-  const response = await fetch(request);
-  if (response.ok && response.type === "basic") {
-    const cache = await caches.open(RUNTIME_CACHE);
-    await cache.put(request, response.clone());
-    await trimCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
-  }
-  return response;
+  return cached || updateCache;
+}
+
+function isCacheableResponse(response) {
+  return response && (response.ok || response.type === "opaque");
 }
 
 async function trimCache(cacheName, maxEntries) {

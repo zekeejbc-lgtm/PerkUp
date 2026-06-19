@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { CreditCard, Save, Loader2, Check, Plus, Trash2 } from "lucide-react";
+import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 export default function AdminSubscriptions() {
   const [loading, setLoading] = useState(true);
@@ -106,7 +107,7 @@ export default function AdminSubscriptions() {
     setPlans(newPlans);
   };
 
-  if (loading) return <div className="p-12 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-orange-600" /></div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-300">

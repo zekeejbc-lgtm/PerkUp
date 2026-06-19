@@ -12,6 +12,7 @@ import {
   formatMoney,
   getSubscriptionOwedAmount,
 } from "../../lib/subscriptionBilling";
+import { SkeletonBlock } from "../../components/LoadingSkeleton";
 
 export default function AdminStores() {
   const [stores, setStores] = useState<any[]>([]);
@@ -165,7 +166,11 @@ export default function AdminStores() {
       </div>
       
       {loading ? (
-        <div className="p-12 text-center text-gray-400 dark:text-gray-500 animate-pulse">Loading directory...</div>
+        <div className="space-y-3 p-6">
+          <SkeletonBlock className="h-20 rounded-2xl" />
+          <SkeletonBlock className="h-20 rounded-2xl" />
+          <SkeletonBlock className="h-20 rounded-2xl" />
+        </div>
       ) : (
         <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
           {stores.map(store => (
