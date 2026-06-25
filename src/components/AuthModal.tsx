@@ -529,14 +529,14 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
               }}
               className="space-y-4"
             >
-              <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4 text-left dark:border-orange-900/50 dark:bg-orange-900/20">
+              <div className="rounded-2xl border border-gray-200 bg-gray-100 p-4 text-left dark:border-white/15 dark:bg-white/10">
                 <div className="flex items-start gap-3">
-                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-orange-600 dark:text-orange-400" />
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#1b1b1b] dark:text-white" />
                   <div>
                     <p className="text-sm font-semibold text-gray-900 dark:text-white">Authenticator code required</p>
                     <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{pendingMfa.reason}</p>
                     {pendingMfa.reason.startsWith('We noticed') && (
-                      <p className="mt-2 flex items-start gap-1.5 text-xs text-orange-700 dark:text-orange-300">
+                      <p className="mt-2 flex items-start gap-1.5 text-xs text-[#1b1b1b] dark:text-white">
                         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                         We noticed an attempt to log in. Verify it was you to continue.
                       </p>
@@ -556,7 +556,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                   required
                   value={mfaCode}
                   onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  className="block w-full px-4 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                  className="block w-full px-4 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors"
                   placeholder="123456"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -569,7 +569,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                   type="checkbox"
                   checked={trustDevice}
                   onChange={(event) => setTrustDevice(event.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                  className="mt-1 h-4 w-4 rounded border-gray-300 text-[#1b1b1b] focus:ring-[#1b1b1b]"
                 />
                 <span>
                   <span className="block text-sm font-semibold text-gray-900 dark:text-white">Trust this device for 30 days</span>
@@ -619,7 +619,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                       setMessage('');
                     }
                   }}
-                  className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                  className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors"
                   placeholder="name@example.com"
                 />
               </div>
@@ -638,7 +638,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                       required
                       value={signupProfile.name}
                       onChange={(e) => setSignupProfile({ ...signupProfile, name: e.target.value })}
-                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors"
                       placeholder="Juan Dela Cruz"
                     />
                   </div>
@@ -655,11 +655,11 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                       required
                       value={signupProfile.accountUsername}
                       onChange={(e) => setSignupProfile({ ...signupProfile, accountUsername: normalizeSignupUsername(e.target.value) })}
-                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors"
                       placeholder="juan.delacruz"
                     />
                   </div>
-                  <p className={`text-xs font-medium ${getSignupUsernameError(signupProfile.accountUsername) ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>
+                  <p className={`text-xs font-medium ${getSignupUsernameError(signupProfile.accountUsername) ? 'text-[#1b1b1b] dark:text-white' : 'text-green-600 dark:text-green-400'}`}>
                     {getSignupUsernameError(signupProfile.accountUsername) || 'Strong format. Uniqueness is verified when your account is created.'}
                   </p>
                 </div>
@@ -675,7 +675,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                       required
                       value={signupProfile.phone}
                       onChange={(e) => setSignupProfile({ ...signupProfile, phone: e.target.value })}
-                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors"
                       placeholder="0917 123 4567"
                     />
                   </div>
@@ -692,7 +692,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                       required
                       value={signupProfile.birthday}
                       onChange={(e) => setSignupProfile({ ...signupProfile, birthday: e.target.value })}
-                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors"
                     />
                   </div>
                 </div>
@@ -707,7 +707,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                       type="text"
                       value={signupProfile.referralCode}
                       onChange={(e) => setSignupProfile({ ...signupProfile, referralCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) })}
-                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors uppercase"
+                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors uppercase"
                       placeholder="STORE123"
                     />
                   </div>
@@ -730,7 +730,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="block w-full pl-10 pr-10 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                    className="block w-full pl-10 pr-10 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors"
                     placeholder="••••••••"
                   />
                   <button
@@ -776,7 +776,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
               <div className="space-y-1 text-left">
                 <div className="flex items-center justify-between gap-3">
                   <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Email OTP</label>
-                  <span className={`text-xs font-semibold ${otpSecondsRemaining > 0 ? 'text-gray-500 dark:text-gray-400' : 'text-orange-600 dark:text-orange-400'}`}>
+                  <span className={`text-xs font-semibold ${otpSecondsRemaining > 0 ? 'text-gray-500 dark:text-gray-400' : 'text-[#1b1b1b] dark:text-white'}`}>
                     {otpSecondsRemaining > 0 ? `Expires in ${formatOtpCountdown(otpSecondsRemaining)}` : 'Expired'}
                   </span>
                 </div>
@@ -787,7 +787,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                   required
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  className="block w-full px-4 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                  className="block w-full px-4 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors"
                   placeholder="123456"
                 />
                 <button
@@ -809,7 +809,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                       setLoading(false);
                     }
                   }}
-                  className="text-xs font-semibold text-orange-600 hover:text-orange-500 disabled:opacity-50 dark:text-orange-400"
+                  className="text-xs font-semibold text-[#1b1b1b] hover:text-[#1b1b1b] disabled:opacity-50 dark:text-white"
                 >
                   Request new OTP
                 </button>
@@ -821,7 +821,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                 <button 
                   type="button" 
                   onClick={() => switchMode('forgot')}
-                  className="text-xs font-medium text-orange-600 dark:text-orange-400 hover:text-orange-500"
+                  className="text-xs font-medium text-[#1b1b1b] dark:text-white hover:text-[#1b1b1b]"
                 >
                   Forgot password?
                 </button>
@@ -865,14 +865,14 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
             {mode === 'signin' ? (
               <>
                 Don't have an account?{' '}
-                <button onClick={() => switchMode('signup')} className="text-orange-600 dark:text-orange-400 font-medium hover:underline">
+                <button onClick={() => switchMode('signup')} className="text-[#1b1b1b] dark:text-white font-medium hover:underline">
                   Sign up
                 </button>
               </>
             ) : mode === 'signup' ? (
               <>
                 Already have an account?{' '}
-                <button onClick={() => switchMode('signin')} className="text-orange-600 dark:text-orange-400 font-medium hover:underline">
+                <button onClick={() => switchMode('signin')} className="text-[#1b1b1b] dark:text-white font-medium hover:underline">
                   Sign in
                 </button>
               </>

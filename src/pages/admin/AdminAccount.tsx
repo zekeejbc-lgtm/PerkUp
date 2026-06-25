@@ -3,7 +3,7 @@ import { collection, query, where, getDocs, doc, setDoc, deleteDoc, serverTimest
 import { createUserWithEmailAndPassword, signOut } from "@/src/lib/supabaseAuthCompat";
 import { db, logOut, secondaryAuth } from "../../lib/backend";
 import { useAuth } from "../../contexts/AuthContext";
-import { User, Mail, Plus, Trash2, Shield, UserCog, Save, X, AtSign, Phone, Calendar, FileText, ImagePlus, LogOut } from "lucide-react";
+import { User, Mail, Plus, Trash2, Shield, Save, X, AtSign, Phone, Calendar, FileText, ImagePlus, LogOut, CheckCircle2 } from "lucide-react";
 import AccountSecurity from "@/src/components/AccountSecurity";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
@@ -114,6 +114,16 @@ export default function AdminAccount() {
     document.getElementById("email-security")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const infoRow = (label: string, value?: string, icon?: React.ReactNode) => (
+    <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 px-4 py-3">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        {icon}
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-medium text-gray-900 dark:text-white break-words">{value || "Not set"}</div>
+    </div>
+  );
+
   const handleAddAssistantAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -161,11 +171,11 @@ export default function AdminAccount() {
   };
 
   return (
-    <div className="flex flex-col h-full animate-in fade-in duration-300">
-      <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex flex-col gap-4 bg-gray-50/50 dark:bg-gray-900/50 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <UserCog className="w-5 h-5 text-gray-500" />
-          <h3 className="font-semibold text-gray-900 dark:text-white text-lg">Account & Admins</h3>
+    <div className="max-w-3xl space-y-8 animate-in fade-in duration-300">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Profile</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-2">Manage your profile and account security.</p>
         </div>
         <button
           type="button"
@@ -177,126 +187,130 @@ export default function AdminAccount() {
         </button>
       </div>
 
-      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* My Account Profile */}
-        <div className="space-y-6">
-          <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">My Profile</h4>
-          <div className="bg-white dark:bg-gray-800/50 rounded-2xl p-6 border border-gray-200 dark:border-gray-700 shadow-sm relative">
-             {!isEditingMyAccount ? (
-               <button onClick={() => setIsEditingMyAccount(true)} className="absolute top-4 right-4 text-xs font-medium bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-200 text-gray-700 dark:text-gray-200">
-                 Edit
-               </button>
-             ) : (
-               <div className="absolute top-4 right-4 flex items-center gap-2">
-                 <button onClick={handleCancelMyAccountEdit} className="flex items-center gap-1 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
-                   <X className="w-3 h-3" /> Cancel
-                 </button>
-                 <button onClick={handleUpdateMyAccount} className="flex items-center gap-1 text-xs font-medium bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">
-                   <Save className="w-3 h-3" /> Save
-                 </button>
-               </div>
-             )}
+      <div className="space-y-8">
+        <div className="space-y-8">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleUpdateMyAccount();
+            }}
+            className="space-y-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8"
+          >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 items-center gap-5">
+                <div className="relative h-20 w-20 min-w-20 shrink-0 aspect-square bg-gray-100 dark:bg-white/10 rounded-full flex items-center justify-center overflow-hidden group">
+                  {myAvatarUrl ? (
+                    <img src={getDisplayImageUrl(myAvatarUrl)} alt="Profile" className="h-full w-full object-cover" />
+                  ) : (
+                    <User className="w-12 h-12 text-[#1b1b1b] dark:text-white" />
+                  )}
+                  {isEditingMyAccount && (
+                    <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
+                      <ImagePlus className="w-5 h-5" />
+                      <input type="file" accept="image/*" className="hidden" onChange={handleMyAvatarUpload} />
+                    </label>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white">{myName || "Admin User"}</h3>
+                  <p className="break-words text-sm text-gray-500 dark:text-gray-400">{user?.email}</p>
+                </div>
+              </div>
+              {!isEditingMyAccount ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMyAccountSaved(false);
+                    setIsEditingMyAccount(true);
+                  }}
+                  className="inline-flex items-center justify-center rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
+                >
+                  Edit Profile
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <button type="button" onClick={handleCancelMyAccountEdit} className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800">
+                    <X className="w-4 h-4" />
+                    Cancel
+                  </button>
+                  <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 dark:bg-white dark:text-gray-900">
+                    <Save className="w-4 h-4" />
+                    Save
+                  </button>
+                </div>
+              )}
+            </div>
 
-             <div className="flex items-center gap-4 mb-6">
-               <div className="relative w-16 h-16 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center font-bold text-2xl overflow-hidden group">
-                 {myAvatarUrl ? (
-                   <img src={getDisplayImageUrl(myAvatarUrl)} alt="Profile" className="h-full w-full object-cover" />
-                 ) : (
-                   myName.charAt(0) || user?.email?.charAt(0) || 'A'
-                 )}
-                 {isEditingMyAccount && (
-                   <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
-                     <ImagePlus className="w-4 h-4" />
-                     <input type="file" accept="image/*" className="hidden" onChange={handleMyAvatarUpload} />
-                   </label>
-                 )}
-               </div>
-               <div>
-                 <h5 className="font-bold text-gray-900 dark:text-white text-lg">{myName || "Admin User"}</h5>
-                 <p className="text-gray-500 text-sm flex items-center gap-1"><Shield className="w-3 h-3"/> Super Admin</p>
-               </div>
-             </div>
+            {!isEditingMyAccount ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {infoRow("Name", myName, <User className="w-3.5 h-3.5" />)}
+                {infoRow("Username", myUsername, <AtSign className="w-3.5 h-3.5" />)}
+                {infoRow("Number", myPhone, <Phone className="w-3.5 h-3.5" />)}
+                {infoRow("Email", user?.email, <Mail className="w-3.5 h-3.5" />)}
+                {infoRow("Birthday", myBirthday, <Calendar className="w-3.5 h-3.5" />)}
+                {infoRow("Bio", myBio, <FileText className="w-3.5 h-3.5" />)}
+                {infoRow("Role", user?.role?.replace("_", " "), <Shield className="w-3.5 h-3.5" />)}
+              </div>
+            ) : (
+              <div className="grid gap-5 sm:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-200">Name</span>
+                  <input type="text" value={myName} onChange={e => setMyName(e.target.value)} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><AtSign className="w-4 h-4 text-gray-400" /> Username</span>
+                  <input type="text" value={myUsername} onChange={e => setMyUsername(e.target.value)} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Phone className="w-4 h-4 text-gray-400" /> Number</span>
+                  <input type="tel" value={myPhone} onChange={e => setMyPhone(e.target.value)} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Calendar className="w-4 h-4 text-gray-400" /> Birthday</span>
+                  <input type="date" value={myBirthday} onChange={e => setMyBirthday(e.target.value)} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
+                </label>
+                <label className="space-y-2 sm:col-span-2">
+                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Mail className="w-4 h-4 text-gray-400" /> Email</span>
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    <input type="email" value={myEmail} readOnly className="min-w-0 flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800 text-gray-500 rounded-xl outline-none cursor-not-allowed" />
+                    <button
+                      type="button"
+                      onClick={scrollToEmailSecurity}
+                      className="inline-flex items-center justify-center rounded-xl bg-[#1b1b1b] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-black"
+                    >
+                      Change email
+                    </button>
+                  </div>
+                </label>
+                <label className="space-y-2 sm:col-span-2">
+                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><FileText className="w-4 h-4 text-gray-400" /> Bio</span>
+                  <textarea value={myBio} onChange={e => setMyBio(e.target.value)} rows={4} className="w-full resize-none px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
+                </label>
+              </div>
+            )}
 
-             <div className="space-y-4">
-               <div>
-                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><User className="w-3 h-3" /> Name</label>
-                 {isEditingMyAccount ? (
-                   <input type="text" value={myName} onChange={e => setMyName(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
-                 ) : (
-                   <p className="text-gray-900 dark:text-white text-sm font-medium">{myName || "Not set"}</p>
-                 )}
-               </div>
-               <div>
-                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><AtSign className="w-3 h-3" /> Username</label>
-                 {isEditingMyAccount ? (
-                   <input type="text" value={myUsername} onChange={e => setMyUsername(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
-                 ) : (
-                   <p className="text-gray-900 dark:text-white text-sm font-medium">{myUsername || "Not set"}</p>
-                 )}
-               </div>
-               <div>
-                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><Phone className="w-3 h-3" /> Number</label>
-                 {isEditingMyAccount ? (
-                   <input type="tel" value={myPhone} onChange={e => setMyPhone(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
-                 ) : (
-                   <p className="text-gray-900 dark:text-white text-sm font-medium">{myPhone || "Not set"}</p>
-                 )}
-               </div>
-               <div>
-                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><Calendar className="w-3 h-3" /> Birthday</label>
-                 {isEditingMyAccount ? (
-                   <input type="date" value={myBirthday} onChange={e => setMyBirthday(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
-                 ) : (
-                   <p className="text-gray-900 dark:text-white text-sm font-medium">{myBirthday || "Not set"}</p>
-                 )}
-               </div>
-               <div>
-                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><Mail className="w-3 h-3" /> Email</label>
-                 {isEditingMyAccount ? (
-                   <div className="flex flex-col gap-2 sm:flex-row">
-                     <input type="email" value={myEmail} readOnly className="min-w-0 flex-1 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm text-gray-500 cursor-not-allowed" />
-                     <button
-                       type="button"
-                       onClick={scrollToEmailSecurity}
-                       className="inline-flex items-center justify-center rounded-lg bg-orange-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-orange-700"
-                     >
-                       Change email
-                     </button>
-                   </div>
-                 ) : (
-                   <p className="text-gray-900 dark:text-white text-sm font-medium">{user?.email}</p>
-                 )}
-               </div>
-               <div>
-                 <label className="flex text-xs font-semibold text-gray-500 mb-1 items-center gap-1"><FileText className="w-3 h-3" /> Bio</label>
-                 {isEditingMyAccount ? (
-                   <textarea value={myBio} onChange={e => setMyBio(e.target.value)} rows={3} className="w-full resize-none bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
-                 ) : (
-                   <p className="text-gray-900 dark:text-white text-sm font-medium">{myBio || "Not set"}</p>
-                 )}
-               </div>
-             </div>
-             {myAccountSaved && (
-               <div className="mt-4 flex items-center gap-2 text-sm font-medium text-green-600 dark:text-green-400">
-                 <Save className="w-4 h-4" />
-                 Profile saved
-               </div>
-             )}
-          </div>
+            <div className="pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center gap-4">
+              {myAccountSaved && (
+                <span className="flex items-center gap-2 text-green-600 dark:text-green-400 text-sm font-medium">
+                  <CheckCircle2 className="w-5 h-5" />
+                  Profile saved
+                </span>
+              )}
+            </div>
+          </form>
 
           <AccountSecurity />
         </div>
 
-        {/* Assistant Admins */}
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Assistant Admins</h4>
-            <button onClick={() => setShowAddModal(true)} className="flex items-center gap-1 text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-3 py-1.5 rounded-lg hover:bg-orange-200">
+            <button onClick={() => setShowAddModal(true)} className="flex items-center gap-1 text-xs font-medium bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white px-3 py-1.5 rounded-lg hover:bg-gray-200">
               <Plus className="w-3 h-3" /> Add New
             </button>
           </div>
 
-          <div className="bg-white dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
             {loading ? (
               <div className="space-y-3 p-4">
                 <SkeletonBlock className="h-16 rounded-2xl" />
@@ -351,7 +365,7 @@ export default function AdminAccount() {
               
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowAddModal(false)} className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-orange-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50">
+                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-[#1b1b1b] px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-50">
                   {isSubmitting ? 'Creating...' : 'Create Admin'}
                 </button>
               </div>

@@ -76,11 +76,11 @@ export default function CustomerPromotions() {
                 {promo.bannerImageUrl ? (
                   <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className="h-44 w-full object-cover" />
                 ) : (
-                  <div className="h-28 bg-orange-50 dark:bg-orange-900/20" />
+                  <div className="h-28 bg-gray-100 dark:bg-white/10" />
                 )}
                 <div className="p-6 flex flex-col flex-1">
                   <div className="relative z-10 flex-1">
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 text-xs font-semibold tracking-wide uppercase mb-4">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 dark:bg-white/10 text-[#1b1b1b] dark:text-white text-xs font-semibold tracking-wide uppercase mb-4">
                         <Gift className="w-3 h-3" />
                         Offer
                     </div>

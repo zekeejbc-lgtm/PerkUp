@@ -16,8 +16,8 @@ export default function StaffStore({ store }: { store: any }) {
       <div className="grid md:grid-cols-2 gap-6">
         {/* Store Detail Card */}
         <div className="bg-gray-50 dark:bg-gray-800/50 p-6 sm:p-8 rounded-[2rem] border border-gray-200 dark:border-gray-800 flex flex-col items-center text-center">
-          <div className="w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-[1.5rem] flex items-center justify-center mb-6">
-            <Store className="w-10 h-10 text-orange-600 dark:text-orange-400" />
+          <div className="w-20 h-20 bg-gray-100 dark:bg-white/10 rounded-[1.5rem] flex items-center justify-center mb-6">
+            <Store className="w-10 h-10 text-[#1b1b1b] dark:text-white" />
           </div>
           <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{store.name || "Unnamed Store"}</h3>
           

@@ -127,6 +127,7 @@ Deno.serve(async (req) => {
     const scanToken = String(body.scanToken || "").trim();
     const manualUsername = normalizeUsername(body.manualUsername);
     const storeId = String(body.storeId || "").trim();
+    const selectedCardId = String(body.selectedCardId || "").trim();
     const promotionId = String(body.promotionId || "").trim();
     const points = normalizePoints(body.points);
     const previewOnly = Boolean(body.previewOnly);
@@ -179,7 +180,7 @@ Deno.serve(async (req) => {
       .eq("id", storeId)
       .maybeSingle();
     if (storeError) throw storeError;
-    const store = storeRow?.data as { lat?: number | string; lng?: number | string } | null;
+    const store = storeRow?.data as { name?: string; lat?: number | string; lng?: number | string } | null;
 
     if (promotionId) {
       const { data: promotionRow, error: promotionError } = await admin
@@ -245,6 +246,20 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (!promotionId) {
+      const storeLat = Number(store?.lat);
+      const storeLng = Number(store?.lng);
+      if (Number.isFinite(storeLat) && Number.isFinite(storeLng)) {
+        if (!scannerLocation) {
+          return jsonResponse({ error: "Scanner location is required for this scan." }, 400);
+        }
+        const distance = distanceInMeters(scannerLocation, { lat: storeLat, lng: storeLng });
+        if (distance > 500) {
+          return jsonResponse({ error: `Scanner is outside the allowed store geofence (${Math.round(distance)}m away).` }, 403);
+        }
+      }
+    }
+
     let customerId = "";
     let tokenHash = "";
 
@@ -289,6 +304,7 @@ Deno.serve(async (req) => {
     const customer = customerRow?.data as {
       name?: string;
       username?: string;
+      birthday?: string;
       profilePic?: string;
       avatarUrl?: string;
       photoURL?: string;
@@ -309,11 +325,35 @@ Deno.serve(async (req) => {
       .from("cards")
       .select("id,data")
       .eq("data->>storeId", storeId)
-      .eq("data->>customerId", customerId)
-      .limit(1);
+      .eq("data->>customerId", customerId);
     if (cardQueryError) throw cardQueryError;
 
-    const existingCard = cardRows?.[0] as { id: string; data: Record<string, unknown> } | undefined;
+    const cards = ((cardRows || []) as { id: string; data: Record<string, unknown> }[])
+      .map((cardRow) => {
+        const status = String(cardRow.data?.status || "active").toLowerCase();
+        return {
+          id: cardRow.id,
+          label: String(cardRow.data?.cardName || cardRow.data?.title || cardRow.data?.storeName || "Loyalty Card"),
+          storeName: String(cardRow.data?.storeName || store?.name || "Store"),
+          stars: Number(cardRow.data?.stars || 0),
+          status,
+          joinedAt: cardRow.data?.joinedAt || cardRow.data?.createdAt || null,
+          updatedAt: cardRow.data?.updatedAt || null,
+          data: cardRow.data,
+        };
+      });
+    const activeCards = cards.filter((card) => card.status === "active");
+    const selectedCard = selectedCardId
+      ? activeCards.find((card) => card.id === selectedCardId)
+      : activeCards[0];
+
+    if (selectedCardId && !selectedCard) {
+      return jsonResponse({ error: "Selected card is not active for this customer and store." }, 400);
+    }
+
+    const existingCard = selectedCard
+      ? { id: selectedCard.id, data: selectedCard.data }
+      : undefined;
     const existingStars = Number(existingCard?.data?.stars || 0);
 
     if (!previewOnly) {
@@ -338,6 +378,7 @@ Deno.serve(async (req) => {
           data: {
             storeId,
             customerId,
+            storeName: String(store?.name || "Store"),
             stars: points,
             joinedAt: {
               seconds: Math.floor(Date.now() / 1000),
@@ -382,9 +423,11 @@ Deno.serve(async (req) => {
         id: customerId,
         username: customerUsername,
         maskedName: maskName(customer?.name || customerUsername || "Customer"),
+        birthday: customer?.birthday || null,
         profilePic: customer?.profilePic || customer?.avatarUrl || customer?.photoURL || null,
         existingStars,
         newStars: previewOnly ? existingStars : existingStars + points,
+        cards: activeCards.map(({ data: _data, ...card }) => card),
       },
       points,
     });

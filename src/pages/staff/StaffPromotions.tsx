@@ -72,17 +72,17 @@ export default function StaffPromotions({ store }: { store: any }) {
             <Link
               key={promo.id}
               to={`/staff/promotions/${promo.id}`}
-              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] text-left hover:border-orange-500 dark:hover:border-orange-500 hover:shadow-lg transition-all group relative overflow-hidden flex flex-col"
+              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] text-left hover:border-[#1b1b1b] dark:hover:border-[#1b1b1b] hover:shadow-lg transition-all group relative overflow-hidden flex flex-col"
             >
               {promo.bannerImageUrl ? (
                 <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className="h-32 w-full object-cover" />
               ) : (
-                <div className="h-24 bg-orange-50 dark:bg-orange-900/10" />
+                <div className="h-24 bg-gray-100 dark:bg-white/5" />
               )}
 
               <div className="p-6 flex flex-col flex-1">
-                <div className="w-14 h-14 bg-orange-100 dark:bg-orange-900/30 rounded-2xl flex items-center justify-center mb-6 -mt-12 border-4 border-white dark:border-gray-900">
-                  <Gift className="w-7 h-7 text-orange-600 dark:text-orange-400" />
+                <div className="w-14 h-14 bg-gray-100 dark:bg-white/10 rounded-2xl flex items-center justify-center mb-6 -mt-12 border-4 border-white dark:border-gray-900">
+                  <Gift className="w-7 h-7 text-[#1b1b1b] dark:text-white" />
                 </div>
 
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2 line-clamp-1">{promo.title || "Untitled Promo"}</h3>
@@ -105,7 +105,7 @@ export default function StaffPromotions({ store }: { store: any }) {
                   </div>
                 </div>
 
-                <div className="flex items-center text-sm font-bold text-orange-600 dark:text-orange-400 mt-auto">
+                <div className="flex items-center text-sm font-bold text-[#1b1b1b] dark:text-white mt-auto">
                   Open Scanner <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>

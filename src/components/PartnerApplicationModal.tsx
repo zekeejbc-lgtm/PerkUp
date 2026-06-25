@@ -149,9 +149,9 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
             Partner Application
           </h2>
           <div className="flex items-center justify-center gap-4 text-sm font-medium">
-            <span className={step === 1 ? 'text-orange-600' : 'text-gray-400'}>1. Business Details</span>
+            <span className={step === 1 ? 'text-[#1b1b1b]' : 'text-gray-400'}>1. Business Details</span>
             <span className="text-gray-300 dark:text-gray-700">|</span>
-            <span className={step === 2 ? 'text-orange-600' : 'text-gray-400'}>2. Select Subscription</span>
+            <span className={step === 2 ? 'text-[#1b1b1b]' : 'text-gray-400'}>2. Select Subscription</span>
           </div>
         </div>
 
@@ -174,28 +174,28 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Business Name</label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Store className="h-4 w-4" /></div>
-                        <input type="text" required value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-orange-600 outline-none text-sm" placeholder="e.g. My Coffee Shop" />
+                        <input type="text" required value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none text-sm" placeholder="e.g. My Coffee Shop" />
                       </div>
                     </div>
                     <div className="space-y-1 text-left">
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Your Name</label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><User className="h-4 w-4" /></div>
-                        <input type="text" required value={applicantName} onChange={(e) => setApplicantName(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-orange-600 outline-none text-sm" placeholder="John Doe" />
+                        <input type="text" required value={applicantName} onChange={(e) => setApplicantName(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none text-sm" placeholder="John Doe" />
                       </div>
                     </div>
                     <div className="space-y-1 text-left">
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Email Address</label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Mail className="h-4 w-4" /></div>
-                        <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-orange-600 outline-none text-sm" placeholder="hello@example.com" />
+                        <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none text-sm" placeholder="hello@example.com" />
                       </div>
                     </div>
                     <div className="space-y-1 text-left">
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Phone Number</label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Phone className="h-4 w-4" /></div>
-                        <input type="tel" required value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-orange-600 outline-none text-sm" placeholder="(555) 123-4567" />
+                        <input type="tel" required value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none text-sm" placeholder="(555) 123-4567" />
                       </div>
                     </div>
                     <div className="space-y-1 text-left">
@@ -223,7 +223,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Tell us about your business</label>
                       <div className="relative">
                         <div className="absolute top-2 left-3 pointer-events-none text-gray-400"><PenTool className="h-4 w-4" /></div>
-                        <textarea required rows={2} value={description} onChange={(e) => setDescription(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-orange-600 outline-none text-sm resize-none" placeholder="We run a small bakery..." />
+                        <textarea required rows={2} value={description} onChange={(e) => setDescription(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none text-sm resize-none" placeholder="We run a small bakery..." />
                       </div>
                     </div>
                   </div>
@@ -233,7 +233,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Location Address</label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><MapPin className="h-4 w-4" /></div>
-                        <input type="text" required value={address} onChange={(e) => setAddress(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-orange-600 outline-none text-sm" placeholder="123 Market St, San Francisco, CA" />
+                        <input type="text" required value={address} onChange={(e) => setAddress(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none text-sm" placeholder="123 Market St, San Francisco, CA" />
                       </div>
                     </div>
                     
@@ -260,7 +260,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                       <div 
                         key={plan.id} 
                         onClick={() => setSelectedPlanId(plan.name)}
-                        className={`cursor-pointer rounded-2xl p-5 border-2 transition-all ${selectedPlanId === plan.name ? 'border-orange-500 bg-orange-50/50 dark:bg-orange-900/10' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 hover:border-orange-300'}`}
+                        className={`cursor-pointer rounded-2xl p-5 border-2 transition-all ${selectedPlanId === plan.name ? 'border-[#1b1b1b] bg-gray-100/50 dark:bg-white/5' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 hover:border-gray-400'}`}
                       >
                          <h4 className="font-bold text-gray-900 dark:text-white">{plan.name}</h4>
                          <div className="mt-2 mb-4">
@@ -295,7 +295,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-6 py-2.5 bg-orange-600 text-white font-medium rounded-xl hover:bg-orange-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2"
+                className="px-6 py-2.5 bg-[#1b1b1b] text-white font-medium rounded-xl hover:bg-black transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2"
               >
                 {isSubmitting ? 'Submitting...' : step === 1 ? 'Next Step' : 'Submit Application'}
               </button>

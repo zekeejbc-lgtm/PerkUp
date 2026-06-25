@@ -14,11 +14,23 @@ export type RedeemedCustomerScan = {
     id: string;
     username: string;
     maskedName: string;
+    birthday: string | null;
     profilePic: string | null;
     existingStars: number;
     newStars: number;
+    cards?: CustomerScanCard[];
   };
   points: number;
+};
+
+export type CustomerScanCard = {
+  id: string;
+  label: string;
+  storeName: string;
+  stars: number;
+  status: string;
+  joinedAt: unknown;
+  updatedAt: unknown;
 };
 
 export type ScannerLocation = {
@@ -82,6 +94,7 @@ export async function redeemCustomerScan(input: {
   scanToken?: string;
   manualUsername?: string;
   storeId: string;
+  selectedCardId?: string;
   promotionId?: string;
   points: number;
   scannerLocation?: ScannerLocation;

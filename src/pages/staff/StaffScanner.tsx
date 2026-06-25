@@ -1,0 +1,792 @@
+import { useEffect, useRef, useState } from "react";
+import { Scanner } from "@yudiel/react-qr-scanner";
+import { collection, getDocs, query, where } from "@/src/lib/dataCompat";
+import { db } from "@/src/lib/backend";
+import {
+  AlertTriangle,
+  Camera,
+  CameraOff,
+  CheckCircle2,
+  Gift,
+  Loader2,
+  MapPin,
+  Minus,
+  Plus,
+  QrCode,
+  Search,
+  Star,
+  Trash2,
+  UserCircle,
+} from "lucide-react";
+import { CustomerScanCard, isSecureCustomerQr, redeemCustomerScan } from "@/src/lib/secureQr";
+import { getDisplayImageUrl } from "@/src/lib/imageStorage";
+
+type ScannerLocation = {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+};
+
+type RedemptionInput = {
+  scanToken?: string;
+  manualUsername?: string;
+};
+
+type Promotion = {
+  id: string;
+  title?: string;
+  description?: string;
+  active?: boolean;
+  startDate?: string;
+  endDate?: string;
+  maxRedemptions?: number | null;
+  geofenceEnabled?: boolean;
+  geofenceLat?: number | string | null;
+  geofenceLng?: number | string | null;
+  geofenceRadiusMeters?: number | string | null;
+};
+
+type ScannedCustomer = {
+  id: string;
+  username: string;
+  maskedName: string;
+  profilePic: string | null;
+  existingStars: number;
+  cards: CustomerScanCard[];
+  redemptionInput: RedemptionInput;
+};
+
+type BatchItem = {
+  id: string;
+  points: number;
+};
+
+const MAX_POINTS_PER_SCAN = 100;
+const DUPLICATE_SCAN_COOLDOWN_MS = 20000;
+const DUPLICATE_SCAN_ALERT_COOLDOWN_MS = 1500;
+
+const normalizePoints = (points: number) =>
+  Math.min(Math.max(Math.trunc(Number(points) || 1), 1), MAX_POINTS_PER_SCAN);
+
+const distanceInMeters = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
+  const earthRadiusMeters = 6371e3;
+  const lat1 = from.lat * Math.PI / 180;
+  const lat2 = to.lat * Math.PI / 180;
+  const dLat = (to.lat - from.lat) * Math.PI / 180;
+  const dLon = (to.lng - from.lng) * Math.PI / 180;
+
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusMeters * c;
+};
+
+const getScannerGeofence = (promotion: Promotion | null, store: any) => {
+  const promoLat = Number(promotion?.geofenceLat);
+  const promoLng = Number(promotion?.geofenceLng);
+  if (promotion?.geofenceEnabled && Number.isFinite(promoLat) && Number.isFinite(promoLng)) {
+    return {
+      lat: promoLat,
+      lng: promoLng,
+      radiusMeters: Math.max(Number(promotion.geofenceRadiusMeters || 500), 25),
+      label: "promotion",
+    };
+  }
+
+  const storeLat = Number(store?.lat);
+  const storeLng = Number(store?.lng);
+  if (Number.isFinite(storeLat) && Number.isFinite(storeLng)) {
+    return {
+      lat: storeLat,
+      lng: storeLng,
+      radiusMeters: 500,
+      label: "store",
+    };
+  }
+
+  return null;
+};
+
+const formatJoinedAt = (value: unknown) => {
+  if (!value) return "Recently";
+  if (typeof value === "string") return new Date(value).toLocaleDateString();
+  if (typeof value === "object") {
+    const timestamp = value as { seconds?: number };
+    if (Number.isFinite(timestamp.seconds)) {
+      return new Date(Number(timestamp.seconds) * 1000).toLocaleDateString();
+    }
+  }
+  return "Recently";
+};
+
+const isPromotionCurrentlyVisible = (promotion: Promotion) => {
+  if (promotion.active === false) return false;
+  if (promotion.startDate && new Date(promotion.startDate).getTime() > Date.now()) return false;
+  if (promotion.endDate && new Date(promotion.endDate).getTime() <= Date.now()) return false;
+  return true;
+};
+
+export default function StaffScanner({ store }: { store: any }) {
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [selectedPromotionId, setSelectedPromotionId] = useState("");
+  const [scannerLocation, setScannerLocation] = useState<ScannerLocation | null>(null);
+  const [isWithinGeofence, setIsWithinGeofence] = useState(true);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [isScannerActive, setIsScannerActive] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [pointsToAdd, setPointsToAdd] = useState(1);
+  const [scannedCustomer, setScannedCustomer] = useState<ScannedCustomer | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState("");
+  const [manualUsername, setManualUsername] = useState("");
+  const [manualError, setManualError] = useState("");
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [batchQueue, setBatchQueue] = useState<BatchItem[]>([]);
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [showScanSuccess, setShowScanSuccess] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const duplicateScanRef = useRef<{ token: string; scannedAt: number; alertedAt: number } | null>(null);
+
+  const selectedPromotion = promotions.find((promotion) => promotion.id === selectedPromotionId) || null;
+  const activeGeofence = getScannerGeofence(selectedPromotion, store);
+
+  useEffect(() => {
+    if (!store?.id) return;
+
+    async function loadPromotions() {
+      try {
+        const promotionsQuery = query(collection(db, "promotions"), where("storeId", "==", store.id));
+        const snapshot = await getDocs(promotionsQuery);
+        const nextPromotions = snapshot.docs
+          .map((doc) => ({ id: doc.id, ...(doc.data() as any) }))
+          .filter(isPromotionCurrentlyVisible);
+        setPromotions(nextPromotions);
+      } catch (error) {
+        console.error("Failed to load staff scanner promotions", error);
+      }
+    }
+
+    loadPromotions();
+  }, [store?.id]);
+
+  useEffect(() => {
+    if (!scannedCustomer) {
+      setSelectedCardId("");
+      return;
+    }
+
+    setSelectedCardId(scannedCustomer.cards[0]?.id || "");
+  }, [scannedCustomer?.id]);
+
+  useEffect(() => {
+    setScannedCustomer(null);
+    setSelectedCardId("");
+    setBatchQueue([]);
+    setShowBatchModal(false);
+    setMessage(null);
+  }, [selectedPromotionId]);
+
+  useEffect(() => {
+    const geofence = getScannerGeofence(selectedPromotion, store);
+    if (!geofence) {
+      setScannerLocation(null);
+      setIsWithinGeofence(true);
+      setLocationError(null);
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      setScannerLocation(null);
+      setIsWithinGeofence(false);
+      setLocationError("Geolocation is not supported by this browser.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const location = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        };
+        const distance = distanceInMeters(location, geofence);
+        setScannerLocation(location);
+        if (distance <= geofence.radiusMeters) {
+          setIsWithinGeofence(true);
+          setLocationError(null);
+        } else {
+          setIsWithinGeofence(false);
+          setLocationError(`You are too far from the ${geofence.label} geofence. Distance: ${Math.round(distance)}m (Max: ${geofence.radiusMeters}m).`);
+        }
+      },
+      () => {
+        setScannerLocation(null);
+        setIsWithinGeofence(false);
+        setLocationError("Unable to retrieve your location for security check.");
+      },
+    );
+  }, [store, selectedPromotionId]);
+
+  const previewCustomer = async (redemptionInput: RedemptionInput) => {
+    const result = await redeemCustomerScan({
+      ...redemptionInput,
+      storeId: store.id,
+      promotionId: selectedPromotionId || undefined,
+      points: pointsToAdd,
+      scannerLocation,
+      previewOnly: true,
+    });
+
+    setScannedCustomer({
+      id: result.customer.id,
+      username: result.customer.username,
+      maskedName: result.customer.maskedName,
+      profilePic: result.customer.profilePic,
+      existingStars: result.customer.existingStars,
+      cards: result.customer.cards || [],
+      redemptionInput,
+    });
+  };
+
+  const handleScan = async (rawValue: string) => {
+    const scanToken = String(rawValue || "").trim();
+    if (!scanToken || isProcessing || scannedCustomer || !isWithinGeofence) return;
+
+    if (!isSecureCustomerQr(scanToken)) {
+      setMessage({ type: "error", text: "Invalid PerkUp QR code. Ask the customer to open their Identity QR." });
+      return;
+    }
+
+    const now = Date.now();
+    const lastScan = duplicateScanRef.current;
+    if (lastScan?.token === scanToken && now - lastScan.scannedAt < DUPLICATE_SCAN_COOLDOWN_MS) {
+      if (now - lastScan.alertedAt > DUPLICATE_SCAN_ALERT_COOLDOWN_MS) {
+        setMessage({ type: "error", text: "This QR code was already scanned. Please wait a few seconds before scanning it again." });
+        duplicateScanRef.current = { ...lastScan, alertedAt: now };
+      }
+      return;
+    }
+
+    if (isBatchMode && batchQueue.some((item) => item.id === scanToken)) {
+      setMessage({ type: "error", text: "This QR code is already in the current batch." });
+      duplicateScanRef.current = { token: scanToken, scannedAt: now, alertedAt: now };
+      return;
+    }
+
+    duplicateScanRef.current = { token: scanToken, scannedAt: now, alertedAt: 0 };
+    setShowScanSuccess(true);
+    setTimeout(() => setShowScanSuccess(false), 1000);
+
+    if (isBatchMode) {
+      setBatchQueue((queue) => [...queue, { id: scanToken, points: pointsToAdd }]);
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setMessage({ type: "error", text: "Secure QR scans require an internet connection." });
+      return;
+    }
+
+    setIsProcessing(true);
+    setIsScannerActive(false);
+    setMessage(null);
+
+    try {
+      await previewCustomer({ scanToken });
+    } catch (error) {
+      console.error(error);
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Failed to verify customer QR." });
+      setIsScannerActive(true);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleManualLookup = async () => {
+    const username = manualUsername.trim().toLowerCase();
+    if (!username || !store?.id || !isWithinGeofence || isProcessing || isBatchMode) return;
+    if (!navigator.onLine) {
+      setManualError("Manual username verification requires an internet connection.");
+      return;
+    }
+
+    setIsProcessing(true);
+    setManualError("");
+    setMessage(null);
+    setIsScannerActive(false);
+
+    try {
+      await previewCustomer({ manualUsername: username });
+    } catch (error) {
+      console.error(error);
+      setManualError(error instanceof Error ? error.message : "Customer username could not be verified.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCredit = async () => {
+    if (!scannedCustomer || !store?.id || isProcessing) return;
+    if (scannedCustomer.cards.length > 0 && !selectedCardId) {
+      setMessage({ type: "error", text: "Choose an active card before adding credit." });
+      return;
+    }
+
+    setIsProcessing(true);
+    setMessage(null);
+
+    try {
+      const result = await redeemCustomerScan({
+        ...scannedCustomer.redemptionInput,
+        storeId: store.id,
+        promotionId: selectedPromotionId || undefined,
+        selectedCardId: selectedCardId || undefined,
+        points: pointsToAdd,
+        scannerLocation,
+      });
+
+      const updatedCards = scannedCustomer.cards.map((card) =>
+        card.id === selectedCardId ? { ...card, stars: result.customer.newStars } : card,
+      );
+      setScannedCustomer({
+        ...scannedCustomer,
+        existingStars: result.customer.newStars,
+        cards: updatedCards.length > 0 ? updatedCards : result.customer.cards || [],
+      });
+      setManualUsername("");
+      setMessage({ type: "success", text: `Credited ${pointsToAdd} point${pointsToAdd === 1 ? "" : "s"} to @${scannedCustomer.username}.` });
+    } catch (error) {
+      console.error(error);
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Failed to credit card." });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleConfirmBatch = async () => {
+    if (!store?.id || batchQueue.length === 0 || isProcessing) return;
+    if (!navigator.onLine) {
+      setMessage({ type: "error", text: "Secure QR scans require an internet connection." });
+      return;
+    }
+
+    setIsProcessing(true);
+    setMessage(null);
+    try {
+      for (const item of batchQueue) {
+        await redeemCustomerScan({
+          scanToken: item.id,
+          storeId: store.id,
+          promotionId: selectedPromotionId || undefined,
+          points: item.points,
+          scannerLocation,
+        });
+      }
+
+      setMessage({ type: "success", text: `Successfully processed ${batchQueue.length} batch scans.` });
+      setBatchQueue([]);
+      setShowBatchModal(false);
+    } catch (error) {
+      console.error(error);
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Failed to process some batch scans." });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const updateBatchItemPoints = (index: number, change: number) => {
+    setBatchQueue((queue) => {
+      const nextQueue = [...queue];
+      nextQueue[index].points = normalizePoints(nextQueue[index].points + change);
+      return nextQueue;
+    });
+  };
+
+  const removeBatchItem = (index: number) => {
+    setBatchQueue((queue) => queue.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  const resetScan = () => {
+    setScannedCustomer(null);
+    setMessage(null);
+    setPointsToAdd(1);
+    setIsScannerActive(true);
+  };
+
+  const selectedCard = scannedCustomer?.cards.find((card) => card.id === selectedCardId);
+  const currentStars = selectedCard?.stars ?? scannedCustomer?.existingStars ?? 0;
+  const scannerDisabled = isProcessing || Boolean(scannedCustomer) || !isWithinGeofence;
+
+  return (
+    <div className="max-w-5xl space-y-8">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">QR Scanner</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Scan secure customer QR codes, apply promotion rules, and choose the card to credit.</p>
+        </div>
+        <div className="rounded-2xl border border-gray-300 bg-gray-100 px-4 py-3 text-sm dark:border-white/15 dark:bg-white/10">
+          <p className="text-xs font-bold uppercase tracking-widest text-[#1b1b1b] dark:text-white">Assigned Store</p>
+          <p className="font-bold text-gray-900 dark:text-white">{store?.name || "Store"}</p>
+        </div>
+      </div>
+
+      {locationError && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-800 flex items-start gap-3 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
+          <MapPin className="h-5 w-5 shrink-0" />
+          {locationError}
+        </div>
+      )}
+
+      {message && (
+        <div className={`rounded-2xl border p-4 text-sm font-medium flex items-start gap-3 ${
+          message.type === "success"
+            ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900/50 dark:bg-green-900/20 dark:text-green-300"
+            : "border-red-200 bg-red-50 text-red-800 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300"
+        }`}>
+          {message.type === "success" ? <CheckCircle2 className="h-5 w-5 shrink-0" /> : <AlertTriangle className="h-5 w-5 shrink-0" />}
+          {message.text}
+        </div>
+      )}
+
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <section className="rounded-[2rem] border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <div className="mb-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white">
+                <Camera className="h-5 w-5 text-[#1b1b1b]" />
+                Scanner
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsScannerActive((value) => !value)}
+                disabled={scannerDisabled}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-colors disabled:opacity-50 ${
+                  isScannerActive
+                    ? "bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-300"
+                    : "bg-[#1b1b1b] text-white hover:bg-black"
+                }`}
+              >
+                {isScannerActive ? <CameraOff className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+                {isScannerActive ? "Stop" : "Start"}
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Promotion Rules</label>
+              <select
+                value={selectedPromotionId}
+                onChange={(event) => setSelectedPromotionId(event.target.value)}
+                disabled={isProcessing}
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              >
+                <option value="">Store visit credit</option>
+                {promotions.map((promotion) => (
+                  <option key={promotion.id} value={promotion.id}>{promotion.title || "Untitled Promotion"}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {selectedPromotion
+                  ? "Selected promotion dates, redemption limits, and geofence are enforced by the scan function."
+                  : "Store geofence is enforced when this shop has coordinates."}
+              </p>
+            </div>
+
+            <div className="flex gap-2 rounded-xl bg-gray-100 p-1 dark:bg-gray-800">
+              <button
+                type="button"
+                onClick={() => setIsBatchMode(false)}
+                className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-bold transition-all ${!isBatchMode ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white" : "text-gray-500 dark:text-gray-400"}`}
+              >
+                Single
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setScannedCustomer(null);
+                  setIsBatchMode(true);
+                }}
+                className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-bold transition-all ${isBatchMode ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white" : "text-gray-500 dark:text-gray-400"}`}
+              >
+                Batch
+              </button>
+            </div>
+          </div>
+
+          <div className="relative mx-auto mb-6 flex aspect-square w-full max-w-sm items-center justify-center overflow-hidden rounded-[2rem] border border-gray-200 bg-gray-50 shadow-inner dark:border-gray-800 dark:bg-black">
+            {isBatchMode && batchQueue.length > 0 && (
+              <div className="absolute right-4 top-4 z-20 rounded-full bg-[#1b1b1b] px-3 py-1 text-sm font-bold text-white shadow-lg">
+                {batchQueue.length} queued
+              </div>
+            )}
+            {showScanSuccess && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-green-500/20 backdrop-blur-sm">
+                <div className="rounded-full bg-white p-6 shadow-2xl dark:bg-gray-900">
+                  <CheckCircle2 className="h-16 w-16 text-green-500" />
+                </div>
+              </div>
+            )}
+            {isProcessing ? (
+              <div className="flex flex-col items-center gap-3 text-gray-500">
+                <Loader2 className="h-10 w-10 animate-spin text-[#1b1b1b]" />
+                <p className="text-sm font-semibold">Processing scan</p>
+              </div>
+            ) : !isWithinGeofence ? (
+              <div className="p-6 text-center text-gray-400">
+                <MapPin className="mx-auto mb-4 h-12 w-12" />
+                <p className="text-sm font-semibold">Scanner disabled by geofence</p>
+              </div>
+            ) : isScannerActive ? (
+              <Scanner onScan={(result) => handleScan(result[0].rawValue)} />
+            ) : (
+              <div className="p-6 text-center text-gray-400">
+                <QrCode className="mx-auto mb-4 h-12 w-12" />
+                <p className="text-sm font-semibold">{scannedCustomer ? "Customer scanned" : "Scanner is paused"}</p>
+                <p className="mt-2 text-xs">{scannedCustomer ? "Choose a card on the right." : "Start the scanner to read a customer QR."}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="mx-auto max-w-sm space-y-5">
+            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60">
+              <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Manual Username</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={manualUsername}
+                  onChange={(event) => {
+                    setManualUsername(event.target.value.trim().toLowerCase());
+                    setManualError("");
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") handleManualLookup();
+                  }}
+                  placeholder="customer_username"
+                  disabled={!isWithinGeofence || isProcessing || isBatchMode}
+                  className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                />
+                <button
+                  type="button"
+                  onClick={handleManualLookup}
+                  disabled={!manualUsername.trim() || !isWithinGeofence || isProcessing || isBatchMode}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-900 text-white transition-colors hover:bg-black disabled:opacity-50 dark:bg-white dark:text-gray-900"
+                  title="Verify username"
+                >
+                  <Search className="h-4 w-4" />
+                </button>
+              </div>
+              {manualError && <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">{manualError}</p>}
+            </div>
+
+            <div>
+              <label className="mb-3 block text-center text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Credit to Add</label>
+              <div className="flex items-center justify-between rounded-2xl border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-800">
+                <button
+                  type="button"
+                  onClick={() => setPointsToAdd((value) => normalizePoints(value - 1))}
+                  className="flex h-12 w-12 items-center justify-center rounded-xl border border-gray-100 bg-white text-gray-600 shadow-sm hover:text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                >
+                  <Minus className="h-5 w-5" />
+                </button>
+                <span className="px-4 text-2xl font-bold text-gray-900 dark:text-white">{pointsToAdd}</span>
+                <button
+                  type="button"
+                  onClick={() => setPointsToAdd((value) => normalizePoints(value + 1))}
+                  className="flex h-12 w-12 items-center justify-center rounded-xl border border-gray-100 bg-white text-gray-600 shadow-sm hover:text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                >
+                  <Plus className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {isBatchMode && batchQueue.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowBatchModal(true)}
+                className="w-full rounded-xl bg-gray-100 py-3 font-bold text-[#1b1b1b] transition-colors hover:bg-gray-200 dark:bg-white/10 dark:text-white"
+              >
+                Review {batchQueue.length} Scans
+              </button>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          {!scannedCustomer ? (
+            <div className="flex min-h-[28rem] flex-col items-center justify-center text-center">
+              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-gray-50 dark:bg-gray-800">
+                {selectedPromotion ? <Gift className="h-9 w-9 text-[#1b1b1b]" /> : <UserCircle className="h-9 w-9 text-gray-300 dark:text-gray-600" />}
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">No customer selected</h3>
+              <p className="mt-2 max-w-sm text-sm text-gray-500 dark:text-gray-400">
+                After scanning, the customer's profile summary and active cards for this shop will appear here.
+              </p>
+              {activeGeofence && (
+                <p className="mt-4 rounded-2xl bg-gray-50 px-4 py-2 text-xs font-semibold text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                  Geofence: {activeGeofence.radiusMeters}m from {activeGeofence.label}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="flex items-start gap-4 rounded-3xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/50">
+                {scannedCustomer.profilePic ? (
+                  <img
+                    src={getDisplayImageUrl(scannedCustomer.profilePic)}
+                    alt=""
+                    className="h-16 w-16 shrink-0 rounded-full border-4 border-white object-cover shadow-sm dark:border-gray-900"
+                  />
+                ) : (
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-4 border-white bg-gray-100 shadow-sm dark:border-gray-900 dark:bg-white/10">
+                    <UserCircle className="h-9 w-9 text-[#1b1b1b]" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Customer</p>
+                  <h3 className="truncate text-xl font-bold text-gray-900 dark:text-white">{scannedCustomer.maskedName}</h3>
+                  <p className="mt-0.5 truncate font-mono text-sm text-[#1b1b1b] dark:text-white">@{scannedCustomer.username}</p>
+                  <p className="mt-2 truncate text-xs text-gray-500 dark:text-gray-400">Customer ID: {scannedCustomer.id}</p>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Active Cards</h3>
+                  <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                    {scannedCustomer.cards.length}
+                  </span>
+                </div>
+
+                {scannedCustomer.cards.length === 0 ? (
+                  <div className="rounded-3xl border border-dashed border-gray-300 p-6 text-center dark:border-gray-700">
+                    <Star className="mx-auto mb-3 h-9 w-9 text-gray-300 dark:text-gray-600" />
+                    <p className="font-bold text-gray-900 dark:text-white">No active card for this shop</p>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Crediting this scan will start a new active card for the customer.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {scannedCustomer.cards.map((card) => {
+                      const selected = selectedCardId === card.id;
+                      return (
+                        <button
+                          key={card.id}
+                          type="button"
+                          onClick={() => setSelectedCardId(card.id)}
+                          className={`w-full rounded-3xl border p-4 text-left transition-all ${
+                            selected
+                              ? "border-[#1b1b1b] bg-gray-100 shadow-sm dark:bg-white/10"
+                              : "border-gray-200 bg-white hover:border-gray-300 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-white/20"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <p className="truncate font-bold text-gray-900 dark:text-white">{card.label}</p>
+                              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Joined {formatJoinedAt(card.joinedAt)}</p>
+                              <p className="mt-1 truncate font-mono text-[11px] text-gray-400">{card.id}</p>
+                            </div>
+                            <div className="shrink-0 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2 text-center dark:border-gray-700 dark:bg-gray-800">
+                              <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Stars</p>
+                              <p className="flex items-center justify-center gap-1 text-xl font-black text-gray-900 dark:text-white">
+                                {card.stars}
+                                <Star className="h-4 w-4 fill-[#1b1b1b] text-[#1b1b1b]" />
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-3xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/50">
+                <div className="grid grid-cols-3 items-center text-center">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Current</p>
+                    <p className="mt-1 text-xl font-bold text-gray-900 dark:text-white">{currentStars}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-[#1b1b1b] dark:text-white">Add</p>
+                    <p className="mt-1 text-xl font-bold text-[#1b1b1b] dark:text-white">+{pointsToAdd}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-gray-500">New</p>
+                    <p className="mt-1 text-xl font-bold text-gray-900 dark:text-white">{currentStars + pointsToAdd}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={resetScan}
+                  disabled={isProcessing}
+                  className="flex-1 rounded-xl bg-gray-100 px-4 py-3 font-bold text-gray-700 transition hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                >
+                  Scan Another
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCredit}
+                  disabled={isProcessing}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1b1b1b] px-4 py-3 font-bold text-white shadow-lg shadow-black/20 transition hover:bg-black disabled:opacity-50"
+                >
+                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  Credit Selected Card
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+
+      {showBatchModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm dark:bg-black/60">
+          <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-[2rem] border border-gray-100 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-center justify-between border-b border-gray-100 bg-gray-100 p-6 dark:border-gray-800 dark:bg-white/5">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Review Batch</h3>
+              <span className="rounded-xl bg-gray-200 px-3 py-1 text-sm font-bold text-[#1b1b1b] dark:bg-white/15 dark:text-white">{batchQueue.length} pending</span>
+            </div>
+            <div className="flex-1 space-y-4 overflow-y-auto p-6">
+              {batchQueue.map((item, index) => (
+                <div key={`${item.id}-${index}`} className="flex items-center justify-between rounded-2xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-gray-900 dark:text-white">Customer Scan</p>
+                    <p className="truncate font-mono text-xs text-gray-500">{item.id.slice(0, 18)}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white p-1.5 dark:border-gray-700 dark:bg-gray-900">
+                      <button type="button" onClick={() => updateBatchItemPoints(index, -1)} className="flex h-7 w-7 items-center justify-center rounded-lg bg-gray-50 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300">
+                        <Minus className="h-3 w-3" />
+                      </button>
+                      <span className="w-5 text-center text-sm font-bold text-gray-900 dark:text-white">{item.points}</span>
+                      <button type="button" onClick={() => updateBatchItemPoints(index, 1)} className="flex h-7 w-7 items-center justify-center rounded-lg bg-gray-50 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300">
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <button type="button" onClick={() => removeBatchItem(index)} className="p-2 text-gray-400 transition-colors hover:text-red-500">
+                      <Trash2 className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3 border-t border-gray-100 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
+              <button type="button" onClick={() => setShowBatchModal(false)} className="flex-1 rounded-xl bg-gray-100 px-4 py-3 font-bold text-gray-700 transition hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300">
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBatch}
+                disabled={isProcessing || batchQueue.length === 0}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1b1b1b] px-4 py-3 font-bold text-white transition hover:bg-black disabled:opacity-50"
+              >
+                {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                Confirm All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

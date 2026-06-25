@@ -47,7 +47,7 @@ export default function CustomerCards() {
           </div>
           <p className="text-gray-500 dark:text-gray-400 font-medium mb-1">No active cards found</p>
           <p className="text-sm text-gray-400 dark:text-gray-500 max-w-sm mb-6">You haven't collected any stars yet. Visit an affiliated store and present your Identity QR to start earning!</p>
-          <Link to="/customer/stores" className="text-orange-600 dark:text-orange-400 font-medium hover:underline">
+          <Link to="/customer/stores" className="text-[#1b1b1b] dark:text-white font-medium hover:underline">
             Find stores near you
           </Link>
         </div>
@@ -58,14 +58,14 @@ export default function CustomerCards() {
               <div key={card.id} className="bg-white dark:bg-gray-900 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-800 transition-colors">
                 <div className="flex justify-between items-center mb-4">
                   <span className="text-sm font-semibold text-gray-900 dark:text-white">{card.storeName || "Store Name"}</span>
-                  <span className="text-xs font-medium text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/30 px-2 py-1 rounded-md">
+                  <span className="text-xs font-medium text-[#1b1b1b] dark:text-white bg-gray-100 dark:bg-white/10 px-2 py-1 rounded-md">
                     {card.stars || 0}/10
                   </span>
                 </div>
                 <div className="flex gap-2 flex-wrap mb-2">
                   {[...Array(card.stars || 0)].map((_, i) => (
-                    <div key={i} className="w-8 h-8 bg-orange-100 dark:bg-orange-900/40 rounded-full flex items-center justify-center">
-                      <Star className="w-4 h-4 text-orange-600 dark:text-orange-400 fill-orange-600 dark:fill-orange-400" />
+                    <div key={i} className="w-8 h-8 bg-gray-100 dark:bg-white/15 rounded-full flex items-center justify-center">
+                      <Star className="w-4 h-4 text-[#1b1b1b] dark:text-white fill-[#1b1b1b] dark:fill-[#1b1b1b]" />
                     </div>
                   ))}
                   {[...Array(Math.max(0, 10 - (card.stars || 0)))].map((_, i) => (

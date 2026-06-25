@@ -91,21 +91,21 @@ export default function StaffAccount() {
   };
 
   const infoRow = (label: string, value?: string, icon?: React.ReactNode) => (
-    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 p-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800">
-      <span className="text-sm font-medium text-gray-500 w-36 shrink-0 flex items-center gap-2">
+    <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 px-4 py-3">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
         {icon}
         {label}
-      </span>
-      <span className="text-sm text-gray-900 dark:text-gray-300 truncate">{value || "Not set"}</span>
+      </div>
+      <div className="mt-1 text-sm font-medium text-gray-900 dark:text-white break-words">{value || "Not set"}</div>
     </div>
   );
 
   return (
-    <div className="max-w-2xl space-y-8">
+    <div className="max-w-3xl space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Account Settings</h2>
-          <p className="text-gray-500 dark:text-gray-400 mt-2">Manage your staff profile and security preferences.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Profile</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-2">Manage your profile and account security.</p>
         </div>
         <button
           type="button"
@@ -117,14 +117,14 @@ export default function StaffAccount() {
         </button>
       </div>
 
-      <form onSubmit={handleSave} className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-3xl border border-gray-200 dark:border-gray-800">
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-center gap-4">
-            <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 group">
+      <form onSubmit={handleSave} className="space-y-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-center gap-5">
+            <div className="relative flex h-20 w-20 min-w-20 shrink-0 aspect-square items-center justify-center overflow-hidden rounded-full bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white group">
               {formData.avatarUrl ? (
                 <img src={getDisplayImageUrl(formData.avatarUrl)} alt="Profile" className="h-full w-full object-cover" />
               ) : (
-                <User className="w-9 h-9" />
+                <User className="w-12 h-12" />
               )}
               {isEditing && (
                 <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
@@ -133,7 +133,10 @@ export default function StaffAccount() {
                 </label>
               )}
             </div>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Profile Information</h3>
+            <div className="min-w-0">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">{formData.name || "Staff"}</h3>
+              <p className="break-words text-sm text-gray-500 dark:text-gray-400">{user?.email}</p>
+            </div>
           </div>
           {!isEditing ? (
             <button
@@ -161,40 +164,38 @@ export default function StaffAccount() {
         </div>
 
         {!isEditing ? (
-          <div className="space-y-4">
-            {infoRow("Name", formData.name, <User className="w-4 h-4" />)}
-            {infoRow("Username", formData.username, <AtSign className="w-4 h-4" />)}
-            {infoRow("Number", formData.phone, <Phone className="w-4 h-4" />)}
-            <div className="flex flex-col gap-3 p-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 sm:flex-row sm:items-center">
-              <div className="min-w-0 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
-                <span className="text-sm font-medium text-gray-500 w-36 shrink-0 flex items-center gap-2">
-                  <Mail className="w-4 h-4" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            {infoRow("Name", formData.name, <User className="w-3.5 h-3.5" />)}
+            {infoRow("Username", formData.username, <AtSign className="w-3.5 h-3.5" />)}
+            {infoRow("Number", formData.phone, <Phone className="w-3.5 h-3.5" />)}
+            <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 px-4 py-3">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <Mail className="w-3.5 h-3.5" />
                   Email
-                </span>
-                <span className="text-sm text-gray-900 dark:text-gray-300 truncate">{user?.email || "Not set"}</span>
               </div>
+              <div className="mt-1 text-sm font-medium text-gray-900 dark:text-white break-words">{user?.email || "Not set"}</div>
             </div>
-            {infoRow("Birthday", formData.birthday, <Calendar className="w-4 h-4" />)}
-            {infoRow("Bio", formData.bio, <FileText className="w-4 h-4" />)}
-            {infoRow("Role", user?.role.replace("_", " "), <Shield className="w-4 h-4" />)}
+            {infoRow("Birthday", formData.birthday, <Calendar className="w-3.5 h-3.5" />)}
+            {infoRow("Bio", formData.bio, <FileText className="w-3.5 h-3.5" />)}
+            {infoRow("Role", user?.role.replace("_", " "), <Shield className="w-3.5 h-3.5" />)}
           </div>
         ) : (
           <div className="grid gap-5 sm:grid-cols-2">
             <label className="space-y-2">
               <span className="text-sm font-semibold text-gray-900 dark:text-gray-200">Full Name</span>
-              <input type="text" required value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
+              <input type="text" required value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
             </label>
             <label className="space-y-2">
               <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><AtSign className="w-4 h-4 text-gray-400" /> Username</span>
-              <input type="text" value={formData.username} onChange={(event) => setFormData({ ...formData, username: event.target.value })} className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
+              <input type="text" value={formData.username} onChange={(event) => setFormData({ ...formData, username: event.target.value })} className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
             </label>
             <label className="space-y-2">
               <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Phone className="w-4 h-4 text-gray-400" /> Number</span>
-              <input type="tel" value={formData.phone} onChange={(event) => setFormData({ ...formData, phone: event.target.value })} className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
+              <input type="tel" value={formData.phone} onChange={(event) => setFormData({ ...formData, phone: event.target.value })} className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
             </label>
             <label className="space-y-2">
               <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Calendar className="w-4 h-4 text-gray-400" /> Birthday</span>
-              <input type="date" value={formData.birthday} onChange={(event) => setFormData({ ...formData, birthday: event.target.value })} className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
+              <input type="date" value={formData.birthday} onChange={(event) => setFormData({ ...formData, birthday: event.target.value })} className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
             </label>
             <label className="space-y-2">
               <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Mail className="w-4 h-4 text-gray-400" /> Email</span>
@@ -203,7 +204,7 @@ export default function StaffAccount() {
                 <button
                   type="button"
                   onClick={scrollToEmailSecurity}
-                  className="inline-flex items-center justify-center rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-orange-700"
+                  className="inline-flex items-center justify-center rounded-xl bg-[#1b1b1b] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-black"
                 >
                   Change email
                 </button>
@@ -211,7 +212,7 @@ export default function StaffAccount() {
             </label>
             <label className="space-y-2 sm:col-span-2">
               <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><FileText className="w-4 h-4 text-gray-400" /> Bio</span>
-              <textarea value={formData.bio} onChange={(event) => setFormData({ ...formData, bio: event.target.value })} rows={4} className="w-full resize-none px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
+              <textarea value={formData.bio} onChange={(event) => setFormData({ ...formData, bio: event.target.value })} rows={4} className="w-full resize-none px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
             </label>
           </div>
         )}

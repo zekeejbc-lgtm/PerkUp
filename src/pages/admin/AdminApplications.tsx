@@ -167,7 +167,7 @@ export default function AdminApplications() {
                 <div className="flex items-center gap-3 mb-1">
                   <h4 className="font-bold tracking-tight text-gray-900 dark:text-white text-lg truncate">{app.businessName}</h4>
                   {app.subscriptionLevel && (
-                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold tracking-wider uppercase bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800/50">
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold tracking-wider uppercase bg-gray-100 text-[#1b1b1b] border border-gray-300 dark:bg-white/10 dark:text-white dark:border-white/15">
                       {app.subscriptionLevel}
                     </span>
                   )}
@@ -186,7 +186,7 @@ export default function AdminApplications() {
               <div className="flex items-center gap-3 sm:shrink-0 bg-gray-50 dark:bg-gray-900 sm:bg-transparent p-3 sm:p-0 rounded-xl sm:rounded-none">
                 <button 
                   onClick={() => handleApproveApplication(app)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-white bg-orange-600 hover:bg-orange-700 transition-colors"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-white bg-[#1b1b1b] hover:bg-black transition-colors"
                 >
                   Process Setup
                 </button>
@@ -226,11 +226,11 @@ export default function AdminApplications() {
                 <h4 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-widest border-b border-gray-200 dark:border-gray-800 pb-2">Store Details</h4>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Store Name</label>
-                  <input type="text" required value={storeName} onChange={e => setStoreName(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none" placeholder="e.g. Downtown Coffee" />
+                  <input type="text" required value={storeName} onChange={e => setStoreName(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" placeholder="e.g. Downtown Coffee" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Location (Address)</label>
-                  <input type="text" value={storeLocation} onChange={e => setStoreLocation(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none" placeholder="123 Main St, City" />
+                  <input type="text" value={storeLocation} onChange={e => setStoreLocation(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" placeholder="123 Main St, City" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Logo Image Upload</label>
@@ -274,15 +274,15 @@ export default function AdminApplications() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Subscription Start</label>
-                    <input type="date" required value={subStart} onChange={e => setSubStart(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+                    <input type="date" required value={subStart} onChange={e => setSubStart(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Subscription End</label>
-                    <input type="date" required value={subEnd} onChange={e => setSubEnd(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+                    <input type="date" required value={subEnd} onChange={e => setSubEnd(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Payment Date</label>
-                    <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+                    <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" />
                   </div>
                 </div>
               </div>
@@ -291,21 +291,21 @@ export default function AdminApplications() {
                 <h4 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-widest border-b border-gray-200 dark:border-gray-800 pb-2">Owner Account</h4>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Owner Name</label>
-                  <input type="text" required value={ownerName} onChange={e => setOwnerName(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none" placeholder="John Doe" />
+                  <input type="text" required value={ownerName} onChange={e => setOwnerName(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" placeholder="John Doe" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Owner Email</label>
-                  <input type="email" required value={ownerEmail} onChange={e => setOwnerEmail(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none" placeholder="owner@store.com" />
+                  <input type="email" required value={ownerEmail} onChange={e => setOwnerEmail(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" placeholder="owner@store.com" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Temporary Password</label>
-                  <input type="password" required minLength={6} value={ownerPassword} onChange={e => setOwnerPassword(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none" placeholder="At least 6 characters" />
+                  <input type="password" required minLength={6} value={ownerPassword} onChange={e => setOwnerPassword(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" placeholder="At least 6 characters" />
                 </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-4">
                 <button type="button" onClick={() => setShowAddModal(false)} className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-orange-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50 dark:bg-orange-600 dark:hover:bg-orange-700">
+                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-[#1b1b1b] px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-50 dark:bg-[#1b1b1b] dark:hover:bg-black">
                   {isSubmitting ? 'Creating...' : 'Create Record'}
                 </button>
               </div>

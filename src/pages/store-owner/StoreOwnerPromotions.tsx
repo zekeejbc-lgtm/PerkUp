@@ -257,7 +257,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     placeholder="e.g. Buy 10 getting 1 Coffee Free!"
-                    className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
                   />
                 </div>
 
@@ -268,7 +268,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     placeholder="Details about the promotion..."
-                    className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                    className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] resize-none"
                   />
                 </div>
 
@@ -282,7 +282,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                       max="100"
                       value={formData.requiredStamps}
                       onChange={(e) => setFormData({ ...formData, requiredStamps: parseInt(e.target.value) || 10 })}
-                      className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500"
+                      className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
                     />
                   </div>
 
@@ -294,7 +294,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                       value={formData.maxRedemptions}
                       onChange={(e) => setFormData({ ...formData, maxRedemptions: e.target.value ? parseInt(e.target.value) || "" : "" })}
                       placeholder="Unlimited"
-                      className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500"
+                      className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
                     />
                   </div>
                 </div>
@@ -350,7 +350,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                   <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-gray-500" /> Scanner Geofence
                   </label>
-                  <input type="checkbox" checked={formData.geofenceEnabled} onChange={(e) => setFormData({ ...formData, geofenceEnabled: e.target.checked })} className="w-4 h-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
+                  <input type="checkbox" checked={formData.geofenceEnabled} onChange={(e) => setFormData({ ...formData, geofenceEnabled: e.target.checked })} className="w-4 h-4 rounded border-gray-300 text-[#1b1b1b] focus:ring-[#1b1b1b]" />
                 </div>
                 <div className={`space-y-3 ${formData.geofenceEnabled ? "" : "opacity-50 pointer-events-none"}`}>
                   <div className="h-[min(55vh,420px)] min-h-72 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
@@ -358,7 +358,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                       <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                       <GeofenceClickHandler onPick={(lat, lng) => setFormData({ ...formData, geofenceLat: lat, geofenceLng: lng })} />
                       <Marker position={[geofenceCenter.lat, geofenceCenter.lng]} />
-                      <Circle center={[geofenceCenter.lat, geofenceCenter.lng]} radius={Number(formData.geofenceRadiusMeters || DEFAULT_RADIUS_METERS)} pathOptions={{ color: "#f97316", fillColor: "#fb923c", fillOpacity: 0.16 }} />
+                      <Circle center={[geofenceCenter.lat, geofenceCenter.lng]} radius={Number(formData.geofenceRadiusMeters || DEFAULT_RADIUS_METERS)} pathOptions={{ color: "#1b1b1b", fillColor: "#fb923c", fillOpacity: 0.16 }} />
                     </MapContainer>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -380,7 +380,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
 
               <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 sm:p-6">
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" id="active" checked={formData.active} onChange={(e) => setFormData({ ...formData, active: e.target.checked })} className="w-4 h-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
+                  <input type="checkbox" id="active" checked={formData.active} onChange={(e) => setFormData({ ...formData, active: e.target.checked })} className="w-4 h-4 rounded border-gray-300 text-[#1b1b1b] focus:ring-[#1b1b1b]" />
                   <label htmlFor="active" className="text-sm font-medium text-gray-700 dark:text-gray-300">Run this promotion immediately</label>
                 </div>
               </div>
@@ -421,7 +421,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
       <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-white/10 text-[#1b1b1b] dark:text-white flex items-center justify-center shrink-0">
               <Ticket className="w-5 h-5" />
             </div>
             <div>
@@ -441,7 +441,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                 <button
                   type="button"
                   onClick={handleCopyReferralCode}
-                  className="p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30 transition-colors"
+                  className="p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
                   title="Copy referral code"
                 >
                   <Copy className="w-4 h-4" />
@@ -459,7 +459,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
               </button>
             )}
             {promotions.length < 1 && (
-              <p className="text-xs font-medium text-orange-600 dark:text-orange-400">
+              <p className="text-xs font-medium text-[#1b1b1b] dark:text-white">
                 Add at least one promotion before getting a code.
               </p>
             )}
@@ -469,21 +469,21 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
         {promotions.length === 0 ? (
-          <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-gray-950 rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
+          <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-[#1b1b1b] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
             <Gift className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-700 mb-3" />
             <p className="font-medium text-gray-900 dark:text-white">No promotions yet</p>
             <p className="text-sm text-gray-500 mt-1">Add your first promotional offer to attract customers.</p>
           </div>
         ) : (
           promotions.map((promo) => (
-            <div key={promo.id} className={`bg-white dark:bg-gray-900 border rounded-2xl overflow-hidden ${promo.active ? "border-orange-200 dark:border-orange-800 shadow-sm" : "border-gray-200 dark:border-gray-800 opacity-75"}`}>
+            <div key={promo.id} className={`bg-white dark:bg-gray-900 border rounded-2xl overflow-hidden ${promo.active ? "border-gray-300 dark:border-white/15 shadow-sm" : "border-gray-200 dark:border-gray-800 opacity-75"}`}>
               {promo.bannerImageUrl && (
                 <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className="h-36 w-full object-cover" />
               )}
               <div className="p-6">
                 <div className="flex justify-between items-start gap-4 mb-4">
                   <div className="flex gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${promo.active ? "bg-orange-100 dark:bg-orange-900/50 text-orange-600 dark:text-orange-400" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${promo.active ? "bg-gray-100 dark:bg-white/15 text-[#1b1b1b] dark:text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
                       <Gift className="w-5 h-5" />
                     </div>
                     <div>
@@ -520,7 +520,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                 </div>
 
                 <div className="flex justify-end gap-2 pt-4 border-t border-gray-100 dark:border-gray-800">
-                  <button onClick={() => handleOpenModal(promo)} className="p-2 text-gray-500 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30 rounded-lg transition-colors">
+                  <button onClick={() => handleOpenModal(promo)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
                     <Edit2 className="w-4 h-4" />
                   </button>
                   <button onClick={() => handleDelete(promo.id)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">

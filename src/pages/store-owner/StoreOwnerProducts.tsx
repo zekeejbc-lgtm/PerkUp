@@ -126,7 +126,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {products.length === 0 ? (
-          <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-gray-950 rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
+          <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-[#1b1b1b] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
             <ImageIcon className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-700 mb-3" />
             <p className="font-medium text-gray-900 dark:text-white">No products yet</p>
             <p className="text-sm text-gray-500 mt-1">Add your first product to build your catalog.</p>
@@ -151,13 +151,13 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
               <div className="p-4 flex flex-col flex-1">
                 <div className="flex justify-between items-start gap-2 mb-2">
                   <h3 className="font-bold text-gray-900 dark:text-white line-clamp-1">{product.name}</h3>
-                  <span className="font-black text-gray-900 dark:text-white shrink-0 text-orange-600 dark:text-orange-400">₱{parseFloat(product.price).toFixed(2)}</span>
+                  <span className="font-black text-gray-900 dark:text-white shrink-0 text-[#1b1b1b] dark:text-white">₱{parseFloat(product.price).toFixed(2)}</span>
                 </div>
                 {product.ingredients && (
                   <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 flex-1">{product.ingredients}</p>
                 )}
                 <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 shrink-0">
-                   <button onClick={() => handleOpenModal(product)} className="p-2 text-gray-500 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30 rounded-lg transition-colors">
+                   <button onClick={() => handleOpenModal(product)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
                      <Edit2 className="w-4 h-4" />
                    </button>
                    <button onClick={() => handleDelete(product.id)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
@@ -218,7 +218,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
               </div>
               
               <div className="flex items-center gap-2 pt-2">
-                <input type="checkbox" id="available" checked={formData.available} onChange={e => setFormData({...formData, available: e.target.checked})} className="w-4 h-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
+                <input type="checkbox" id="available" checked={formData.available} onChange={e => setFormData({...formData, available: e.target.checked})} className="w-4 h-4 rounded border-gray-300 text-[#1b1b1b] focus:ring-[#1b1b1b]" />
                 <label htmlFor="available" className="text-sm font-medium text-gray-700 dark:text-gray-300">Product is available for sale</label>
               </div>
               

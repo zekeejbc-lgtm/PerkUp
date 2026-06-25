@@ -4,6 +4,7 @@ import { db } from "../../lib/backend";
 import { Layout, Save, Upload, Plus, Trash2, Loader2, ImagePlus, RefreshCcw, CheckCircle2, XCircle, Edit3, QrCode, Star, Coffee, ArrowRight, Store as StoreIcon, Search, MapPin, Mail, Phone } from "lucide-react";
 import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
+import { BrandMark } from "../../components/BrandMark";
 
 type HomepageConfig = {
   heroHeadline: string;
@@ -71,7 +72,7 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
       : DEFAULT_CONFIG.trustedBusinesses;
 
   return (
-    <div className="w-full min-w-0 rounded-2xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-950 shadow-sm overflow-hidden">
+    <div className="w-full min-w-0 rounded-2xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1b1b1b] shadow-sm overflow-hidden">
       <div className="flex min-w-0 items-center justify-between gap-4 border-b border-gray-100 dark:border-gray-800 px-4 py-3 bg-gray-50 dark:bg-gray-900">
         <div className="flex shrink-0 items-center gap-2">
           <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
@@ -81,35 +82,30 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
         <span className="truncate text-xs font-semibold text-gray-500 dark:text-gray-400">Live admin preview</span>
       </div>
 
-      <div className="max-h-160 overflow-y-auto overflow-x-hidden bg-[#fafafa] dark:bg-gray-950">
-        <header className="relative z-20 bg-[#fafafa] dark:bg-gray-950 border-b border-gray-200/50 dark:border-gray-800/50">
+      <div className="max-h-160 overflow-y-auto overflow-x-hidden bg-white dark:bg-[#1b1b1b]">
+        <header className="relative z-20 bg-white dark:bg-[#1b1b1b] border-b border-gray-200/50 dark:border-gray-800/50">
           <nav className="flex min-w-0 items-center justify-between gap-4 px-4 py-3 sm:px-5">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="w-7 h-7 flex items-center justify-center shrink-0 bg-white rounded-xl shadow-sm overflow-hidden p-0.5">
-                <img src="/icons/icon-192.png?v=20260618-logo" alt="PerkUp Logo" className="w-full h-full object-contain" />
-              </div>
-              <span className="truncate text-lg font-bold tracking-tight text-gray-900 dark:text-white">PerkUp</span>
-            </div>
+            <BrandMark compact className="shrink-0" />
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               <span className="whitespace-nowrap text-xs font-medium text-gray-900 dark:text-gray-100">Sign in</span>
-              <span className="whitespace-nowrap px-3 py-1.5 text-xs font-medium text-white bg-orange-600 rounded-xl">Sign up</span>
+              <span className="whitespace-nowrap px-3 py-1.5 text-xs font-medium text-white bg-[#1b1b1b] rounded-xl">Sign up</span>
             </div>
           </nav>
         </header>
 
         <section className="isolate relative z-0 overflow-hidden px-4 pb-10 pt-8 sm:px-5 lg:pb-12 lg:pt-10">
           <div className="absolute inset-0 z-0">
-            <div className="absolute inset-0 bg-linear-to-b from-transparent via-[#fafafa]/80 dark:via-gray-950/80 to-[#fafafa] dark:to-gray-950 z-10" />
+            <div className="absolute inset-0 bg-linear-to-b from-transparent via-[#fafafa]/80 dark:via-[#1b1b1b]/80 to-[#fafafa] dark:to-[#1b1b1b] z-10" />
             <img src={getDisplayImageUrl(config.heroImageUrl)} alt="Hero image" className="w-full h-full object-cover opacity-30 dark:opacity-20" />
           </div>
 
           <div className="relative z-10 mx-auto w-full max-w-5xl">
             <div className="grid min-w-0 grid-cols-1 items-center gap-7 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.9fr)]">
               <div className="min-w-0 max-w-xl">
-                <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-orange-100 bg-orange-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-orange-600 dark:border-orange-900/50 dark:bg-orange-950/30 dark:text-orange-400 mb-5">
+                <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-gray-200 bg-gray-100 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#1b1b1b] dark:border-white/15 dark:bg-white/10 dark:text-white mb-5">
                   <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500" />
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-[#1b1b1b] opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#1b1b1b]" />
                   </span>
                   <span className="truncate">Digital Loyalty Starts Here</span>
                 </div>
@@ -128,14 +124,14 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
 
               <div className="relative min-w-0 overflow-hidden rounded-3xl border border-gray-200 bg-gray-100 p-4 shadow-sm aspect-4/3 dark:border-gray-800 dark:bg-gray-900 sm:p-6">
                 <div className="relative h-full flex flex-col items-center justify-center space-y-5">
-                  <div className="w-[min(14rem,82%)] -rotate-6 rounded-3xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+                  <div className="w-[min(14rem,82%)] -rotate-6 rounded-3xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-[#1b1b1b]">
                     <div className="flex justify-between items-start mb-5">
                       <div className="w-10 h-10 bg-gray-50 dark:bg-gray-900 rounded-2xl flex items-center justify-center">
                         <QrCode className="w-5 h-5 text-gray-400 dark:text-gray-500" />
                       </div>
                       <div className="flex gap-1">
                         {[1, 2, 3].map((i) => (
-                          <Star key={i} className="w-3.5 h-3.5 text-orange-400 fill-orange-400" />
+                          <Star key={i} className="w-3.5 h-3.5 text-[#1b1b1b] fill-[#1b1b1b] dark:text-white dark:fill-white" />
                         ))}
                       </div>
                     </div>
@@ -145,15 +141,15 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
                     </div>
                   </div>
 
-                  <div className="w-[min(14rem,82%)] translate-x-4 rotate-3 rounded-3xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-950 sm:translate-x-8">
+                  <div className="w-[min(14rem,82%)] translate-x-4 rotate-3 rounded-3xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-[#1b1b1b] sm:translate-x-8">
                     <div className="flex justify-between items-center mb-4">
                       <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Coffee Card</span>
-                      <span className="text-[10px] font-medium text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/30 px-2 py-1 rounded-md">8/10</span>
+                      <span className="text-[10px] font-medium text-[#1b1b1b] dark:text-white bg-gray-100 dark:bg-white/10 px-2 py-1 rounded-md">8/10</span>
                     </div>
                     <div className="flex min-w-0 gap-1.5 overflow-hidden">
                       {[...Array(8)].map((_, i) => (
-                        <div key={i} className="w-5 h-5 bg-orange-100 dark:bg-orange-900/40 rounded-full flex items-center justify-center">
-                          <Coffee className="w-2.5 h-2.5 text-orange-600 dark:text-orange-400" />
+                        <div key={i} className="w-5 h-5 bg-gray-100 dark:bg-white/15 rounded-full flex items-center justify-center">
+                          <Coffee className="w-2.5 h-2.5 text-[#1b1b1b] dark:text-white" />
                         </div>
                       ))}
                       {[...Array(2)].map((_, i) => (
@@ -167,7 +163,7 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
           </div>
         </section>
 
-        <section className="overflow-hidden border-t border-gray-100 bg-white py-10 dark:border-gray-800 dark:bg-gray-950">
+        <section className="overflow-hidden border-t border-gray-100 bg-white py-10 dark:border-gray-800 dark:bg-[#1b1b1b]">
           <p className="text-center text-xs font-bold text-gray-400 dark:text-gray-500 mb-7 uppercase tracking-widest px-5">Trusted by local businesses</p>
           <div className="grid min-w-0 grid-cols-2 gap-5 px-5 md:grid-cols-4">
             {logos.slice(0, 4).map((logo, idx) => (
@@ -181,7 +177,7 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
           </div>
         </section>
 
-        <section className="bg-white dark:bg-gray-950 py-12 border-t border-gray-100 dark:border-gray-800">
+        <section className="bg-white dark:bg-[#1b1b1b] py-12 border-t border-gray-100 dark:border-gray-800">
           <div className="px-5">
             <div className="text-center max-w-lg mx-auto mb-8">
               <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Find affiliated stores</h2>
@@ -195,8 +191,8 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
             </div>
             <div className="rounded-3xl overflow-hidden border border-gray-200 dark:border-gray-800 shadow-sm h-56 bg-gray-100 dark:bg-gray-900 relative">
               <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(148,163,184,0.15)_1px,transparent_1px),linear-gradient(rgba(148,163,184,0.15)_1px,transparent_1px)] bg-size-[32px_32px]" />
-              <div className="absolute left-1/2 top-1/2 h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white border-2 border-orange-600 shadow flex items-center justify-center">
-                <MapPin className="w-5 h-5 text-orange-600" />
+              <div className="absolute left-1/2 top-1/2 h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white border-2 border-[#1b1b1b] shadow flex items-center justify-center">
+                <MapPin className="w-5 h-5 text-[#1b1b1b]" />
               </div>
             </div>
           </div>
@@ -207,20 +203,17 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
             <div className="px-5 text-center">
               <h2 className="text-2xl font-bold tracking-tight mb-4">Become a Partner Store</h2>
               <p className="text-gray-400 text-sm max-w-xl mx-auto mb-7">Join our growing network of local businesses. Drive more foot traffic, build customer loyalty, and get insights into your best customers.</p>
-              <span className="inline-flex bg-orange-600 text-white px-5 py-3 rounded-2xl text-sm font-medium">Apply to be a Partner</span>
+              <span className="inline-flex bg-[#1b1b1b] text-white px-5 py-3 rounded-2xl text-sm font-medium">Apply to be a Partner</span>
             </div>
           </section>
         )}
 
-        <footer className="bg-white dark:bg-gray-950 border-t border-gray-200 dark:border-gray-800 pt-10 pb-6">
+        <footer className="bg-white dark:bg-[#1b1b1b] border-t border-gray-200 dark:border-gray-800 pt-10 pb-6">
           <div className="px-5">
             <div className="grid md:grid-cols-2 gap-8 mb-8">
               <div>
                 <div className="flex items-center gap-2 mb-4">
-                  <div className="bg-gray-100 dark:bg-gray-900 p-1.5 rounded-lg">
-                    <Star className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-                  </div>
-                  <span className="text-lg font-bold tracking-tight text-gray-900 dark:text-white">PerkUp</span>
+                  <BrandMark compact />
                 </div>
                 <p className="text-gray-500 dark:text-gray-400 max-w-sm mb-5 text-sm leading-relaxed">The modern digital loyalty program for independent businesses. Reward your best customers without the paper cards.</p>
                 <div className="flex flex-col gap-2">
@@ -427,13 +420,13 @@ export default function AdminHomepage() {
                 <RefreshCcw className="w-4 h-4" />
                 Cancel
               </button>
-              <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-white bg-orange-600 hover:bg-orange-700 transition-colors disabled:opacity-50">
+              <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-white bg-[#1b1b1b] hover:bg-black transition-colors disabled:opacity-50">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Save
               </button>
             </>
           ) : (
-            <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-white bg-orange-600 hover:bg-orange-700 transition-colors">
+            <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-white bg-[#1b1b1b] hover:bg-black transition-colors">
               <Edit3 className="w-4 h-4" />
               Edit
             </button>
@@ -454,7 +447,7 @@ export default function AdminHomepage() {
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
             <input type="checkbox" className="sr-only peer" checked={config.applicationsOpen} onChange={e => setConfig({...config, applicationsOpen: e.target.checked})} />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-orange-300 dark:peer-focus:ring-orange-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-orange-600"></div>
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#1b1b1b]/30 dark:peer-focus:ring-white/30 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-[#1b1b1b]"></div>
           </label>
         </div>
 
@@ -502,12 +495,12 @@ export default function AdminHomepage() {
             <div>
               <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Trusted By Showcase</h4>
               <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                <input type="checkbox" checked={config.usePartnerStores} onChange={e => setConfig({ ...config, usePartnerStores: e.target.checked })} className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
+                <input type="checkbox" checked={config.usePartnerStores} onChange={e => setConfig({ ...config, usePartnerStores: e.target.checked })} className="rounded border-gray-300 text-[#1b1b1b] focus:ring-[#1b1b1b]" />
                 <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">Use Active Partner Stores automatically</span>
               </label>
             </div>
             {!config.usePartnerStores && (
-              <button onClick={handleAddBusiness} className="text-xs font-semibold text-orange-600 flex items-center gap-1 hover:text-orange-700">
+              <button onClick={handleAddBusiness} className="text-xs font-semibold text-[#1b1b1b] flex items-center gap-1 hover:text-[#1b1b1b]">
                 <Plus className="w-3 h-3" /> Add Business
               </button>
             )}

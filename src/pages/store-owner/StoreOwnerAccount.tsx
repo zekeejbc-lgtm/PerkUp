@@ -103,11 +103,11 @@ export default function StoreOwnerAccount() {
   );
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="max-w-3xl space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Account Settings</h2>
-          <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Manage your personal information, profile, and credentials.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Profile</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-2">Manage your profile and account security.</p>
         </div>
         <button
           type="button"
@@ -119,28 +119,27 @@ export default function StoreOwnerAccount() {
         </button>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8 space-y-8">
-        
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8">
         <form onSubmit={handleSave} className="space-y-6 flex flex-col items-start w-full">
           {/* Profile Picture */}
-          <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-4">
-            <div className="flex items-center gap-6">
-            <div className="relative w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full border-4 border-white dark:border-gray-950 shadow-sm overflow-hidden group">
+          <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 items-center gap-5">
+            <div className="relative h-20 w-20 min-w-20 shrink-0 aspect-square bg-gray-100 dark:bg-white/10 rounded-full flex items-center justify-center overflow-hidden group">
               {formData.avatarUrl ? (
                 <img src={getDisplayImageUrl(formData.avatarUrl)} alt="Profile" className="w-full h-full object-cover" />
               ) : (
-                <UserCircle className="w-full h-full text-gray-300 p-2" />
+                <UserCircle className="w-12 h-12 text-[#1b1b1b] dark:text-white" />
               )}
               {isEditing && (
-              <label className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity text-white text-xs font-semibold">
-                Upload
+              <label className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity text-white">
+                <UserCircle className="w-5 h-5" />
                 <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
               </label>
               )}
             </div>
-            <div>
+            <div className="min-w-0">
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">{formData.name || 'Store Owner'}</h3>
-              <p className="text-gray-500 text-sm">{user?.role.toUpperCase().replace('_', ' ')}</p>
+              <p className="break-words text-sm text-gray-500 dark:text-gray-400">{user?.email}</p>
             </div>
             </div>
             {!isEditing ? (
@@ -190,57 +189,57 @@ export default function StoreOwnerAccount() {
             <div className="grid gap-6 sm:grid-cols-2 w-full">
             <div className="space-y-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Full Name</label>
-              <input 
+              <input
                 type="text" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})}
-                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500" 
+                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
               />
             </div>
-            
+
             <div className="space-y-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><AtSign className="w-4 h-4 text-gray-400" /> Username</label>
-              <input 
+              <input
                 type="text" required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})}
-                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500" 
+                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
               />
             </div>
 
             <div className="space-y-2 sm:col-span-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><MapPin className="w-4 h-4 text-gray-400" /> Address</label>
-              <input 
+              <input
                 type="text" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})}
-                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500" 
+                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
               />
             </div>
-            
+
             <div className="space-y-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Phone className="w-4 h-4 text-gray-400" /> Number</label>
-              <input 
+              <input
                 type="tel" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})}
-                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500" 
+                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
               />
             </div>
 
             <div className="space-y-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Calendar className="w-4 h-4 text-gray-400" /> Birthday</label>
-              <input 
+              <input
                 type="date" value={formData.birthday} onChange={e => setFormData({...formData, birthday: e.target.value})}
-                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500" 
+                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
               />
             </div>
-            
+
             <div className="space-y-2 sm:col-span-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2">
                 <Mail className="w-4 h-4 text-gray-400" /> Email
               </label>
               <div className="flex flex-col gap-3 sm:flex-row">
-                <input 
-                  type="email" readOnly value={user?.email || ''} 
-                  className="min-w-0 flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800 text-gray-500 rounded-xl outline-none cursor-not-allowed" 
+                <input
+                  type="email" readOnly value={user?.email || ''}
+                  className="min-w-0 flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800 text-gray-500 rounded-xl outline-none cursor-not-allowed"
                 />
                 <button
                   type="button"
                   onClick={scrollToEmailSecurity}
-                  className="inline-flex items-center justify-center rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-orange-700"
+                  className="inline-flex items-center justify-center rounded-xl bg-[#1b1b1b] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-black"
                 >
                   Change email
                 </button>
@@ -253,7 +252,7 @@ export default function StoreOwnerAccount() {
                 value={formData.bio}
                 onChange={e => setFormData({...formData, bio: e.target.value})}
                 rows={4}
-                className="w-full resize-none px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500" 
+                className="w-full resize-none px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
               />
             </div>
           </div>
@@ -269,11 +268,9 @@ export default function StoreOwnerAccount() {
           </div>
         </form>
 
-        <div className="pt-6 mt-6 border-t border-gray-100 dark:border-gray-800">
-          <AccountSecurity />
-        </div>
-
       </div>
+
+      <AccountSecurity />
     </div>
   );
 }

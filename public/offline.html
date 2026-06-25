@@ -3,18 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#ea580c" />
+    <meta name="theme-color" content="#1b1b1b" />
     <title>PerkUp Offline</title>
     <style>
       :root {
         color-scheme: light dark;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: "JA Jayagiri Sans", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
 
       body {
         align-items: center;
-        background: #fafafa;
-        color: #111827;
+        background: #ffffff;
+        color: #1b1b1b;
         display: flex;
         min-height: 100vh;
         margin: 0;
@@ -27,8 +27,8 @@
       }
 
       img {
-        height: 56px;
-        width: 56px;
+        height: auto;
+        width: 150px;
       }
 
       h1 {
@@ -45,7 +45,7 @@
       }
 
       button {
-        background: #ea580c;
+        background: #1b1b1b;
         border: 0;
         border-radius: 12px;
         color: white;
@@ -57,8 +57,8 @@
 
       @media (prefers-color-scheme: dark) {
         body {
-          background: #030712;
-          color: #f9fafb;
+          background: #1b1b1b;
+          color: #ffffff;
         }
 
         p {
@@ -69,7 +69,10 @@
   </head>
   <body>
     <main>
-      <img src="/icons/icon-192.png?v=20260618-logo" alt="PerkUp" />
+      <picture>
+        <source srcset="/icons/perkup-wordmark-dark-transparent.png?v=20260625-brand" media="(prefers-color-scheme: dark)" />
+        <img src="/icons/perkup-wordmark-light-transparent.png?v=20260625-brand" alt="perk." />
+      </picture>
       <h1>You are offline</h1>
       <p>PerkUp can open previously loaded screens while offline. Reconnect to sync account data and loyalty scans.</p>
       <button type="button" onclick="window.location.reload()">Try again</button>

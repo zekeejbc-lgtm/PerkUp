@@ -468,7 +468,7 @@ export default function AccountSecurity() {
                 required
                 value={currentPassword}
                 onChange={(event) => setCurrentPassword(event.target.value)}
-                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-orange-500 dark:text-white transition-colors"
+                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
               />
             </div>
             <div className="space-y-1">
@@ -479,7 +479,7 @@ export default function AccountSecurity() {
                 minLength={6}
                 value={newPassword}
                 onChange={(event) => setNewPassword(event.target.value)}
-                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-orange-500 dark:text-white transition-colors"
+                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
               />
               {newPassword && (
                 <div className="space-y-2 pt-1">
@@ -518,7 +518,7 @@ export default function AccountSecurity() {
                 minLength={6}
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}
-                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-orange-500 dark:text-white transition-colors"
+                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
               />
             </div>
             {verifiedFactors.length > 0 && (
@@ -531,7 +531,7 @@ export default function AccountSecurity() {
                   required
                   value={passwordMfaCode}
                   onChange={(event) => setPasswordMfaCode(event.target.value.replace(/\s/g, "").slice(0, 6))}
-                  className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-orange-500 dark:text-white transition-colors"
+                  className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
                   placeholder="123456"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -543,7 +543,7 @@ export default function AccountSecurity() {
               <button
                 type="submit"
                 disabled={isChangingPassword}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#1b1b1b] px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-50"
               >
                 {isChangingPassword && <Loader2 className="w-4 h-4 animate-spin" />}
                 Save Password
@@ -612,7 +612,7 @@ export default function AccountSecurity() {
                   setEmailOtpExpiresAt(0);
                   setEmailMessage(null);
                 }}
-                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-orange-500 dark:text-white transition-colors"
+                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
                 placeholder="name@example.com"
               />
             </div>
@@ -620,7 +620,7 @@ export default function AccountSecurity() {
               <div className="space-y-1 sm:col-span-2">
                 <div className="flex items-center justify-between gap-3">
                   <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Email OTP</label>
-                  <span className={`text-xs font-semibold ${emailOtpSecondsRemaining > 0 ? "text-gray-500 dark:text-gray-400" : "text-orange-600 dark:text-orange-400"}`}>
+                  <span className={`text-xs font-semibold ${emailOtpSecondsRemaining > 0 ? "text-gray-500 dark:text-gray-400" : "text-[#1b1b1b] dark:text-white"}`}>
                     {emailOtpSecondsRemaining > 0 ? `Expires in ${formatOtpCountdown(emailOtpSecondsRemaining)}` : "Expired"}
                   </span>
                 </div>
@@ -631,7 +631,7 @@ export default function AccountSecurity() {
                   required
                   value={emailOtpCode}
                   onChange={(event) => setEmailOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                  className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-orange-500 dark:text-white transition-colors"
+                  className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
                   placeholder="123456"
                 />
                 <button
@@ -645,7 +645,7 @@ export default function AccountSecurity() {
                     }
                     requestEmailChangeOtp(normalizedEmail);
                   }}
-                  className="text-xs font-semibold text-orange-600 hover:text-orange-500 disabled:opacity-50 dark:text-orange-400"
+                  className="text-xs font-semibold text-[#1b1b1b] hover:text-[#1b1b1b] disabled:opacity-50 dark:text-white"
                 >
                   Request new OTP
                 </button>
@@ -655,7 +655,7 @@ export default function AccountSecurity() {
               <button
                 type="submit"
                 disabled={isChangingEmail}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#1b1b1b] px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-50"
               >
                 {isChangingEmail && <Loader2 className="w-4 h-4 animate-spin" />}
                 {emailOtpToken ? "Verify OTP and Save Email" : "Send OTP"}
@@ -694,7 +694,7 @@ export default function AccountSecurity() {
               checked={trustedDeviceEnabled}
               disabled={trustedDeviceBusy}
               onChange={(event) => handleTrustedDeviceToggle(event.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500 disabled:opacity-50"
+              className="h-4 w-4 rounded border-gray-300 text-[#1b1b1b] focus:ring-[#1b1b1b] disabled:opacity-50"
             />
             <span className="text-sm font-semibold text-gray-900 dark:text-white">
               Skip on trusted devices
@@ -742,7 +742,7 @@ export default function AccountSecurity() {
             type="button"
             onClick={startMfaEnrollment}
             disabled={mfaBusy}
-            className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-[#1b1b1b] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-black disabled:opacity-50"
           >
             {mfaBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <QrCode className="h-3.5 w-3.5" />}
             Enroll App
@@ -802,7 +802,7 @@ export default function AccountSecurity() {
         )}
 
         {showMfaEnroll && (
-          <form onSubmit={verifyMfaEnrollment} className="mt-5 grid gap-5 rounded-2xl border border-orange-100 dark:border-orange-900/40 bg-orange-50/60 dark:bg-orange-900/10 p-5">
+          <form onSubmit={verifyMfaEnrollment} className="mt-5 grid gap-5 rounded-2xl border border-gray-200 dark:border-white/15 bg-gray-100/60 dark:bg-white/5 p-5">
             <div className="grid gap-5 md:grid-cols-[auto_1fr]">
               {enrollQr && (
                 <div className="bg-white rounded-2xl p-3 border border-gray-200 w-max">
@@ -833,7 +833,7 @@ export default function AccountSecurity() {
                     required
                     value={verificationCode}
                     onChange={(event) => setVerificationCode(event.target.value.replace(/\s/g, ""))}
-                    className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-orange-500 dark:text-white transition-colors"
+                    className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
                     placeholder="123456"
                   />
                 </div>
@@ -843,7 +843,7 @@ export default function AccountSecurity() {
               <button
                 type="submit"
                 disabled={mfaBusy || !verificationCode}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#1b1b1b] px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-50"
               >
                 {mfaBusy && <Loader2 className="w-4 h-4 animate-spin" />}
                 Verify and Enable
@@ -877,7 +877,7 @@ export default function AccountSecurity() {
                 required
                 value={removeCode}
                 onChange={(event) => setRemoveCode(event.target.value.replace(/\s/g, ""))}
-                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-orange-500 dark:text-white transition-colors"
+                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
                 placeholder="123456"
               />
             </div>

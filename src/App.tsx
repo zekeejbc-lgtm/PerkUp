@@ -7,6 +7,7 @@ import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
 import { getDisplayImageUrl } from "./lib/imageStorage";
 import { DashboardShellSkeleton, PageSkeleton } from "./components/LoadingSkeleton";
 import { ThemeToggle } from "./components/ThemeToggle";
+import { BrandMark } from "./components/BrandMark";
 import { findTrustedLoginDevice, getMfaPromptReason, trustCurrentDeviceForUser, TrustedLoginProfile } from "./lib/trustedDevice";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
@@ -65,10 +66,10 @@ function MfaChallenge({ onVerified, profile }: { onVerified: () => void; profile
   };
 
   return (
-    <div className="min-h-screen bg-[#fafafa] dark:bg-gray-950 flex items-center justify-center px-4">
-      <form onSubmit={handleSubmit} className="w-full max-w-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 shadow-sm space-y-5">
+    <div className="min-h-screen bg-white dark:bg-[#1b1b1b] flex items-center justify-center px-4">
+      <form onSubmit={handleSubmit} className="w-full max-w-md bg-white dark:bg-[#1f1f1f] border border-[#1b1b1b]/10 dark:border-white/10 rounded-[1.75rem] p-6 shadow-sm space-y-5">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 flex items-center justify-center">
+          <div className="w-11 h-11 rounded-2xl bg-[#1b1b1b] text-white dark:bg-white dark:text-[#1b1b1b] flex items-center justify-center">
             <ShieldCheck className="w-6 h-6" />
           </div>
           <div>
@@ -93,7 +94,7 @@ function MfaChallenge({ onVerified, profile }: { onVerified: () => void; profile
             required
             value={code}
             onChange={(event) => setCode(event.target.value.replace(/\s/g, ""))}
-            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white"
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#262626] border border-gray-200 dark:border-white/10 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:focus:ring-white dark:text-white"
             placeholder="123456"
           />
         </div>
@@ -103,7 +104,7 @@ function MfaChallenge({ onVerified, profile }: { onVerified: () => void; profile
             type="checkbox"
             checked={trustDevice}
             onChange={(event) => setTrustDevice(event.target.checked)}
-            className="mt-1 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+            className="mt-1 h-4 w-4 rounded border-gray-300 text-[#1b1b1b] focus:ring-[#1b1b1b]"
           />
           <span>
             <span className="block text-sm font-semibold text-gray-900 dark:text-white">Trust this device for 30 days</span>
@@ -117,7 +118,7 @@ function MfaChallenge({ onVerified, profile }: { onVerified: () => void; profile
           <button
             type="submit"
             disabled={submitting || !code}
-            className="inline-flex flex-1 items-center justify-center gap-2 px-5 py-3 rounded-xl bg-orange-600 text-white font-medium hover:bg-orange-700 disabled:opacity-50 transition-colors"
+            className="inline-flex flex-1 items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#1b1b1b] text-white font-medium hover:bg-black disabled:opacity-50 transition-colors dark:bg-white dark:text-[#1b1b1b] dark:hover:bg-gray-100"
           >
             {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
             Verify
@@ -233,19 +234,14 @@ function Layout({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="min-h-screen bg-[#fafafa] dark:bg-gray-950 transition-colors">
-      <nav className="sticky top-0 z-40 bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800">
+    <div className="min-h-screen bg-white dark:bg-[#1b1b1b] transition-colors">
+      <nav className="sticky top-0 z-40 bg-white/85 dark:bg-[#1b1b1b]/85 backdrop-blur-xl border-b border-[#1b1b1b]/10 dark:border-white/10">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 justify-between items-center">
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-white rounded-xl shadow-sm overflow-hidden p-0.5">
-                  <img src="/icons/icon-192.png?v=20260618-logo" alt="PerkUp Logo" className="w-full h-full object-contain" />
-                </div>
-                <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">PerkUp</span>
-              </div>
+              <BrandMark compact />
               <div className="hidden sm:block h-4 w-px bg-gray-200 dark:bg-gray-800 mx-2"></div>
-              <span className="rounded-md bg-orange-50 dark:bg-orange-900/30 px-2.5 py-1 text-[10px] font-bold tracking-wider text-orange-600 dark:text-orange-400 border border-orange-100 dark:border-orange-800/50 uppercase">
+              <span className="rounded-full bg-[#1b1b1b] dark:bg-white px-2.5 py-1 text-[10px] font-bold tracking-wider text-white dark:text-[#1b1b1b] border border-[#1b1b1b] dark:border-white uppercase">
                 {user?.role.replace('_', ' ')}
               </span>
             </div>
@@ -253,11 +249,11 @@ function Layout({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 onClick={handleAccountClick}
-                className="flex items-center gap-3 sm:mr-4 rounded-2xl px-2 py-1.5 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                className="flex items-center gap-3 sm:mr-4 rounded-2xl px-2 py-1.5 text-left transition-colors hover:bg-gray-100 dark:hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[#1b1b1b]/30 dark:focus:ring-white/40"
               >
-                <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center overflow-hidden">
+                <div className="h-8 w-8 min-w-8 shrink-0 aspect-square rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center overflow-hidden">
                   {user?.avatarUrl || user?.photoURL ? (
-                    <img src={getDisplayImageUrl(user.avatarUrl || user.photoURL || "")} alt="" className="h-full w-full object-cover" />
+                    <img src={getDisplayImageUrl(user.avatarUrl || user.photoURL || "")} alt="" className="block h-full w-full object-cover" />
                   ) : user?.name ? (
                     <span className="text-xs font-bold text-gray-600 dark:text-gray-300">{user.name.charAt(0).toUpperCase()}</span>
                   ) : null}

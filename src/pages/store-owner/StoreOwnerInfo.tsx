@@ -120,27 +120,27 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-8">
-        
+
         {/* Core Info */}
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
-            <Store className="w-5 h-5 text-orange-500" /> Basic Details
+            <Store className="w-5 h-5 text-[#1b1b1b]" /> Basic Details
           </h3>
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-2 sm:col-span-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Store Name</label>
-              <input 
+              <input
                 type="text" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})}
-                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" 
+                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none"
               />
             </div>
 
             <div className="space-y-2 sm:col-span-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Description</label>
-              <textarea 
+              <textarea
                 rows={3} value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})}
                 placeholder="Tell customers what your store is all about..."
-                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-orange-500 outline-none resize-none" 
+                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none resize-none"
               />
             </div>
 
@@ -148,10 +148,10 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2">
                  <Clock className="w-4 h-4 text-gray-400" /> Opening Hours
                </label>
-              <input 
+              <input
                 type="text" value={formData.openingHours} onChange={e => setFormData({...formData, openingHours: e.target.value})}
                 placeholder="Mon-Sun: 9AM - 9PM"
-                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" 
+                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none"
               />
             </div>
           </div>
@@ -160,15 +160,15 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
         {/* Location & Map */}
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
-            <MapPin className="w-5 h-5 text-orange-500" /> Location
+            <MapPin className="w-5 h-5 text-[#1b1b1b]" /> Location
           </h3>
-          
+
           <div className="space-y-2 mb-4">
                <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Full Address</label>
-               <input 
+               <input
                  type="text" required value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})}
                  placeholder="123 Coffee Street, CA"
-                 className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" 
+                 className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none"
                />
           </div>
 
@@ -181,12 +181,12 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                  />
-                 <LocationPicker 
-                    position={[lat, lng]} 
+                 <LocationPicker
+                    position={[lat, lng]}
                     setPosition={([newLat, newLng]) => {
                        setFormData({ ...formData, latitude: newLat.toString(), longitude: newLng.toString() });
                        setMapCenter([newLat, newLng]);
-                    }} 
+                    }}
                  />
                  <Marker position={[lat, lng]} icon={customIcon} />
                </MapContainer>
@@ -201,7 +201,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
         {/* Media & Images */}
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
-            <ImageIcon className="w-5 h-5 text-orange-500" /> Media & Images
+            <ImageIcon className="w-5 h-5 text-[#1b1b1b]" /> Media & Images
           </h3>
 
           <div className="grid gap-6 sm:grid-cols-2">
@@ -251,7 +251,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
              <div className="flex items-center justify-between">
                 <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Store Photos ({formData.images.length}/3)</label>
                 {formData.images.length < 3 && (
-                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 rounded-lg text-xs font-bold hover:bg-orange-100 transition-colors">
+                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white rounded-lg text-xs font-bold hover:bg-gray-100 transition-colors">
                     <Upload className="w-3 h-3" /> Add Photos
                     <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileUpload(e, 'images')} />
                   </label>
@@ -277,15 +277,15 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
         </div>
 
         <div className="pt-2 flex flex-col sm:flex-row items-center gap-4">
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={saving}
             className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-8 py-3 rounded-xl font-bold hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors disabled:opacity-50"
           >
             {saving ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save className="w-5 h-5" />}
             Save Branch Information
           </button>
-          
+
           {saved && (
             <span className="flex items-center justify-center gap-2 text-green-600 dark:text-green-400 text-sm font-bold animate-in fade-in slide-in-from-left-2">
               <CheckCircle2 className="w-5 h-5" />

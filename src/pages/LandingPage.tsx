@@ -8,6 +8,7 @@ import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import * as ReactDOMServer from "react-dom/server";
 import L from "leaflet";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { BrandMark } from "../components/BrandMark";
 import { AuthModal } from "../components/AuthModal";
 import { getDisplayImageUrl } from "../lib/imageStorage";
 import { PageSkeleton, SkeletonBlock } from "../components/LoadingSkeleton";
@@ -49,14 +50,14 @@ const getStoreIcon = (name: string) => {
 
 const createCustomPin = (storeName: string) => {
   const IconComponent = getStoreIcon(storeName);
-  const iconHtml = ReactDOMServer.renderToString(<IconComponent size={20} strokeWidth={2.5} color="#ea580c" />);
+  const iconHtml = ReactDOMServer.renderToString(<IconComponent size={20} strokeWidth={2.5} color="#1b1b1b" />);
 
   return L.divIcon({
     className: 'custom-pin',
     html: `
-      <div style="background-color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); border: 2px solid #ea580c; position: relative;">
+      <div style="background-color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); border: 2px solid #1b1b1b; position: relative;">
         ${iconHtml}
-        <div style="position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 6px solid #ea580c;"></div>
+        <div style="position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 6px solid #1b1b1b;"></div>
       </div>
     `,
     iconSize: [40, 46],
@@ -110,7 +111,7 @@ export default function LandingPage() {
       try {
         const q = query(collection(db, "stores"), where("status", "==", "active"));
         const snap = await getDocs(q);
-        
+
         let loadedStores = snap.docs.map(doc => ({
           id: doc.id,
           name: doc.data().name,
@@ -170,32 +171,27 @@ export default function LandingPage() {
     return <Navigate to="/dashboard" replace />;
   }
 
-  const filteredStores = stores.filter(store => 
-    store.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+  const filteredStores = stores.filter(store =>
+    store.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     store.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
-    <div className="min-h-screen bg-[#fafafa] dark:bg-gray-950 selection:bg-orange-100 selection:text-orange-900 flex flex-col">
-      <header className="sticky top-0 z-50 bg-[#fafafa]/80 dark:bg-gray-950/80 backdrop-blur-md border-b border-gray-200/50 dark:border-gray-800/50 transition-colors">
+    <div className="min-h-screen bg-white dark:bg-[#1b1b1b] selection:bg-[#1b1b1b] selection:text-white dark:selection:bg-white dark:selection:text-[#1b1b1b] flex flex-col">
+      <header className="sticky top-0 z-50 bg-white/85 dark:bg-[#1b1b1b]/85 backdrop-blur-md border-b border-[#1b1b1b]/10 dark:border-white/10 transition-colors">
         <nav className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between w-full">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-white rounded-xl shadow-sm overflow-hidden p-0.5">
-            <img src="/icons/icon-192.png?v=20260618-logo" alt="PerkUp Logo" className="w-full h-full object-contain" />
-          </div>
-          <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">PerkUp</span>
-        </div>
+        <BrandMark compact />
         <div className="flex items-center gap-4">
           <ThemeToggle />
           <button
             onClick={() => openAuthModal('signin')}
-            className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-orange-600 dark:hover:text-orange-400 transition-colors"
+            className="text-sm font-medium text-[#1b1b1b] dark:text-white hover:opacity-70 transition-opacity"
           >
             Sign in
           </button>
           <button
             onClick={() => openAuthModal('signup')}
-            className="px-4 py-2 text-sm font-medium text-white bg-orange-600 hover:bg-orange-500 rounded-xl transition-colors hidden sm:block"
+            className="px-4 py-2 text-sm font-medium text-white bg-[#1b1b1b] hover:bg-black rounded-full transition-colors hidden sm:block dark:bg-white dark:text-[#1b1b1b] dark:hover:bg-gray-100"
           >
             Sign up
           </button>
@@ -206,39 +202,39 @@ export default function LandingPage() {
       <main className="flex-1">
         <section className="relative pt-12 sm:pt-20 pb-20 sm:pb-32 overflow-hidden">
           <div className="absolute inset-0 z-0">
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#fafafa]/80 dark:via-gray-950/80 to-[#fafafa] dark:to-gray-950 z-10 transition-colors" />
-            <img 
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/85 dark:via-[#1b1b1b]/85 to-white dark:to-[#1b1b1b] z-10 transition-colors" />
+            <img
               src={getDisplayImageUrl(config.heroImageUrl)}
-              alt="Hero image" 
+              alt="Hero image"
               data-eager="true"
               loading="eager"
               fetchPriority="high"
-              className="w-full h-full object-cover opacity-30 dark:opacity-20" 
+              className="w-full h-full object-cover grayscale opacity-20 dark:opacity-10"
             />
           </div>
-          
+
           <div className="mx-auto max-w-7xl px-6 relative z-10">
             <div className="grid lg:grid-cols-2 gap-12 sm:gap-16 items-center">
             <div className="max-w-2xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-50 dark:bg-orange-950/30 border border-orange-100 dark:border-orange-900/50 text-orange-600 dark:text-orange-400 text-xs font-semibold tracking-wide uppercase mb-8">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#1b1b1b] dark:bg-white border border-[#1b1b1b] dark:border-white text-white dark:text-[#1b1b1b] text-xs font-semibold tracking-wide uppercase mb-8">
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white dark:bg-[#1b1b1b] opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-white dark:bg-[#1b1b1b]"></span>
                 </span>
                 Digital Loyalty Starts Here
               </div>
-              
+
               <h1 className="text-5xl sm:text-6xl lg:text-7xl font-semibold tracking-tight text-gray-900 dark:text-white leading-[1.1] mb-6 sm:mb-8 transition-colors whitespace-pre-wrap">
                 {config.heroHeadline}
               </h1>
-              
+
               <p className="text-base sm:text-lg text-gray-500 dark:text-gray-400 mb-8 sm:mb-10 max-w-lg leading-relaxed transition-colors">
                 {config.heroSubheadline}
               </p>
-              
+
               <button
                 onClick={() => openAuthModal('signup')}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gray-900 dark:bg-white px-8 py-4 text-sm font-medium text-white dark:text-gray-900 shadow-sm hover:bg-gray-800 dark:hover:bg-gray-100 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-[#1b1b1b] dark:bg-white px-8 py-4 text-sm font-medium text-white dark:text-[#1b1b1b] shadow-sm hover:bg-black dark:hover:bg-gray-100 transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
                 Get Started
                 <ArrowRight className="w-4 h-4" />
@@ -247,19 +243,19 @@ export default function LandingPage() {
 
             <div className="relative">
               {/* Abstract visual representation */}
-              <div className="aspect-[4/3] rounded-[2rem] bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-8 relative overflow-hidden shadow-sm transition-colors">
-                <div className="absolute top-0 right-0 -mt-20 -mr-20 w-64 h-64 bg-orange-200 dark:bg-orange-900/30 rounded-full mix-blend-multiply dark:mix-blend-lighten filter blur-3xl opacity-50 animate-blob"></div>
-                <div className="absolute bottom-0 left-0 -mb-20 -ml-20 w-64 h-64 bg-blue-200 dark:bg-blue-900/30 rounded-full mix-blend-multiply dark:mix-blend-lighten filter blur-3xl opacity-50 animate-blob animation-delay-2000"></div>
-                
+              <div className="aspect-[4/3] rounded-[2rem] bg-[#f6f6f6] dark:bg-[#202020] border border-[#1b1b1b]/10 dark:border-white/10 p-8 relative overflow-hidden shadow-sm transition-colors">
+                <div className="absolute inset-x-8 top-8 h-px bg-[#1b1b1b]/10 dark:bg-white/10"></div>
+                <div className="absolute inset-y-8 left-8 w-px bg-[#1b1b1b]/10 dark:bg-white/10"></div>
+
                 <div className="relative h-full flex flex-col items-center justify-center space-y-6">
-                  <div className="bg-white dark:bg-gray-950 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-800 w-64 transform -rotate-6 transition-all hover:rotate-0 duration-500">
+                  <div className="bg-white dark:bg-[#1b1b1b] p-6 rounded-3xl shadow-sm border border-[#1b1b1b]/10 dark:border-white/10 w-64 transform -rotate-6 transition-all hover:rotate-0 duration-500">
                     <div className="flex justify-between items-start mb-6">
-                      <div className="w-12 h-12 bg-gray-50 dark:bg-gray-900 rounded-2xl flex items-center justify-center">
-                        <QrCode className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+                      <div className="w-12 h-12 bg-[#1b1b1b] dark:bg-white rounded-2xl flex items-center justify-center">
+                        <QrCode className="w-6 h-6 text-white dark:text-[#1b1b1b]" />
                       </div>
                       <div className="flex gap-1">
                         {[1, 2, 3].map((i) => (
-                          <Star key={i} className="w-4 h-4 text-orange-400 fill-orange-400" />
+                          <Star key={i} className="w-4 h-4 text-[#1b1b1b] fill-[#1b1b1b] dark:text-white dark:fill-white" />
                         ))}
                       </div>
                     </div>
@@ -269,15 +265,15 @@ export default function LandingPage() {
                     </div>
                   </div>
 
-                  <div className="bg-white dark:bg-gray-950 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-800 w-64 transform translate-x-12 12 rotate-3 transition-all hover:rotate-0 duration-500">
+                  <div className="bg-white dark:bg-[#1b1b1b] p-6 rounded-3xl shadow-sm border border-[#1b1b1b]/10 dark:border-white/10 w-64 transform translate-x-12 rotate-3 transition-all hover:rotate-0 duration-500">
                     <div className="flex justify-between items-center mb-4">
                       <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Coffee Card</span>
-                      <span className="text-xs font-medium text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/30 px-2 py-1 rounded-md">8/10</span>
+                      <span className="text-xs font-medium text-white dark:text-[#1b1b1b] bg-[#1b1b1b] dark:bg-white px-2 py-1 rounded-full">8/10</span>
                     </div>
                     <div className="flex gap-2 mb-2">
                       {[...Array(8)].map((_, i) => (
-                        <div key={i} className="w-6 h-6 bg-orange-100 dark:bg-orange-900/40 rounded-full flex items-center justify-center">
-                          <Coffee className="w-3 h-3 text-orange-600 dark:text-orange-400" />
+                        <div key={i} className="w-6 h-6 bg-[#1b1b1b] dark:bg-white rounded-full flex items-center justify-center">
+                          <Coffee className="w-3 h-3 text-white dark:text-[#1b1b1b]" />
                         </div>
                       ))}
                       {[...Array(2)].map((_, i) => (
@@ -293,16 +289,16 @@ export default function LandingPage() {
         </section>
 
         {/* Logo Marquee Section */}
-        <section className="py-12 sm:py-20 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-950 overflow-hidden relative flex flex-col items-center transition-colors">
+        <section className="py-12 sm:py-20 border-t border-[#1b1b1b]/10 dark:border-white/10 bg-white dark:bg-[#1b1b1b] overflow-hidden relative flex flex-col items-center transition-colors">
           <p className="text-center text-xs sm:text-sm font-bold text-gray-400 dark:text-gray-500 mb-8 sm:mb-12 uppercase tracking-widest px-6">
             Trusted by local businesses
           </p>
-          
+
           <div className="relative w-full overflow-hidden flex">
             {/* gradient fades for the edges */}
-            <div className="absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-white dark:from-gray-950 to-transparent z-10 pointer-events-none transition-colors"></div>
-            <div className="absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-white dark:from-gray-950 to-transparent z-10 pointer-events-none transition-colors"></div>
-            
+            <div className="absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-white dark:from-[#1b1b1b] to-transparent z-10 pointer-events-none transition-colors"></div>
+            <div className="absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-white dark:from-[#1b1b1b] to-transparent z-10 pointer-events-none transition-colors"></div>
+
             <div className="flex animate-scroll hover:opacity-100 transition-opacity duration-500 w-[200%]">
               {config.usePartnerStores && stores.length > 0 ? (
                  [...stores, ...stores, ...stores, ...stores].map((store, idx) => (
@@ -337,7 +333,7 @@ export default function LandingPage() {
         </section>
 
         {/* Map Section */}
-        <section className="bg-white dark:bg-gray-950 py-20 sm:py-32 border-t border-gray-100 dark:border-gray-800 transition-colors">
+        <section className="bg-white dark:bg-[#1b1b1b] py-20 sm:py-32 border-t border-[#1b1b1b]/10 dark:border-white/10 transition-colors">
           <div className="mx-auto max-w-7xl px-6">
             <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-16">
               <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-4xl transition-colors">
@@ -346,7 +342,7 @@ export default function LandingPage() {
               <p className="mt-3 sm:mt-4 text-base sm:text-lg text-gray-500 dark:text-gray-400 mb-8 transition-colors">
                 Discover places where you can earn and redeem rewards. Find a partner near you.
               </p>
-              
+
               <div className="relative max-w-md mx-auto">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 z-10">
                   <Search className="h-5 w-5 text-gray-400 dark:text-gray-500" aria-hidden="true" />
@@ -357,18 +353,18 @@ export default function LandingPage() {
                   id="search"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="block w-full rounded-2xl border-0 py-4 pl-12 pr-4 text-gray-900 dark:text-white bg-white dark:bg-gray-900 shadow-sm ring-1 ring-inset ring-gray-200 dark:ring-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:ring-2 focus:ring-inset focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm sm:leading-6 transition-colors"
+                  className="block w-full rounded-full border-0 py-4 pl-12 pr-4 text-gray-900 dark:text-white bg-white dark:bg-[#202020] shadow-sm ring-1 ring-inset ring-[#1b1b1b]/10 dark:ring-white/10 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-white sm:text-sm sm:leading-6 transition-colors"
                   placeholder="Search by store name or category..."
                 />
               </div>
             </div>
 
-            <div className="rounded-[2rem] overflow-hidden border border-gray-200 dark:border-gray-800 shadow-sm h-[400px] sm:h-[600px] relative z-0 transition-colors">
+            <div className="rounded-[2rem] overflow-hidden border border-[#1b1b1b]/10 dark:border-white/10 shadow-sm h-[400px] sm:h-[600px] relative z-0 transition-colors">
                {mapLoaded && stores.length > 0 ? (
-                 <MapContainer 
-                   center={[stores[0].lat!, stores[0].lng!]} 
-                   zoom={14} 
-                   scrollWheelZoom={false} 
+                 <MapContainer
+                   center={[stores[0].lat!, stores[0].lng!]}
+                   zoom={14}
+                   scrollWheelZoom={false}
                    style={{ height: "100%", width: "100%", zIndex: 1 }}
                  >
                    <TileLayer
@@ -390,15 +386,15 @@ export default function LandingPage() {
                              </div>
                            )}
                            <div className="flex flex-col gap-2 mt-3">
-                             <a 
+                             <a
                                href={`/store/${store.id}`}
                                className="w-full text-center bg-gray-900 text-white font-medium py-2 rounded-lg text-xs hover:bg-gray-800 transition-colors"
                              >
                                View Details
                              </a>
-                             <button 
+                             <button
                                onClick={() => alert(`Directions to ${store.name} would open here!`)}
-                               className="w-full bg-orange-50 text-orange-700 font-medium py-2 rounded-lg text-xs hover:bg-orange-100 transition-colors"
+                               className="w-full bg-gray-100 text-[#1b1b1b] font-medium py-2 rounded-lg text-xs hover:bg-gray-200 transition-colors"
                              >
                                Get Directions
                              </button>
@@ -417,19 +413,16 @@ export default function LandingPage() {
 
         {/* Affiliate Section */}
         {config.applicationsOpen && (
-          <section className="bg-gray-900 text-white py-24 sm:py-32 relative overflow-hidden">
-            <div className="absolute inset-0 z-0 opacity-10">
-              <div className="absolute -top-24 -right-24 w-96 h-96 bg-orange-500 rounded-full blur-3xl mix-blend-screen"></div>
-              <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-500 rounded-full blur-3xl mix-blend-screen"></div>
-            </div>
+          <section className="bg-[#1b1b1b] text-white py-24 sm:py-32 relative overflow-hidden">
+            <div className="absolute inset-x-0 top-0 h-px bg-white/20"></div>
             <div className="mx-auto max-w-7xl px-6 relative z-10 text-center">
               <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-6">Become a Partner Store</h2>
               <p className="text-gray-400 text-lg max-w-2xl mx-auto mb-10">
                 Join our growing network of local businesses. Drive more foot traffic, build customer loyalty, and get insights into your best customers.
               </p>
-              <button 
+              <button
                 onClick={() => setShowAppModal(true)}
-                className="bg-orange-600 text-white px-8 py-4 rounded-2xl font-medium hover:bg-orange-500 transition-colors shadow-lg shadow-orange-600/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-orange-500"
+                className="bg-white text-[#1b1b1b] px-8 py-4 rounded-full font-medium hover:bg-gray-100 transition-colors shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#1b1b1b] focus:ring-white"
               >
                 Apply to be a Partner
               </button>
@@ -439,15 +432,12 @@ export default function LandingPage() {
       </main>
 
       {/* Footer */}
-      <footer className="bg-white dark:bg-gray-950 border-t border-gray-200 dark:border-gray-800 pt-16 pb-8 transition-colors">
+      <footer className="bg-white dark:bg-[#1b1b1b] border-t border-[#1b1b1b]/10 dark:border-white/10 pt-16 pb-8 transition-colors">
         <div className="mx-auto max-w-7xl px-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
             <div className="md:col-span-2">
               <div className="flex items-center gap-2 mb-4">
-                <div className="bg-gray-100 dark:bg-gray-900 p-1.5 rounded-lg transition-colors">
-                  <Star className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-                </div>
-                <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white transition-colors">PerkUp</span>
+                <BrandMark compact />
               </div>
               <p className="text-gray-500 dark:text-gray-400 max-w-sm mb-6 leading-relaxed transition-colors">
                 The modern digital loyalty program for independent businesses. Reward your best customers without the paper cards.
@@ -466,24 +456,24 @@ export default function LandingPage() {
                   <span className="text-sm">{config.footerInfo.address}</span>
                 </div>
               </div>
-              
+
               <div className="flex items-center gap-4">
                 {config.footerInfo.socialLinks?.facebook && (
-                  <a href={config.footerInfo.socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-orange-600 transition-colors">
+                  <a href={config.footerInfo.socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-[#1b1b1b] dark:hover:text-white transition-colors">
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path fillRule="evenodd" d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.988C18.343 21.128 22 16.991 22 12z" clipRule="evenodd" />
                     </svg>
                   </a>
                 )}
                 {config.footerInfo.socialLinks?.instagram && (
-                  <a href={config.footerInfo.socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-orange-600 transition-colors">
+                  <a href={config.footerInfo.socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-[#1b1b1b] dark:hover:text-white transition-colors">
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path fillRule="evenodd" d="M12.315 2c2.43 0 2.784.013 3.808.06 1.064.049 1.791.218 2.427.465a4.902 4.902 0 011.772 1.153 4.902 4.902 0 011.153 1.772c.247.636.416 1.363.465 2.427.048 1.067.06 1.407.06 4.123v.08c0 2.643-.012 2.987-.06 4.043-.049 1.064-.218 1.791-.465 2.427a4.902 4.902 0 01-1.153 1.772 4.902 4.902 0 01-1.772 1.153c-.636.247-1.363.416-2.427.465-1.067.048-1.407.06-4.123.06h-.08c-2.643 0-2.987-.012-4.043-.06-1.064-.049-1.791-.218-2.427-.465a4.902 4.902 0 01-1.772-1.153 4.902 4.902 0 01-1.153-1.772c-.247-.636-.416-1.363-.465-2.427-.047-1.024-.06-1.379-.06-3.808v-.63c0-2.43.013-2.784.06-3.808.049-1.064.218-1.791.465-2.427a4.902 4.902 0 011.153-1.772A4.902 4.902 0 015.45 2.525c.636-.247 1.363-.416 2.427-.465C8.901 2.013 9.256 2 11.685 2h.63zm-.081 1.802h-.468c-2.456 0-2.784.011-3.807.058-.975.045-1.504.207-1.857.344-.467.182-.8.398-1.15.748-.35.35-.566.683-.748 1.15-.137.353-.3.882-.344 1.857-.047 1.023-.058 1.351-.058 3.807v.468c0 2.456.011 2.784.058 3.807.045.975.207 1.504.344 1.857.182.466.399.8.748 1.15.35.35.683.566 1.15.748.353.137.882.3 1.857.344 1.054.048 1.37.058 4.041.058h.08c2.597 0 2.917-.01 3.96-.058.976-.045 1.505-.207 1.858-.344.466-.182.8-.398 1.15-.748.35-.35.566-.683.748-1.15.137-.353.3-.882.344-1.857.048-1.055.058-1.37.058-4.041v-.08c0-2.597-.01-2.917-.058-3.96-.045-.976-.207-1.505-.344-1.858a3.097 3.097 0 00-.748-1.15 3.098 3.098 0 00-1.15-.748c-.353-.137-.882-.3-1.857-.344-1.023-.047-1.351-.058-3.807-.058zM12 6.865a5.135 5.135 0 110 10.27 5.135 5.135 0 010-10.27zm0 1.802a3.333 3.333 0 100 6.666 3.333 3.333 0 000-6.666zm5.338-3.205a1.2 1.2 0 110 2.4 1.2 1.2 0 010-2.4z" clipRule="evenodd" />
                     </svg>
                   </a>
                 )}
                 {config.footerInfo.socialLinks?.twitter && (
-                  <a href={config.footerInfo.socialLinks.twitter} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-orange-600 transition-colors">
+                  <a href={config.footerInfo.socialLinks.twitter} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-[#1b1b1b] dark:hover:text-white transition-colors">
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M8.29 20.251c7.547 0 11.675-6.253 11.675-11.675 0-.178 0-.355-.012-.53A8.348 8.348 0 0022 5.92a8.19 8.19 0 01-2.357.646 4.118 4.118 0 001.804-2.27 8.224 8.224 0 01-2.605.996 4.107 4.107 0 00-6.993 3.743 11.65 11.65 0 01-8.457-4.287 4.106 4.106 0 001.27 5.477A4.072 4.072 0 012.8 9.713v.052a4.105 4.105 0 003.292 4.022 4.095 4.095 0 01-1.853.07 4.108 4.108 0 003.834 2.85A8.233 8.233 0 012 18.407a11.616 11.616 0 006.29 1.84" />
                     </svg>
@@ -494,17 +484,17 @@ export default function LandingPage() {
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white mb-4 transition-colors">Product</h3>
               <ul className="space-y-3 text-sm text-gray-500 dark:text-gray-400">
-                <li><a href="#customers" className="hover:text-orange-600 dark:hover:text-orange-400 transition-colors">For Customers</a></li>
-                <li><a href="#businesses" className="hover:text-orange-600 dark:hover:text-orange-400 transition-colors">For Businesses</a></li>
-                <li><a href="#pricing" className="hover:text-orange-600 dark:hover:text-orange-400 transition-colors">Pricing</a></li>
+                <li><a href="#customers" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">For Customers</a></li>
+                <li><a href="#businesses" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">For Businesses</a></li>
+                <li><a href="#pricing" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">Pricing</a></li>
               </ul>
             </div>
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white mb-4 transition-colors">Company</h3>
               <ul className="space-y-3 text-sm text-gray-500 dark:text-gray-400">
-                <li><a href="#about" className="hover:text-orange-600 dark:hover:text-orange-400 transition-colors">About Us</a></li>
-                <li><a href="#careers" className="hover:text-orange-600 dark:hover:text-orange-400 transition-colors">Careers</a></li>
-                <li><a href="#privacy" className="hover:text-orange-600 dark:hover:text-orange-400 transition-colors">Privacy Policy</a></li>
+                <li><a href="#about" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">About Us</a></li>
+                <li><a href="#careers" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">Careers</a></li>
+                <li><a href="#privacy" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">Privacy Policy</a></li>
               </ul>
             </div>
           </div>

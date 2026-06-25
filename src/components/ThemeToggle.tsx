@@ -13,7 +13,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={cycleTheme}
-      className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 border border-gray-200 dark:border-gray-700 shadow-sm transition-all hover:scale-105"
+      className="p-2 rounded-full bg-white dark:bg-[#1b1b1b] text-[#1b1b1b] dark:text-white hover:opacity-70 border border-[#1b1b1b]/10 dark:border-white/15 shadow-sm transition-all hover:scale-105"
       title={`Current theme: ${theme}. Click to change.`}
     >
       {theme === 'light' && <Sun className="w-5 h-5" />}

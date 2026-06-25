@@ -4,6 +4,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { logOut } from "../../lib/backend";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { updateCustomerProfile } from "@/src/lib/secureQr";
+import { getUsernameValidationMessage, normalizeUsername } from "@/src/lib/username";
 import {
   AtSign,
   Calendar,
@@ -17,24 +18,6 @@ import {
   UserCircle,
   X,
 } from "lucide-react";
-
-const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
-const RESERVED_USERNAMES = new Set(["admin", "administrator", "api", "help", "perkup", "staff", "store", "support"]);
-
-const normalizeUsername = (value: string) => value.trim().toLowerCase();
-
-const getUsernameValidationMessage = (value: string) => {
-  const username = normalizeUsername(value);
-  if (!username) return "Username is required for QR and staff manual lookup.";
-  if (username.length < 4) return "Use at least 4 characters.";
-  if (username.length > 24) return "Use 24 characters or fewer.";
-  if (!USERNAME_PATTERN.test(username)) return "Start with a letter; use letters, numbers, dots, or underscores.";
-  if (username.includes("..") || username.includes("__") || username.includes("._") || username.includes("_.")) {
-    return "Do not repeat or mix separators.";
-  }
-  if (RESERVED_USERNAMES.has(username)) return "This username is reserved.";
-  return "";
-};
 
 export default function CustomerProfile() {
   const { user, refreshUser } = useAuth();
@@ -207,12 +190,12 @@ export default function CustomerProfile() {
             </div>
           )}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-center gap-5">
-              <div className="relative w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center overflow-hidden group">
+            <div className="flex min-w-0 items-center gap-5">
+              <div className="relative h-20 w-20 min-w-20 shrink-0 aspect-square bg-gray-100 dark:bg-white/10 rounded-full flex items-center justify-center overflow-hidden group">
                 {pendingAvatarPreviewUrl || formData.avatarUrl ? (
-                  <img src={pendingAvatarPreviewUrl || getDisplayImageUrl(formData.avatarUrl)} alt="Profile" className="h-full w-full object-cover" />
+                  <img src={pendingAvatarPreviewUrl || getDisplayImageUrl(formData.avatarUrl)} alt="Profile" className="block h-full w-full object-cover" />
                 ) : (
-                  <UserCircle className="w-12 h-12 text-orange-600 dark:text-orange-400" />
+                  <UserCircle className="w-12 h-12 text-[#1b1b1b] dark:text-white" />
                 )}
                 {isEditing && (
                   <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
@@ -221,10 +204,10 @@ export default function CustomerProfile() {
                   </label>
                 )}
               </div>
-              <div>
+              <div className="min-w-0">
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">{formData.name || "Customer"}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{user?.email}</p>
-                {pendingAvatarFile && <p className="mt-1 text-xs text-orange-600 dark:text-orange-400">New profile picture ready to save.</p>}
+                <p className="break-words text-sm text-gray-500 dark:text-gray-400">{user?.email}</p>
+                {pendingAvatarFile && <p className="mt-1 text-xs text-[#1b1b1b] dark:text-white">New profile picture ready to save.</p>}
               </div>
             </div>
             {!isEditing ? (
@@ -273,31 +256,31 @@ export default function CustomerProfile() {
             <div className="grid gap-5 sm:grid-cols-2">
               <label className="space-y-2">
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-200">Name</span>
-                <input type="text" required value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
+                <input type="text" required value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
               </label>
 
               <label className="space-y-2">
-                <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><AtSign className="w-4 h-4 text-gray-400" /> Username <span className="text-orange-600">*</span></span>
+                <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><AtSign className="w-4 h-4 text-gray-400" /> Username <span className="text-[#1b1b1b]">*</span></span>
                 <input
                   type="text"
                   required
                   value={formData.username}
                   onChange={(event) => setFormData({ ...formData, username: normalizeUsername(event.target.value) })}
-                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white"
                 />
-                <p className={`text-xs font-medium ${getUsernameValidationMessage(formData.username) ? "text-orange-600 dark:text-orange-400" : "text-green-600 dark:text-green-400"}`}>
+                <p className={`text-xs font-medium ${getUsernameValidationMessage(formData.username) ? "text-[#1b1b1b] dark:text-white" : "text-green-600 dark:text-green-400"}`}>
                   {getUsernameValidationMessage(formData.username) || "Strong format. Uniqueness is verified when you save."}
                 </p>
               </label>
 
               <label className="space-y-2">
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Phone className="w-4 h-4 text-gray-400" /> Number</span>
-                <input type="tel" required value={formData.phone} onChange={(event) => setFormData({ ...formData, phone: event.target.value })} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
+                <input type="tel" required value={formData.phone} onChange={(event) => setFormData({ ...formData, phone: event.target.value })} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
               </label>
 
               <label className="space-y-2">
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Calendar className="w-4 h-4 text-gray-400" /> Birthday</span>
-                <input type="date" required value={formData.birthday} onChange={(event) => setFormData({ ...formData, birthday: event.target.value })} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
+                <input type="date" required value={formData.birthday} onChange={(event) => setFormData({ ...formData, birthday: event.target.value })} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
               </label>
 
               <label className="space-y-2 sm:col-span-2">
@@ -307,7 +290,7 @@ export default function CustomerProfile() {
                   <button
                     type="button"
                     onClick={scrollToEmailSecurity}
-                    className="inline-flex items-center justify-center rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-orange-700"
+                    className="inline-flex items-center justify-center rounded-xl bg-[#1b1b1b] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-black"
                   >
                     Change email
                   </button>
@@ -316,7 +299,7 @@ export default function CustomerProfile() {
 
               <label className="space-y-2 sm:col-span-2">
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><FileText className="w-4 h-4 text-gray-400" /> Bio</span>
-                <textarea value={formData.bio} onChange={(event) => setFormData({ ...formData, bio: event.target.value })} rows={4} className="w-full resize-none px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 dark:text-white" />
+                <textarea value={formData.bio} onChange={(event) => setFormData({ ...formData, bio: event.target.value })} rows={4} className="w-full resize-none px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
               </label>
             </div>
           )}

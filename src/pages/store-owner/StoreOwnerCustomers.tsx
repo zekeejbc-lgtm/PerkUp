@@ -26,6 +26,15 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
     if (!store?.id) return;
     setLoading(true);
     try {
+      const feedbackQuery = query(collection(db, "feedback"), where("storeId", "==", store.id));
+      const feedbackSnap = await getDocs(feedbackQuery);
+      const feedbackByCustomer = feedbackSnap.docs.reduce<Record<string, any[]>>((acc, feedbackDoc) => {
+        const item = { id: feedbackDoc.id, ...feedbackDoc.data() } as any;
+        if (!item.customerId) return acc;
+        acc[item.customerId] = [...(acc[item.customerId] || []), item];
+        return acc;
+      }, {});
+
       const q = query(collection(db, "cards"), where("storeId", "==", store.id));
       const snap = await getDocs(q);
       
@@ -37,7 +46,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
         let lifetimeStars = 0;
         let favorites = [];
         let recentHistory = [];
-        let feedback = [];
+        let feedback = feedbackByCustomer[d.data().customerId] || [];
         
         try {
            const cSnap = await getDoc(doc(db, "customers", d.data().customerId));
@@ -51,9 +60,6 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                recentHistory = [
                  { id: 1, action: "Earned points", points: "+2", date: new Date().toISOString() },
                  { id: 2, action: "Redeemed free coffee", points: "-10", date: new Date(Date.now() - 86400000).toISOString() },
-               ];
-               feedback = [
-                 { id: 1, rating: 5, comment: "Always friendly staff!", date: new Date(Date.now() - 172800000).toISOString() }
                ];
            }
         } catch (e) {}
@@ -182,18 +188,18 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
 
          {/* Header Info */}
          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row items-center sm:items-start gap-6 shadow-sm">
-            <div className="w-24 h-24 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center shrink-0 border-4 border-orange-50 dark:border-orange-950">
-              <span className="text-3xl font-black text-orange-600 dark:text-orange-400">{selectedCustomer.name.charAt(0).toUpperCase()}</span>
+            <div className="w-24 h-24 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center shrink-0 border-4 border-gray-100 dark:border-white/10">
+              <span className="text-3xl font-black text-[#1b1b1b] dark:text-white">{selectedCustomer.name.charAt(0).toUpperCase()}</span>
             </div>
             <div className="flex-1 text-center sm:text-left">
                <h2 className="text-3xl font-black tracking-tight text-gray-900 dark:text-white">{selectedCustomer.name}</h2>
-               <p className="text-gray-500 font-mono text-sm tracking-widest mt-1 uppercase mb-3 text-orange-600 dark:text-orange-400">{selectedCustomer.customerId}</p>
+               <p className="text-gray-500 font-mono text-sm tracking-widest mt-1 uppercase mb-3 text-[#1b1b1b] dark:text-white">{selectedCustomer.customerId}</p>
                
                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-                 <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase ${isLoyal ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}`}>
+                 <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase ${isLoyal ? 'bg-gray-100 text-[#1b1b1b] dark:bg-white/15 dark:text-white' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}`}>
                    {isLoyal && <Star className="w-3 h-3 fill-current" />} {customerSegment}
                  </span>
-                 <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-full text-xs font-bold tracking-wide uppercase">
+                 <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white rounded-full text-xs font-bold tracking-wide uppercase">
                    <CheckCircle2 className="w-3 h-3" /> Active Card
                  </span>
                </div>
@@ -201,7 +207,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
             <div className="shrink-0 bg-gray-50 dark:bg-gray-800 rounded-2xl p-4 text-center min-w-[120px] shadow-inner">
                <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Current Points</p>
                <div className="text-4xl font-black text-gray-900 dark:text-white flex items-center justify-center gap-1">
-                 {selectedCustomer.stars} <Star className="w-6 h-6 text-orange-500 fill-orange-500" />
+                 {selectedCustomer.stars} <Star className="w-6 h-6 text-[#1b1b1b] fill-[#1b1b1b]" />
                </div>
             </div>
          </div>
@@ -217,7 +223,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                     <button onClick={() => updateStars(-1)} className="flex-1 h-12 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors">
                       <Minus className="w-5 h-5" />
                     </button>
-                    <button onClick={() => updateStars(1)} className="flex-[2] h-12 rounded-xl bg-orange-600 text-white font-bold flex items-center justify-center gap-2 hover:bg-orange-700 transition-colors shadow-sm">
+                    <button onClick={() => updateStars(1)} className="flex-[2] h-12 rounded-xl bg-[#1b1b1b] text-white font-bold flex items-center justify-center gap-2 hover:bg-black transition-colors shadow-sm">
                       <Plus className="w-5 h-5" /> Add Point
                     </button>
                   </div>
@@ -233,7 +239,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                     <div>
                       <p className="text-xs text-gray-500 mb-0.5">Lifetime Points Earned</p>
                       <p className="font-semibold text-gray-900 dark:text-white flex items-center gap-1">
-                        {selectedCustomer.lifetimeStars} <Star className="w-3 h-3 text-orange-500" />
+                        {selectedCustomer.lifetimeStars} <Star className="w-3 h-3 text-[#1b1b1b]" />
                       </p>
                     </div>
                     <div>
@@ -252,7 +258,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                {/* Active Promos Showcase */}
                <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm">
                  <div className="flex items-center gap-2 mb-4">
-                   <Gift className="w-5 h-5 text-orange-500" />
+                   <Gift className="w-5 h-5 text-[#1b1b1b]" />
                    <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest">Digital Stamp Cards</h3>
                  </div>
                  {promotions.length > 0 ? (
@@ -262,9 +268,9 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                        const isClaimable = progress >= promo.requiredStamps;
 
                        return (
-                         <div key={promo.id} className={`p-5 rounded-3xl border ${isClaimable ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20 shadow-sm' : 'border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50'} relative overflow-hidden transition-all flex flex-col`}>
+                         <div key={promo.id} className={`p-5 rounded-3xl border ${isClaimable ? 'border-[#1b1b1b] bg-gray-100 dark:bg-white/10 shadow-sm' : 'border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50'} relative overflow-hidden transition-all flex flex-col`}>
                            {isClaimable && (
-                             <div className="absolute top-0 right-0 bg-orange-500 text-white text-[9px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-bl-lg">
+                             <div className="absolute top-0 right-0 bg-[#1b1b1b] text-white text-[9px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-bl-lg">
                                Ready to Claim
                              </div>
                            )}
@@ -275,7 +281,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                              {[...Array(promo.requiredStamps)].map((_, idx) => {
                                 const isStamped = idx < progress;
                                 return (
-                                  <div key={idx} className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${isStamped ? 'bg-orange-100 border-orange-500 text-orange-500 shadow-inner dark:bg-orange-900/30 dark:border-orange-500/50' : 'bg-white dark:bg-gray-800 border-dashed border-gray-300 dark:border-gray-600 text-gray-300 dark:text-gray-600'}`}>
+                                  <div key={idx} className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${isStamped ? 'bg-gray-100 border-[#1b1b1b] text-[#1b1b1b] shadow-inner dark:bg-white/10 dark:border-[#1b1b1b]/50' : 'bg-white dark:bg-gray-800 border-dashed border-gray-300 dark:border-gray-600 text-gray-300 dark:text-gray-600'}`}>
                                      <Star className={`w-5 h-5 ${isStamped ? 'fill-current' : ''}`} />
                                   </div>
                                 )
@@ -283,14 +289,14 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                            </div>
                            
                            <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700/50 pt-4 mt-auto">
-                             <span className={`text-sm font-bold ${isClaimable ? 'text-orange-700 dark:text-orange-400' : 'text-gray-900 dark:text-white'}`}>
+                             <span className={`text-sm font-bold ${isClaimable ? 'text-[#1b1b1b] dark:text-white' : 'text-gray-900 dark:text-white'}`}>
                                {progress} / {promo.requiredStamps} Stamps
                              </span>
                              <div className="flex items-center gap-2">
                                 <button onClick={() => updatePromoProgress(promo.id, promo.title, -1)} className="w-8 h-8 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-red-50 hover:text-red-500 hover:border-red-200 dark:hover:bg-red-900/30 dark:hover:border-red-800 transition-colors shadow-sm">
                                    <Minus className="w-4 h-4" />
                                 </button>
-                                <button onClick={() => updatePromoProgress(promo.id, promo.title, 1)} className="px-4 h-8 rounded-full bg-orange-600 text-white text-sm font-bold flex items-center gap-1 hover:bg-orange-700 transition-colors shadow-sm">
+                                <button onClick={() => updatePromoProgress(promo.id, promo.title, 1)} className="px-4 h-8 rounded-full bg-[#1b1b1b] text-white text-sm font-bold flex items-center gap-1 hover:bg-black transition-colors shadow-sm">
                                    <Plus className="w-4 h-4" /> Stamp
                                 </button>
                              </div>
@@ -357,13 +363,15 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                      {selectedCustomer.feedback?.length > 0 ? (
                        selectedCustomer.feedback.map((item: any, i: number) => (
                          <div key={i} className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-2xl">
-                           <div className="flex text-orange-500 mb-2">
+                           <div className="flex text-[#1b1b1b] mb-2">
                              {[...Array(5)].map((_, idx) => (
                                <Star key={idx} className={`w-3 h-3 ${idx < item.rating ? 'fill-current' : 'text-gray-300 dark:text-gray-700'}`} />
                              ))}
                            </div>
                            <p className="text-sm text-gray-700 dark:text-gray-300 font-medium italic">"{item.comment}"</p>
-                           <p className="text-xs text-gray-500 mt-2">{new Date(item.date).toLocaleDateString()}</p>
+                           <p className="text-xs text-gray-500 mt-2">
+                             {new Date((item.createdAt?.seconds ? item.createdAt.seconds * 1000 : item.date) || Date.now()).toLocaleDateString()}
+                           </p>
                          </div>
                        ))
                      ) : (
@@ -393,7 +401,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
             placeholder="Search name or ID..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full sm:w-72 pl-9 pr-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500 text-gray-900 dark:text-white shadow-sm"
+            className="w-full sm:w-72 pl-9 pr-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#1b1b1b] text-gray-900 dark:text-white shadow-sm"
           />
         </div>
       </div>
@@ -404,7 +412,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
              <Users className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-700 mb-4" />
              <p className="font-bold text-gray-900 dark:text-white mb-2">No customers found.</p>
              {!search && customers.length === 0 && (
-               <button onClick={loadDemoCustomers} className="flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 rounded-xl text-sm font-semibold hover:bg-orange-200 transition-colors mx-auto mt-4 inline-flex">
+               <button onClick={loadDemoCustomers} className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white rounded-xl text-sm font-semibold hover:bg-gray-200 transition-colors mx-auto mt-4 inline-flex">
                  <Users className="w-4 h-4" /> Load Demo Customers
                </button>
              )}
@@ -414,23 +422,23 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
             <button 
               key={c.id} 
               onClick={() => setSelectedCustomer(c)}
-              className="flex flex-col bg-white dark:bg-gray-900 p-5 rounded-3xl border border-gray-200 dark:border-gray-800 hover:border-orange-500 dark:hover:border-orange-500 transition-all text-left shadow-sm group hover:shadow-md"
+              className="flex flex-col bg-white dark:bg-gray-900 p-5 rounded-3xl border border-gray-200 dark:border-gray-800 hover:border-[#1b1b1b] dark:hover:border-[#1b1b1b] transition-all text-left shadow-sm group hover:shadow-md"
             >
               <div className="flex items-start justify-between w-full mb-4">
-                <div className="w-12 h-12 rounded-full bg-orange-50 dark:bg-orange-900/20 flex items-center justify-center shrink-0 border border-orange-100 dark:border-orange-900/50 group-hover:scale-105 transition-transform">
-                  <User className="w-5 h-5 text-orange-500" />
+                <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center shrink-0 border border-gray-200 dark:border-white/15 group-hover:scale-105 transition-transform">
+                  <User className="w-5 h-5 text-[#1b1b1b]" />
                 </div>
                 <div className="flex items-center gap-1.5 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded-xl border border-gray-100 dark:border-gray-700">
-                  <Star className="w-3.5 h-3.5 text-orange-500 fill-orange-500" />
+                  <Star className="w-3.5 h-3.5 text-[#1b1b1b] fill-[#1b1b1b]" />
                   <span className="font-black text-sm text-gray-900 dark:text-white leading-none">{c.stars}</span>
                 </div>
               </div>
               <div className="w-full">
-                <p className="font-bold text-lg text-gray-900 dark:text-white truncate mb-0.5 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">{c.name}</p>
+                <p className="font-bold text-lg text-gray-900 dark:text-white truncate mb-0.5 group-hover:text-[#1b1b1b] dark:group-hover:text-white transition-colors">{c.name}</p>
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-gray-500 uppercase tracking-widest">{c.customerId.slice(0, 8)}</span>
                   <span className="text-gray-300 dark:text-gray-700">&bull;</span>
-                  <span className={`${c.lifetimeStars > 20 ? 'text-orange-600 dark:text-orange-400 font-bold' : 'text-gray-400'}`}>
+                  <span className={`${c.lifetimeStars > 20 ? 'text-[#1b1b1b] dark:text-white font-bold' : 'text-gray-400'}`}>
                     {c.lifetimeStars > 20 ? 'Loyal' : (c.lifetimeStars > 5 ? 'Regular' : 'New')}
                   </span>
                 </div>

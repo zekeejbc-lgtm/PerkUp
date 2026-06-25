@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState } from "react";
-import { Store, FileText, Layout, CreditCard } from "lucide-react";
+import { Store, FileText, Layout, CreditCard, Menu, UserCircle } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { PageSkeleton } from "../components/LoadingSkeleton";
 
@@ -13,40 +13,87 @@ export default function AdminDashboard() {
   const location = useLocation();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'stores' | 'applications' | 'homepage' | 'subscriptions'>('stores');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const isAccountPage = location.pathname === '/admin/account';
 
-  const handleTabClick = (tabId: typeof activeTab) => {
-    setActiveTab(tabId);
-    if (isAccountPage) navigate('/admin');
+  const handleNavClick = (item: typeof navigation[number]) => {
+    if (item.id === 'account') {
+      navigate('/admin/account');
+      return;
+    }
+
+    setActiveTab(item.id);
+    navigate('/admin');
+  };
+
+  const navigation = [
+    { id: 'stores', label: 'Partner Stores', icon: Store },
+    { id: 'applications', label: 'Applications', icon: FileText },
+    { id: 'homepage', label: 'Edit Homepage', icon: Layout },
+    { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
+    { id: 'account', label: 'Account', icon: UserCircle },
+  ] as const;
+
+  const isActive = (item: typeof navigation[number]) => {
+    if (item.id === 'account') return isAccountPage;
+    return !isAccountPage && activeTab === item.id;
   };
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto">
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex flex-wrap gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl w-max">
-          {[
-            { id: 'stores', label: 'Partner Stores', icon: Store },
-            { id: 'applications', label: 'Applications', icon: FileText },
-            { id: 'homepage', label: 'Edit Homepage', icon: Layout },
-            { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
-          ].map(tab => (
+    <div className="flex flex-col md:flex-row gap-8 pb-24 md:pb-0 w-full relative">
+      <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 h-max z-10 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
+        <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} mb-2`}>
+          {isSidebarOpen && <span className="font-bold text-gray-900 dark:text-white px-2 text-xs tracking-widest uppercase">Navigation</span>}
+          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 rounded-xl text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            <Menu className="w-5 h-5" />
+          </button>
+        </div>
+
+        <nav className="flex flex-col gap-2">
+          {navigation.map((item) => {
+            const active = isActive(item);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleNavClick(item)}
+                title={!isSidebarOpen ? item.label : undefined}
+                className={`flex items-center ${isSidebarOpen ? 'gap-3 px-4' : 'justify-center'} py-3 rounded-2xl text-sm font-medium transition-all whitespace-nowrap overflow-hidden group ${
+                  active
+                    ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900 shadow-md scale-[1.02]'
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white hover:shadow-sm'
+                }`}
+              >
+                <item.icon className={`w-5 h-5 shrink-0 ${active ? 'text-current' : 'text-gray-400 group-hover:text-gray-500'}`} />
+                {isSidebarOpen && <span className="truncate outline-none transition-opacity duration-300">{item.label}</span>}
+              </button>
+            );
+          })}
+        </nav>
+      </aside>
+
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-[#1b1b1b]/90 backdrop-blur-xl border-t border-gray-200 dark:border-gray-800 flex items-center justify-start sm:justify-center overflow-x-auto pb-[env(safe-area-inset-bottom)] px-2 py-2 shadow-[0_-10px_40px_-20px_rgba(0,0,0,0.1)] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] gap-2 sm:gap-6">
+        {navigation.map((item) => {
+          const active = isActive(item);
+          return (
             <button
-              key={tab.id}
-              onClick={() => handleTabClick(tab.id as typeof activeTab)}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
-                !isAccountPage && activeTab === tab.id 
-                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' 
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              key={item.id}
+              type="button"
+              onClick={() => handleNavClick(item)}
+              className={`flex flex-col items-center gap-1 min-w-[4rem] px-3 py-1.5 rounded-xl transition-all shrink-0 ${
+                active
+                  ? 'text-[#1b1b1b] dark:text-white bg-gray-100 dark:bg-white/10'
+                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white'
               }`}
             >
-              <tab.icon className="w-4 h-4" />
-              {tab.label}
+              <item.icon className={`w-5 h-5 mb-0.5 ${active ? 'fill-[#1b1b1b]/20' : ''}`} />
+              <span className="text-[10px] font-bold tracking-tight">{item.label}</span>
             </button>
-          ))}
-        </div>
-      </div>
+          );
+        })}
+      </nav>
 
-      <div className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm transition-colors">
+      <div className="flex-1 min-w-0 bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-4 sm:p-6 md:p-8 shadow-sm transition-colors">
         <Suspense fallback={<PageSkeleton variant="table" />}>
           {isAccountPage ? (
             <AdminAccount />

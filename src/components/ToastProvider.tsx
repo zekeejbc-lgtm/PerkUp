@@ -34,7 +34,7 @@ const typeStyles: Record<ToastType, string> = {
 const iconStyles: Record<ToastType, string> = {
   success: "text-emerald-600 dark:text-emerald-400",
   error: "text-red-600 dark:text-red-400",
-  info: "text-orange-600 dark:text-orange-400",
+  info: "text-[#1b1b1b] dark:text-white",
 };
 
 const ToastIcon = ({ type }: { type: ToastType }) => {
@@ -94,7 +94,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={() => dismissToast(toast.id)}
-              className="rounded-lg p-1 opacity-60 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+              className="rounded-lg p-1 opacity-60 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-[#1b1b1b]/40"
               aria-label="Dismiss notification"
             >
               <X className="h-4 w-4" />

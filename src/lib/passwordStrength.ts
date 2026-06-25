@@ -26,7 +26,7 @@ export function getPasswordStrength(password: string): PasswordStrength {
   }
 
   if (score >= 4) {
-    return { label: "Good", score, percent, tone: "bg-blue-600", checks };
+    return { label: "Good", score, percent, tone: "bg-[#1b1b1b]", checks };
   }
 
   if (score >= 3) {

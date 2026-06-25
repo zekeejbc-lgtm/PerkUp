@@ -111,23 +111,23 @@ export default function AdminSubscriptions() {
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-300">
-      <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50 sticky top-0 z-10 backdrop-blur-sm">
-        <div className="flex items-center gap-3">
-          <CreditCard className="w-5 h-5 text-gray-500" />
+      <div className="p-4 sm:p-6 border-b border-gray-100 dark:border-gray-800 flex flex-col gap-4 bg-gray-50/50 dark:bg-gray-900/50 sticky top-0 z-10 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <CreditCard className="w-5 h-5 shrink-0 text-gray-500" />
           <h3 className="font-semibold text-gray-900 dark:text-white text-lg">Subscription Offers</h3>
         </div>
-        <div className="flex gap-2">
-          <button onClick={handleAddPlan} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-orange-700 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 transition-colors">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+          <button onClick={handleAddPlan} className="flex min-w-0 items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-xl text-[#1b1b1b] bg-gray-100 dark:bg-white/10 dark:text-white hover:bg-gray-200 transition-colors sm:px-4">
             <Plus className="w-4 h-4" /> Add Plan
           </button>
-          <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-white bg-orange-600 hover:bg-orange-700 transition-colors disabled:opacity-50">
+          <button onClick={handleSave} disabled={saving} className="flex min-w-0 items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-xl text-white bg-[#1b1b1b] hover:bg-black transition-colors disabled:opacity-50 sm:px-4 dark:bg-white dark:text-[#1b1b1b] dark:hover:bg-gray-100">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             Save Changes
           </button>
         </div>
       </div>
 
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-2xl">
           Configure the public subscription plans offered to new partners on the landing page. Modifying these does not automatically update existing billing cycles, only the storefront offers.
         </p>
@@ -166,7 +166,7 @@ export default function AdminSubscriptions() {
               <div className="p-6 bg-gray-50/50 dark:bg-gray-900/30">
                 <div className="flex items-center justify-between mb-4">
                   <h5 className="text-xs font-semibold uppercase tracking-widest text-gray-500">Features</h5>
-                  <button onClick={() => handleAddFeature(planIndex)} className="text-xs font-medium text-orange-600 hover:text-orange-700">Add</button>
+                  <button onClick={() => handleAddFeature(planIndex)} className="text-xs font-medium text-[#1b1b1b] hover:text-black dark:text-white">Add</button>
                 </div>
 
                 <div className="space-y-2">
@@ -192,7 +192,7 @@ export default function AdminSubscriptions() {
             <div className="col-span-full py-12 text-center border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-2xl">
               <CreditCard className="w-12 h-12 text-gray-400 mx-auto mb-3" />
               <p className="text-gray-500">No subscription plans configured.</p>
-              <button onClick={handleAddPlan} className="mt-4 px-4 py-2 bg-orange-100 text-orange-700 font-medium rounded-xl">Create First Plan</button>
+              <button onClick={handleAddPlan} className="mt-4 px-4 py-2 bg-gray-100 text-[#1b1b1b] font-medium rounded-xl hover:bg-gray-200">Create First Plan</button>
             </div>
           )}
         </div>

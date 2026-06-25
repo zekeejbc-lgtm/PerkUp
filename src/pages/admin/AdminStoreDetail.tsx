@@ -207,9 +207,9 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
           </div>
         </div>
         <div className="flex gap-4">
-          <button onClick={() => setActiveTab('overview')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'overview' ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Overview</button>
-          <button onClick={() => setActiveTab('accounts')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'accounts' ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Accounts</button>
-          <button onClick={() => setActiveTab('analytics')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'analytics' ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Analytics & Logs</button>
+          <button onClick={() => setActiveTab('overview')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'overview' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Overview</button>
+          <button onClick={() => setActiveTab('accounts')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'accounts' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Accounts</button>
+          <button onClick={() => setActiveTab('analytics')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'analytics' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Analytics & Logs</button>
         </div>
       </div>
 
@@ -244,7 +244,7 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
                   ) : (
                     <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold tracking-wider uppercase ${
                       store.status === 'active' ? 'bg-green-100 text-green-700' :
-                      store.status === 'suspended' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'
+                      store.status === 'suspended' ? 'bg-gray-100 text-[#1b1b1b]' : 'bg-red-100 text-red-700'
                     }`}>
                       {store.status}
                     </span>
@@ -323,7 +323,7 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
                       <p className="font-medium text-sm text-gray-900 dark:text-white">{owner.name}</p>
                       <p className="text-xs text-gray-500">{owner.email}</p>
                     </div>
-                    <button onClick={() => setResetModalUser(owner)} className="p-2 text-gray-500 hover:text-orange-600 bg-gray-50 dark:bg-gray-800 rounded-lg" title="Reset Password">
+                    <button onClick={() => setResetModalUser(owner)} className="p-2 text-gray-500 hover:text-[#1b1b1b] bg-gray-50 dark:bg-gray-800 rounded-lg" title="Reset Password">
                       <Key className="w-4 h-4" />
                     </button>
                   </div>
@@ -342,7 +342,7 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
                           <p className="font-medium text-sm text-gray-900 dark:text-white">{s.name}</p>
                           <p className="text-xs text-gray-500">{s.email}</p>
                         </div>
-                        <button onClick={() => setResetModalUser(s)} className="p-2 text-gray-500 hover:text-orange-600 bg-gray-50 dark:bg-gray-800 rounded-lg" title="Reset Password">
+                        <button onClick={() => setResetModalUser(s)} className="p-2 text-gray-500 hover:text-[#1b1b1b] bg-gray-50 dark:bg-gray-800 rounded-lg" title="Reset Password">
                           <Key className="w-4 h-4" />
                         </button>
                       </div>
@@ -446,14 +446,14 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
               )}
 
               <label className="flex items-center gap-2 cursor-pointer mt-4">
-                <input type="checkbox" checked={requirePasswordChange} onChange={e => setRequirePasswordChange(e.target.checked)} className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
+                <input type="checkbox" checked={requirePasswordChange} onChange={e => setRequirePasswordChange(e.target.checked)} className="rounded border-gray-300 text-[#1b1b1b] focus:ring-[#1b1b1b]" />
                 <span className="text-sm text-gray-700 dark:text-gray-300">Require change on next login</span>
               </label>
             </div>
 
             <div className="flex gap-3">
               <button onClick={() => setResetModalUser(null)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-medium py-2 px-4 rounded-xl hover:bg-gray-200 transition-colors">Cancel</button>
-              <button onClick={handleResetPassword} className="flex-1 bg-orange-600 text-white font-medium py-2 px-4 rounded-xl hover:bg-orange-700 transition-colors">Confirm Reset</button>
+              <button onClick={handleResetPassword} className="flex-1 bg-[#1b1b1b] text-white font-medium py-2 px-4 rounded-xl hover:bg-black transition-colors">Confirm Reset</button>
             </div>
           </div>
         </div>

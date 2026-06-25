@@ -3,8 +3,9 @@ import { useParams, Link } from "react-router-dom";
 import { doc, getDoc, collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Scanner } from "@yudiel/react-qr-scanner";
-import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2, Search } from "lucide-react";
+import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2, Search, Cake } from "lucide-react";
 import { isSecureCustomerQr, redeemCustomerScan } from "@/src/lib/secureQr";
+import { getBirthdayStatus } from "@/src/lib/birthday";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 type OfflineScan = {
@@ -351,6 +352,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
         redemptionInput: { scanToken: scannedId },
         username: result.customer.username,
         maskedName: result.customer.maskedName,
+        birthday: result.customer.birthday,
         profilePic: result.customer.profilePic,
         existingStars: result.customer.existingStars,
       });
@@ -416,6 +418,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
         redemptionInput: { manualUsername: username },
         username: result.customer.username,
         maskedName: result.customer.maskedName,
+        birthday: result.customer.birthday,
         profilePic: result.customer.profilePic,
         existingStars: result.customer.existingStars,
       });
@@ -517,7 +520,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       <div className="text-center p-8 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl mt-4">
         <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
         <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Promotion Not Found</h3>
-        <Link to="/staff/promotions" className="text-orange-600 hover:underline">Return to Promotions</Link>
+        <Link to="/staff/promotions" className="text-[#1b1b1b] hover:underline">Return to Promotions</Link>
       </div>
     );
   }
@@ -563,7 +566,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
           <div className="w-full flex flex-col gap-4 mb-8">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <Camera className="w-5 h-5 text-orange-500" /> Scanner Control
+                <Camera className="w-5 h-5 text-[#1b1b1b]" /> Scanner Control
               </h3>
               <button
                  onClick={() => setIsScannerActive(!isScannerActive)}
@@ -572,7 +575,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                    !isWithinGeofence ? 'bg-gray-100 text-gray-400 cursor-not-allowed' :
                    isScannerActive 
                     ? 'bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-900/30 dark:hover:bg-red-900/50 dark:text-red-400' 
-                    : 'bg-orange-600 hover:bg-orange-700 text-white'
+                    : 'bg-[#1b1b1b] hover:bg-black text-white'
                  }`}
               >
                 {isScannerActive ? <><CameraOff className="w-4 h-4"/> Stop</> : <><Camera className="w-4 h-4"/> Start</>}
@@ -598,7 +601,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
           <div className="w-full max-w-sm aspect-square bg-gray-50 dark:bg-black rounded-[2rem] border border-gray-200 dark:border-gray-800 overflow-hidden relative shadow-inner flex items-center justify-center mb-6 relative">
             {isBatchMode && batchQueue.length > 0 && (
                 <div className="absolute top-4 right-4 z-20">
-                    <span className="bg-orange-600 text-white font-bold px-3 py-1 rounded-full shadow-lg border-2 border-orange-50 dark:border-gray-900 animate-bounce block">
+                    <span className="bg-[#1b1b1b] text-white font-bold px-3 py-1 rounded-full shadow-lg border-2 border-gray-100 dark:border-gray-900 animate-bounce block">
                         {batchQueue.length} queued
                     </span>
                 </div>
@@ -646,7 +649,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                   }}
                   placeholder="customer_username"
                   disabled={!isWithinGeofence || isProcessing}
-                  className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-900 outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                 />
                 <button
                   type="button"
@@ -681,14 +684,14 @@ export default function StaffPromotionScan({ store }: { store: any }) {
             {isBatchMode && batchQueue.length > 0 && (
                 <button 
                   onClick={() => setShowBatchModal(true)}
-                  className="w-full mt-4 py-3 bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 dark:hover:bg-orange-900/50 rounded-xl font-bold transition-colors"
+                  className="w-full mt-4 py-3 bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white hover:bg-gray-200 dark:hover:bg-white/15 rounded-xl font-bold transition-colors"
                 >
                   Review {batchQueue.length} Scans
                 </button>
             )}
             
             {pointsToAdd > 1 && !isBatchMode && (
-               <p className="text-xs text-orange-600 dark:text-orange-400 text-center mt-3 font-medium">
+               <p className="text-xs text-[#1b1b1b] dark:text-white text-center mt-3 font-medium">
                  You are awarding multiple points per scan!
                </p>
             )}
@@ -717,7 +720,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                </div>
              </div>
              {promo.geofenceEnabled && (
-               <div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-800 dark:border-orange-900/50 dark:bg-orange-900/20 dark:text-orange-300">
+               <div className="mt-5 rounded-2xl border border-gray-300 bg-gray-100 p-4 text-sm text-[#1b1b1b] dark:border-white/15 dark:bg-white/10 dark:text-white">
                  Scanner is limited to {promo.geofenceRadiusMeters || 500}m from this promotion's geofence.
                </div>
              )}
@@ -735,8 +738,8 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                  {promoCustomers.slice(0, 50).map(c => (
                    <div key={c.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700">
                      <div className="flex items-center gap-3">
-                       <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center border border-orange-200 dark:border-orange-800">
-                         <User className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                       <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center border border-gray-300 dark:border-white/15">
+                         <User className="w-4 h-4 text-[#1b1b1b] dark:text-white" />
                        </div>
                        <span className="text-sm font-semibold text-gray-900 dark:text-white font-mono">{c.customerId.slice(0,8)}...</span>
                      </div>
@@ -758,16 +761,22 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       {showConfirmModal && scannedCustomer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white dark:bg-gray-900 rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-800 animate-in zoom-in-95">
-            <div className="p-8 text-center border-b border-gray-100 dark:border-gray-800 bg-orange-50 dark:bg-orange-900/10">
+            <div className="p-8 text-center border-b border-gray-100 dark:border-gray-800 bg-gray-100 dark:bg-white/5">
               {scannedCustomer.profilePic ? (
                 <img src={scannedCustomer.profilePic} alt="Customer" className="w-20 h-20 rounded-full mx-auto mb-4 border-4 border-white dark:border-gray-800 shadow-sm object-cover" />
               ) : (
-                <div className="w-20 h-20 rounded-full bg-white dark:bg-gray-800 border-4 border-orange-100 dark:border-gray-700 mx-auto flex items-center justify-center shadow-sm mb-4">
+                <div className="w-20 h-20 rounded-full bg-white dark:bg-gray-800 border-4 border-gray-200 dark:border-gray-700 mx-auto flex items-center justify-center shadow-sm mb-4">
                   <UserCircle className="w-10 h-10 text-gray-400" />
                 </div>
               )}
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">{scannedCustomer.maskedName}</h3>
               <p className="text-sm text-gray-500 mt-1 font-mono tracking-widest">@{scannedCustomer.username}</p>
+              {getBirthdayStatus(scannedCustomer.birthday).isToday && (
+                <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-pink-200 bg-pink-50 px-3 py-1.5 text-sm font-bold text-pink-700 dark:border-pink-900/60 dark:bg-pink-950/30 dark:text-pink-300">
+                  <Cake className="h-4 w-4" />
+                  Birthday today
+                </div>
+              )}
             </div>
 
             <div className="p-6">
@@ -778,8 +787,8 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                 </div>
                 <div className="w-8 h-px bg-gray-300 dark:bg-gray-600"></div>
                 <div className="text-center">
-                  <p className="text-xs text-orange-600 font-bold uppercase tracking-widest mb-1">Add</p>
-                  <p className="text-lg font-bold text-orange-600 dark:text-orange-400">+{pointsToAdd}</p>
+                  <p className="text-xs text-[#1b1b1b] font-bold uppercase tracking-widest mb-1">Add</p>
+                  <p className="text-lg font-bold text-[#1b1b1b] dark:text-white">+{pointsToAdd}</p>
                 </div>
                 <div className="w-8 h-px bg-gray-300 dark:bg-gray-600"></div>
                 <div className="text-center">
@@ -789,7 +798,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
               </div>
 
               {pointsToAdd > 1 && (
-                <div className="mb-6 p-3 bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-sm font-medium rounded-xl border border-orange-200 dark:border-orange-800/50 flex gap-2 items-start">
+                <div className="mb-6 p-3 bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white text-sm font-medium rounded-xl border border-gray-300 dark:border-white/15 flex gap-2 items-start">
                   <AlertTriangle className="w-5 h-5 shrink-0" />
                   <p>Are you sure you want to award {pointsToAdd} points at once?</p>
                 </div>
@@ -806,7 +815,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                 <button 
                   onClick={handleConfirmPoints}
                   disabled={isProcessing}
-                  className="flex-1 py-3 px-4 rounded-xl font-bold text-white bg-orange-600 hover:bg-orange-700 transition disabled:opacity-70 disabled:animate-pulse flex items-center justify-center gap-2 shadow-lg shadow-orange-600/30"
+                  className="flex-1 py-3 px-4 rounded-xl font-bold text-white bg-[#1b1b1b] hover:bg-black transition disabled:opacity-70 disabled:animate-pulse flex items-center justify-center gap-2 shadow-lg shadow-black/20"
                 >
                   {isProcessing ? "Processing..." : <>Confirm <CheckCircle2 className="w-4 h-4" /></>}
                 </button>
@@ -820,9 +829,9 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       {showBatchModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white dark:bg-gray-900 rounded-[2rem] w-full max-w-lg overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-800 flex flex-col max-h-[85vh] animate-in zoom-in-95">
-              <div className="p-6 border-b border-gray-100 dark:border-gray-800 bg-orange-50 dark:bg-orange-900/10 flex justify-between items-center shrink-0">
+              <div className="p-6 border-b border-gray-100 dark:border-gray-800 bg-gray-100 dark:bg-white/5 flex justify-between items-center shrink-0">
                   <h3 className="text-xl font-bold text-gray-900 dark:text-white">Review Batch</h3>
-                  <span className="bg-orange-200 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300 px-3 py-1 rounded-xl font-bold text-sm shadow-sm">{batchQueue.length} pending</span>
+                  <span className="bg-gray-200 text-[#1b1b1b] dark:bg-white/15 dark:text-white px-3 py-1 rounded-xl font-bold text-sm shadow-sm">{batchQueue.length} pending</span>
               </div>
               
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -872,7 +881,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                   <button 
                     onClick={handleConfirmBatch} 
                     disabled={isProcessing || batchQueue.length === 0} 
-                    className="flex-1 py-3 px-4 rounded-xl font-bold text-white bg-orange-600 hover:bg-orange-700 transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-orange-600/30"
+                    className="flex-1 py-3 px-4 rounded-xl font-bold text-white bg-[#1b1b1b] hover:bg-black transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-black/20"
                   >
                       {isProcessing ? "Processing..." : <>Confirm All <CheckCircle2 className="w-4 h-4" /></>}
                   </button>

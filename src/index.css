@@ -3,9 +3,29 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@font-face {
+  font-family: "JA Jayagiri Sans";
+  src:
+    local("JA Jayagiri Sans"),
+    local("JA JayaGiri Sans"),
+    local("JA JayaGiriSans");
+  font-display: swap;
+}
+
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "JA Jayagiri Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
   --animate-blob: blob 7s infinite;
+  --color-gray-50: #fafafa;
+  --color-gray-100: #f5f5f5;
+  --color-gray-200: #e5e5e5;
+  --color-gray-300: #d4d4d4;
+  --color-gray-400: #a3a3a3;
+  --color-gray-500: #737373;
+  --color-gray-600: #525252;
+  --color-gray-700: #404040;
+  --color-gray-800: #262626;
+  --color-gray-900: #171717;
+  --color-gray-950: #0a0a0a;
 }
 
 @keyframes blob {
@@ -64,6 +84,6 @@
 
 body {
   font-family: var(--font-sans);
-  @apply bg-[#fafafa] text-[#0a0a0a] dark:bg-gray-950 dark:text-gray-50;
+  @apply bg-white text-[#1b1b1b] dark:bg-[#1b1b1b] dark:text-white;
   -webkit-font-smoothing: antialiased;
 }

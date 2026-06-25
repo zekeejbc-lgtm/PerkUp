@@ -175,8 +175,8 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
 
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 flex flex-col lg:flex-row gap-6 shadow-sm">
           <div className="flex flex-1 items-center gap-5 min-w-0">
-            <div className="w-20 h-20 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center shrink-0 border-4 border-blue-100 dark:border-blue-950">
-              <span className="text-3xl font-black text-blue-600 dark:text-blue-400 uppercase">
+            <div className="w-20 h-20 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center shrink-0 border-4 border-gray-100 dark:border-white/10">
+              <span className="text-3xl font-black text-[#1b1b1b] dark:text-white uppercase">
                 {selectedStaff.name ? selectedStaff.name.charAt(0) : "S"}
               </span>
             </div>
@@ -196,8 +196,8 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:w-[34rem]">
             {[
-              { label: "Scans", value: totalScans, icon: Activity, color: "text-blue-600 dark:text-blue-400" },
-              { label: "Points", value: totalPoints, icon: Star, color: "text-orange-600 dark:text-orange-400" },
+              { label: "Scans", value: totalScans, icon: Activity, color: "text-[#1b1b1b] dark:text-white" },
+              { label: "Points", value: totalPoints, icon: Star, color: "text-[#1b1b1b] dark:text-white" },
               { label: "Customers", value: uniqueCustomers, icon: Users, color: "text-emerald-600 dark:text-emerald-400" },
               { label: "Promos", value: uniquePromotions, icon: Gift, color: "text-violet-600 dark:text-violet-400" },
             ].map((metric) => (
@@ -236,7 +236,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
 
             <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm">
               <div className="flex items-center gap-2 mb-3">
-                <TrendingUp className="w-5 h-5 text-orange-500" />
+                <TrendingUp className="w-5 h-5 text-[#1b1b1b]" />
                 <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest">Performance</h3>
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -258,7 +258,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
             {analyticsLoading ? (
               <PageSkeleton />
             ) : scanLogs.length === 0 ? (
-              <div className="py-12 text-center bg-gray-50 dark:bg-gray-950 rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
+              <div className="py-12 text-center bg-gray-50 dark:bg-[#1b1b1b] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
                 <Activity className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-700 mb-3" />
                 <p className="font-medium text-gray-900 dark:text-white">No analytics yet</p>
                 <p className="text-sm text-gray-500 mt-1">Scans will appear here after this staff member credits customers.</p>
@@ -282,7 +282,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                           <p className="mt-1 font-mono text-[11px] text-gray-400 truncate">{log.customerId}</p>
                         )}
                       </div>
-                      <div className="inline-flex items-center gap-1.5 self-start rounded-xl border border-orange-200 bg-orange-50 px-3 py-1.5 text-sm font-black text-orange-700 dark:border-orange-900/50 dark:bg-orange-900/20 dark:text-orange-300 sm:self-center">
+                      <div className="inline-flex items-center gap-1.5 self-start rounded-xl border border-gray-300 bg-gray-100 px-3 py-1.5 text-sm font-black text-[#1b1b1b] dark:border-white/15 dark:bg-white/10 dark:text-white sm:self-center">
                         <Star className="w-4 h-4 fill-current" />
                         +{Number(log.points || 0)}
                       </div>
@@ -315,7 +315,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {staff.length === 0 ? (
-          <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-gray-950 rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
+          <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-[#1b1b1b] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
             <BadgeCheck className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-700 mb-3" />
             <p className="font-medium text-gray-900 dark:text-white">No staff accounts found</p>
             <p className="text-sm text-gray-500 mt-1">Add staff to allow them to process rewards in your store.</p>
@@ -333,11 +333,11 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                   setSelectedStaff(member);
                 }
               }}
-              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5 flex flex-col justify-between h-full shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700 transition-all text-left group cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5 flex flex-col justify-between h-full shadow-sm hover:shadow-md hover:border-gray-300 dark:hover:border-white/20 transition-all text-left group cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#1b1b1b]/40"
             >
                <div className="flex items-start gap-4 mb-4">
-                 <div className="w-12 h-12 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <span className="font-bold text-blue-600 dark:text-blue-400 text-lg uppercase">{member.name ? member.name.charAt(0) : 'S'}</span>
+                 <div className="w-12 h-12 bg-gray-100 dark:bg-white/10 rounded-full flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <span className="font-bold text-[#1b1b1b] dark:text-white text-lg uppercase">{member.name ? member.name.charAt(0) : 'S'}</span>
                  </div>
                  <div className="flex-1 min-w-0">
                     <h3 className="font-bold text-gray-900 dark:text-white text-lg truncate">{member.name || 'Unnamed Staff'}</h3>
@@ -348,7 +348,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                  </div>
                </div>
                <div className="pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
-                 <span className="text-xs font-bold uppercase tracking-widest text-blue-600 dark:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                 <span className="text-xs font-bold uppercase tracking-widest text-[#1b1b1b] dark:text-white opacity-0 group-hover:opacity-100 transition-opacity">
                    View analytics
                  </span>
                  <button
@@ -382,17 +382,17 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
               
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><UserCircle className="w-4 h-4 text-gray-400" /> Full Name</label>
-                <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. John Doe" />
+                <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]" placeholder="e.g. John Doe" />
               </div>
               
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Mail className="w-4 h-4 text-gray-400" /> Email Address</label>
-                <input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" placeholder="staff@store.com" />
+                <input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]" placeholder="staff@store.com" />
               </div>
               
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Key className="w-4 h-4 text-gray-400" /> Temporary Password</label>
-                <input required type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" placeholder="Randomly generated or custom" />
+                <input required type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] font-mono text-sm" placeholder="Randomly generated or custom" />
                 <p className="text-xs text-gray-500 mt-1">Provide this password to your staff member so they can login. They can change it later.</p>
               </div>
 

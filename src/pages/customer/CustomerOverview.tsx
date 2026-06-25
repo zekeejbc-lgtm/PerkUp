@@ -1,15 +1,16 @@
-import { useState, useEffect } from "react";
+import { FormEvent, useState, useEffect } from "react";
 import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../../contexts/AuthContext";
 import { doc, getDoc, collection, query, where, getCountFromServer } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
-import { Star, ShieldCheck, CreditCard, Gift, Info, Download, RotateCcw, X, AlertTriangle } from "lucide-react";
+import { Star, ShieldCheck, CreditCard, Gift, Info, Download, RotateCcw, X, AlertTriangle, AtSign, CheckCircle2, Pencil, Save } from "lucide-react";
 import { Link } from "react-router-dom";
-import { issueCustomerQr, IssuedCustomerQr } from "@/src/lib/secureQr";
+import { issueCustomerQr, IssuedCustomerQr, updateCustomerProfile } from "@/src/lib/secureQr";
+import { getUsernameValidationMessage, normalizeUsername } from "@/src/lib/username";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 const APP_NAME = "PerkUp";
-const LOGO_SRC = "/icons/icon-192.png?v=20260618-logo";
+const LOGO_SRC = "/icons/perkup-wordmark-light-transparent.png?v=20260625-brand";
 
 type AppContact = {
   address?: string;
@@ -74,7 +75,7 @@ const missingQrProfileFields = (user: ReturnType<typeof useAuth>["user"]) => {
 };
 
 export default function CustomerOverview() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [lifetimeStars, setLifetimeStars] = useState<number>(0);
   const [activeCards, setActiveCards] = useState<number>(0);
   const [appContact, setAppContact] = useState<AppContact | null>(null);
@@ -82,7 +83,16 @@ export default function CustomerOverview() {
   const [qrError, setQrError] = useState("");
   const [qrRefreshing, setQrRefreshing] = useState(false);
   const [showRefreshModal, setShowRefreshModal] = useState(false);
+  const [usernameDraft, setUsernameDraft] = useState("");
+  const [editingUsername, setEditingUsername] = useState(false);
+  const [usernameSaving, setUsernameSaving] = useState(false);
+  const [usernameSaved, setUsernameSaved] = useState(false);
+  const [usernameError, setUsernameError] = useState("");
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setUsernameDraft(user?.username || "");
+  }, [user?.username]);
 
   useEffect(() => {
     async function fetchCustomerData() {
@@ -166,6 +176,50 @@ export default function CustomerOverview() {
     setShowRefreshModal(true);
   };
 
+  const cancelUsernameEdit = () => {
+    setUsernameDraft(user?.username || "");
+    setUsernameError("");
+    setUsernameSaved(false);
+    setEditingUsername(false);
+  };
+
+  const saveUsername = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!user?.id) return;
+
+    const username = normalizeUsername(usernameDraft);
+    const validationMessage = getUsernameValidationMessage(username);
+    if (validationMessage) {
+      setUsernameError(validationMessage);
+      return;
+    }
+
+    setUsernameSaving(true);
+    setUsernameSaved(false);
+    setUsernameError("");
+    try {
+      await updateCustomerProfile({
+        name: user.name || "",
+        username,
+        phone: user.phone || user.number || "",
+        bio: user.bio || "",
+        birthday: user.birthday || "",
+        avatarUrl: user.avatarUrl || user.photoURL || "",
+      });
+
+      await refreshUser();
+      setUsernameDraft(username);
+      setUsernameSaved(true);
+      setEditingUsername(false);
+      window.setTimeout(() => setUsernameSaved(false), 3000);
+    } catch (error) {
+      console.error("Failed to update customer username:", error);
+      setUsernameError(error instanceof Error ? error.message : "Failed to update username.");
+    } finally {
+      setUsernameSaving(false);
+    }
+  };
+
   const downloadQrPng = async () => {
     if (!qrTicket?.token) return;
 
@@ -182,7 +236,7 @@ export default function CustomerOverview() {
     if (!ctx) return;
 
     ctx.scale(scale, scale);
-    ctx.fillStyle = "#fff7ed";
+    ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, width, height);
 
     ctx.fillStyle = "#ffffff";
@@ -196,26 +250,21 @@ export default function CustomerOverview() {
 
     try {
       const logo = await loadImage(LOGO_SRC);
-      ctx.drawImage(logo, 330, 132, 72, 72);
+      ctx.drawImage(logo, 250, 132, 250, 114);
     } catch {
-      ctx.fillStyle = "#ea580c";
+      ctx.fillStyle = "#1b1b1b";
       ctx.beginPath();
       ctx.arc(366, 168, 36, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    ctx.fillStyle = "#111827";
-    ctx.textAlign = "left";
-    ctx.font = "700 44px Inter, Arial, sans-serif";
-    ctx.fillText(APP_NAME, 420, 180);
-
     ctx.fillStyle = "#6b7280";
     ctx.textAlign = "center";
     ctx.font = "600 19px Inter, Arial, sans-serif";
-    ctx.fillText("Secure Customer QR", width / 2, 242);
+    ctx.fillText("Secure Customer QR", width / 2, 278);
 
     ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = "#fed7aa";
+    ctx.strokeStyle = "#1b1b1b";
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.roundRect(236, 300, 428, 428, 32);
@@ -238,7 +287,7 @@ export default function CustomerOverview() {
     ].filter(Boolean) as string[];
 
     if (footerRows.length > 0) {
-      ctx.strokeStyle = "#fed7aa";
+      ctx.strokeStyle = "#1b1b1b";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(170, 940);
@@ -278,8 +327,8 @@ export default function CustomerOverview() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         <div className="bg-white dark:bg-gray-900 p-6 rounded-[2rem] border border-gray-200 dark:border-gray-800 shadow-sm transition-colors flex items-center gap-4 xl:gap-6 min-w-0">
-          <div className="w-12 h-12 xl:w-14 xl:h-14 bg-orange-50 dark:bg-orange-900/30 rounded-2xl flex items-center justify-center shrink-0">
-            <Star className="w-6 h-6 xl:w-7 xl:h-7 text-orange-500 dark:text-orange-400 fill-orange-500 dark:fill-orange-400" />
+          <div className="w-12 h-12 xl:w-14 xl:h-14 bg-gray-100 dark:bg-white/10 rounded-2xl flex items-center justify-center shrink-0">
+            <Star className="w-6 h-6 xl:w-7 xl:h-7 text-[#1b1b1b] dark:text-white fill-[#1b1b1b] dark:fill-[#1b1b1b]" />
           </div>
           <div className="min-w-0">
             <h3 className="text-xs xl:text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-widest truncate">Lifetime Stars</h3>
@@ -336,13 +385,87 @@ export default function CustomerOverview() {
                   : qrError || "Preparing your private scan code."}
               </p>
             </div>
-            <div className="mt-4 text-center text-xs text-orange-600 dark:text-orange-400 font-medium">
+            <div className="mt-4 text-center text-xs text-[#1b1b1b] dark:text-white font-medium">
               {qrError ? <Link to="/customer/profile" className="hover:underline">Update profile</Link> : "1 Visit = 1 Sticker"}
             </div>
+            <form onSubmit={saveUsername} className="mt-5 w-full rounded-2xl border border-gray-200 bg-white p-3 text-left dark:border-gray-700 dark:bg-gray-900">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    <AtSign className="h-3.5 w-3.5" />
+                    Username
+                  </div>
+                  {!editingUsername && (
+                    <p className="mt-1 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {user?.username || "Not set"}
+                    </p>
+                  )}
+                </div>
+                {!editingUsername && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUsernameError("");
+                      setUsernameSaved(false);
+                      setEditingUsername(true);
+                    }}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-gray-200 text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                    aria-label="Edit username"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              {editingUsername && (
+                <div className="mt-3 space-y-2">
+                  <input
+                    type="text"
+                    required
+                    value={usernameDraft}
+                    onChange={(event) => {
+                      setUsernameDraft(normalizeUsername(event.target.value));
+                      setUsernameError("");
+                      setUsernameSaved(false);
+                    }}
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-900 outline-none transition focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    placeholder="your_username"
+                  />
+                  <p className={`text-xs font-medium ${usernameError || getUsernameValidationMessage(usernameDraft) ? "text-[#1b1b1b] dark:text-white" : "text-green-600 dark:text-green-400"}`}>
+                    {usernameError || getUsernameValidationMessage(usernameDraft) || "Strong format. Uniqueness is verified when you save."}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={cancelUsernameEdit}
+                      disabled={usernameSaving}
+                      className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={usernameSaving || Boolean(getUsernameValidationMessage(usernameDraft))}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800 disabled:opacity-50 dark:bg-white dark:text-gray-900"
+                    >
+                      <Save className="h-4 w-4" />
+                      {usernameSaving ? "Saving..." : "Save"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {usernameSaved && !editingUsername && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-green-600 dark:text-green-400">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Username saved
+                </p>
+              )}
+            </form>
             <button
               onClick={downloadQrPng}
               disabled={!qrTicket?.token}
-              className="mt-5 inline-flex w-full items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-xl text-sm font-semibold hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="mt-5 inline-flex w-full items-center justify-center gap-2 px-4 py-3 bg-[#1b1b1b] text-white rounded-xl text-sm font-semibold hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="w-4 h-4" />
               Download PNG
@@ -360,21 +483,21 @@ export default function CustomerOverview() {
 
         <div className="bg-white dark:bg-gray-900 p-8 rounded-[2rem] border border-gray-200 dark:border-gray-800 shadow-sm transition-colors">
           <div className="flex items-center gap-3 mb-6">
-            <Info className="w-6 h-6 text-blue-500" />
+            <Info className="w-6 h-6 text-[#1b1b1b]" />
             <h2 className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">How it Works</h2>
           </div>
           
           <div className="space-y-6">
             <div className="flex gap-4">
-              <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold shrink-0">1</div>
+              <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center text-[#1b1b1b] dark:text-white font-bold shrink-0">1</div>
               <div>
                 <h4 className="font-semibold text-gray-900 dark:text-white">Find a Partner Store</h4>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Browse our <Link to="/customer/stores" className="text-orange-600 dark:text-orange-400 hover:underline">store directory</Link> to discover cafes, shops, and restaurants that use PerkUp.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Browse our <Link to="/customer/stores" className="text-[#1b1b1b] dark:text-white hover:underline">store directory</Link> to discover cafes, shops, and restaurants that use PerkUp.</p>
               </div>
             </div>
             
             <div className="flex gap-4">
-              <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold shrink-0">2</div>
+              <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center text-[#1b1b1b] dark:text-white font-bold shrink-0">2</div>
               <div>
                 <h4 className="font-semibold text-gray-900 dark:text-white">Present Your QR Code</h4>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">When making a purchase, show your Identity QR to the staff. They'll scan it to automatically add stars to your digital card.</p>
@@ -382,7 +505,7 @@ export default function CustomerOverview() {
             </div>
             
             <div className="flex gap-4">
-              <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold shrink-0">3</div>
+              <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center text-[#1b1b1b] dark:text-white font-bold shrink-0">3</div>
               <div>
                 <h4 className="font-semibold text-gray-900 dark:text-white">Redeem Freebies</h4>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Once you collect 10 stars at a specific store, let the staff know to redeem your reward on your next visit!</p>
@@ -414,7 +537,7 @@ export default function CustomerOverview() {
                 <X className="h-5 w-5" />
               </button>
 
-              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400">
+              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white">
                 <AlertTriangle className="h-6 w-6" />
               </div>
 
@@ -437,7 +560,7 @@ export default function CustomerOverview() {
                   type="button"
                   onClick={refreshQr}
                   disabled={qrRefreshing}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1b1b1b] px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <RotateCcw className={`h-4 w-4 ${qrRefreshing ? "animate-spin" : ""}`} />
                   {qrRefreshing ? "Refreshing..." : "Refresh QR"}

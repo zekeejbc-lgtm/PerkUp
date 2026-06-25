@@ -45,7 +45,7 @@ export function CustomDropdown({ options, value, onChange, placeholder = "Select
                 key={option.value}
                 className={`flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-xs transition-colors ${
                   value === option.value
-                    ? 'bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 font-medium'
+                    ? 'bg-gray-100 dark:bg-white/10 text-[#1b1b1b] dark:text-white font-medium'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
                 }`}
                 onClick={() => {

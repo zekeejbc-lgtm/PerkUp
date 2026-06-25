@@ -8,7 +8,7 @@ export function SkeletonBlock({ className }: { className?: string; key?: Key }) 
 export function PageSkeleton({ variant = "dashboard" }: { variant?: "dashboard" | "auth" | "store" | "table" }) {
   if (variant === "auth") {
     return (
-      <div className="min-h-screen bg-[#fafafa] dark:bg-gray-950 flex items-center justify-center px-4">
+      <div className="min-h-screen bg-white dark:bg-[#1b1b1b] flex items-center justify-center px-4">
         <div className="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <SkeletonBlock className="mb-6 h-12 w-12 rounded-2xl" />
           <SkeletonBlock className="mb-3 h-6 w-2/3 rounded-lg" />
@@ -22,7 +22,7 @@ export function PageSkeleton({ variant = "dashboard" }: { variant?: "dashboard" 
 
   if (variant === "store") {
     return (
-      <div className="min-h-screen bg-[#fafafa] px-4 pt-24 dark:bg-gray-950">
+      <div className="min-h-screen bg-white px-4 pt-24 dark:bg-[#1b1b1b]">
         <div className="mx-auto max-w-3xl">
           <SkeletonBlock className="mx-auto mb-6 h-24 w-24 rounded-full" />
           <SkeletonBlock className="mx-auto mb-4 h-10 w-72 max-w-full rounded-xl" />

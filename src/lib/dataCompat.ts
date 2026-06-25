@@ -44,6 +44,7 @@ const tableNames = new Set([
   "cards",
   "customer_qr_tokens",
   "customers",
+  "feedback",
   "products",
   "promotions",
   "promotions_scanned",

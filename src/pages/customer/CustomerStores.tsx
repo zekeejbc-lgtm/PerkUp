@@ -70,7 +70,7 @@ export default function CustomerStores() {
             placeholder="Search stores..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="block w-full pl-9 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-orange-600 dark:focus:ring-orange-500 sm:text-sm transition-colors"
+            className="block w-full pl-9 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm transition-colors"
           />
         </div>
       </div>
@@ -90,7 +90,7 @@ export default function CustomerStores() {
                 {filteredStores.map((store) => {
                   if (store.lat && store.lng) {
                     const iconHtml = ReactDOMServer.renderToString(
-                      <div className="w-8 h-8 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-lg border-2 border-white">
+                      <div className="w-8 h-8 bg-[#1b1b1b] text-white rounded-full flex items-center justify-center shadow-lg border-2 border-white">
                         <StoreIcon className="w-4 h-4" />
                       </div>
                     );
@@ -108,7 +108,7 @@ export default function CustomerStores() {
                           <div className="p-1">
                             <h3 className="font-semibold text-gray-900">{store.storeName}</h3>
                             <p className="text-xs text-gray-500">{store.category || "Retail"}</p>
-                            <Link to={`/store/${store.id}`} className="text-orange-600 text-xs font-medium mt-2 inline-block hover:underline">
+                            <Link to={`/store/${store.id}`} className="text-[#1b1b1b] text-xs font-medium mt-2 inline-block hover:underline">
                               View Details
                             </Link>
                           </div>
@@ -138,8 +138,8 @@ export default function CustomerStores() {
                 to={`/store/${store.id}`}
                 className="flex items-center gap-4 bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow"
               >
-                <div className="w-12 h-12 bg-orange-50 dark:bg-orange-950/30 rounded-full flex items-center justify-center shrink-0">
-                  <MapPin className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+                <div className="w-12 h-12 bg-gray-100 dark:bg-white/10 rounded-full flex items-center justify-center shrink-0">
+                  <MapPin className="w-5 h-5 text-[#1b1b1b] dark:text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-gray-900 dark:text-white truncate">{store.storeName}</h3>

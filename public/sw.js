@@ -1,4 +1,4 @@
-const CACHE_VERSION = "2026-06-19-v5";
+const CACHE_VERSION = "2026-06-25-brand-v1";
 const STATIC_CACHE = `perkup-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `perkup-runtime-${CACHE_VERSION}`;
 const MAX_RUNTIME_ENTRIES = 80;
@@ -8,10 +8,10 @@ const APP_SHELL = [
   "/index.html",
   "/manifest.json",
   "/offline.html",
-  "/icons/favicon-32.png?v=20260618-white-bg",
-  "/icons/favicon-192.png?v=20260618-white-bg",
-  "/icons/favicon-512.png?v=20260618-white-bg",
-  "/icons/maskable-512.png?v=20260618-logo",
+  "/icons/favicon-32.png?v=20260625-brand",
+  "/icons/favicon-192.png?v=20260625-brand",
+  "/icons/favicon-512.png?v=20260625-brand",
+  "/icons/maskable-512.png?v=20260625-brand",
 ];
 
 const CACHEABLE_DESTINATIONS = new Set(["script", "style", "font", "image", "manifest"]);

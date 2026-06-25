@@ -20,7 +20,7 @@ export default function StoreOwnerSubscription() {
             <p className="text-gray-400 max-w-sm">Full access to customer analytics, unlimited scans, and advanced promotional tools.</p>
           </div>
           <div className="text-right">
-            <div className="text-4xl font-black mb-1 text-orange-400">₱2,499</div>
+            <div className="text-4xl font-black mb-1 text-[#1b1b1b]">₱2,499</div>
             <div className="text-sm text-gray-400 uppercase tracking-widest">per month</div>
           </div>
         </div>
@@ -42,8 +42,8 @@ export default function StoreOwnerSubscription() {
         </div>
       </div>
 
-      <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800/50 p-6 rounded-2xl flex items-start gap-4">
-        <AlertCircle className="w-6 h-6 text-orange-600 dark:text-orange-400 shrink-0" />
+      <div className="bg-gray-100 dark:bg-white/10 border border-gray-300 dark:border-white/15 p-6 rounded-2xl flex items-start gap-4">
+        <AlertCircle className="w-6 h-6 text-[#1b1b1b] dark:text-white shrink-0" />
         <div>
            <h4 className="font-bold text-gray-900 dark:text-white">Payment Method Setup</h4>
            <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">Your account is currently running on a promotional period. Please add a payment method before August 1st to ensure uninterrupted access.</p>
