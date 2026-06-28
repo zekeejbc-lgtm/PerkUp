@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { X, Store, User, Mail, PenTool, Image as ImageIcon, MapPin, Phone, Check, Upload } from 'lucide-react';
-import { collection, doc, setDoc, getDoc, serverTimestamp } from '@/src/lib/dataCompat';
+import { doc, getDoc } from '@/src/lib/dataCompat';
 import { db } from '../lib/backend';
 import 'leaflet/dist/leaflet.css';
 // @ts-ignore
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { getDisplayImageUrl, uploadImageFileToDrive } from '../lib/imageStorage';
+import { submitPartnerApplication } from '../lib/partnerApplication';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -43,7 +43,8 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [description, setDescription] = useState('');
-  const [logoUrl, setLogoUrl] = useState('');
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState('');
   const [address, setAddress] = useState('');
   const [coordinates, setCoordinates] = useState<[number, number] | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
@@ -69,22 +70,23 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     }
   }, [isOpen]);
 
+  useEffect(() => () => {
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+  }, [logoPreview]);
+
   if (!isOpen) return null;
 
-  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      try {
-        const uploadedUrl = await uploadImageFileToDrive(file, {
-          owner: businessName || applicantName || email,
-          purpose: "partner-application-logo",
-        });
-        setLogoUrl(uploadedUrl);
-      } catch (error) {
-        console.error("Logo upload failed", error);
-        alert("Failed to upload logo image");
-      }
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 2 * 1024 * 1024) {
+      alert("Logo must be a PNG, JPEG, or WebP image no larger than 2 MB.");
+      e.target.value = "";
+      return;
     }
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -95,21 +97,16 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     }
     setIsSubmitting(true);
     try {
-      const newAppRef = doc(collection(db, 'applications'));
-      await setDoc(newAppRef, {
+      await submitPartnerApplication({
         businessName,
         applicantName,
         email,
         phoneNumber,
         description,
-        logoUrl,
         address,
         coordinates,
         subscriptionLevel: selectedPlanId,
-        status: 'pending',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
+      }, logoFile);
       setIsSuccess(true);
       setTimeout(() => {
         setIsSuccess(false);
@@ -121,7 +118,9 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
         setEmail('');
         setPhoneNumber('');
         setDescription('');
-        setLogoUrl('');
+        if (logoPreview) URL.revokeObjectURL(logoPreview);
+        setLogoFile(null);
+        setLogoPreview('');
         setAddress('');
       }, 3000);
     } catch (error) {
@@ -201,9 +200,9 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                     <div className="space-y-1 text-left">
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Logo Image Upload</label>
                       <div className="flex items-center gap-4">
-                        {logoUrl ? (
+                        {logoPreview ? (
                           <div className="w-12 h-12 rounded-xl border border-gray-200 overflow-hidden shrink-0">
-                            <img src={getDisplayImageUrl(logoUrl)} alt="Logo Preview" className="w-full h-full object-cover" />
+                            <img src={logoPreview} alt="Logo Preview" className="w-full h-full object-cover" />
                           </div>
                         ) : (
                           <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center shrink-0 border border-gray-200 text-gray-400">

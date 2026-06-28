@@ -1,11 +1,5 @@
 import { supabase } from "./supabase";
 
-const DEFAULT_GAS_UPLOAD_URL =
-  "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
-
-export const GOOGLE_DRIVE_UPLOAD_URL =
-  import.meta.env.VITE_GOOGLE_DRIVE_UPLOAD_URL || DEFAULT_GAS_UPLOAD_URL;
-
 const GOOGLE_DRIVE_FILE_ID_PATTERNS = [
   /\/file\/d\/([a-zA-Z0-9_-]+)/,
   /[?&]id=([a-zA-Z0-9_-]+)/,
@@ -16,14 +10,6 @@ const GOOGLE_DRIVE_FILE_ID_PATTERNS = [
 type UploadOptions = {
   purpose: string;
   owner?: string | null;
-};
-
-type GasUploadResponse = {
-  success?: boolean;
-  error?: string;
-  url?: string;
-  webViewLink?: string;
-  fileId?: string;
 };
 
 type DriveImageResponse = {
@@ -91,42 +77,6 @@ function timestampSegment(date = new Date()): string {
 function buildUploadFileName(file: File, options: UploadOptions): string {
   const extension = file.name.match(/\.[a-zA-Z0-9]{1,12}$/)?.[0]?.toLowerCase() || "";
   return `${safeSegment(options.owner)}_${safeSegment(options.purpose)}_${timestampSegment()}${extension}`;
-}
-
-export async function uploadImageFileToDrive(file: File, options: UploadOptions): Promise<string> {
-  if (!file.type.startsWith("image/")) {
-    throw new Error("Only image uploads are supported.");
-  }
-
-  const dataUrl = await fileToDataUrl(file);
-  const response = await fetch(GOOGLE_DRIVE_UPLOAD_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=utf-8",
-    },
-    body: JSON.stringify({
-      action: "upload",
-      fileName: buildUploadFileName(file, options),
-      mimeType: file.type,
-      base64: dataUrl,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Google Drive upload failed with HTTP ${response.status}.`);
-  }
-
-  const data = (await response.json()) as GasUploadResponse;
-  if (!data.success) {
-    throw new Error(data.error || "Google Drive upload failed.");
-  }
-
-  const uploadedUrl = data.url || data.webViewLink;
-  if (!uploadedUrl) {
-    throw new Error("Google Drive upload succeeded but returned no image URL.");
-  }
-
-  return normalizeDriveImageUrl(uploadedUrl);
 }
 
 export async function uploadImageFileToDriveSecure(file: File, options: UploadOptions): Promise<string> {

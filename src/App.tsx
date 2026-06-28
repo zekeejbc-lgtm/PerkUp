@@ -208,6 +208,7 @@ function RoleRouter() {
     case "store_owner":
       return <Navigate to="/owner" replace />;
     case "admin":
+    case "assistant_admin":
     case "auditor":
       return <Navigate to="/admin" replace />;
     case "customer":
@@ -301,7 +302,7 @@ export default function App() {
       } />
       
       <Route path="/admin/*" element={
-        <ProtectedRoute allowedRoles={["admin", "auditor"]}>
+        <ProtectedRoute allowedRoles={["admin", "assistant_admin", "auditor"]}>
           <Layout><Suspense fallback={<PageSkeleton />}><AdminDashboard /></Suspense></Layout>
         </ProtectedRoute>
       } />

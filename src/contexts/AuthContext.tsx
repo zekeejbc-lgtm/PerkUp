@@ -13,7 +13,7 @@ import {
 import { signOut } from "@/src/lib/supabaseAuthCompat";
 import type { TrustedLoginDevice } from "@/src/lib/trustedDevice";
 
-export type Role = "customer" | "staff" | "store_owner" | "admin" | "auditor";
+export type Role = "customer" | "staff" | "store_owner" | "admin" | "assistant_admin" | "auditor";
 
 export interface AppUser {
   id: string;

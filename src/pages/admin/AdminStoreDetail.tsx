@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { doc, getDoc, updateDoc, deleteDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
+import { doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { ArrowLeft, Edit, Trash2, Key, Save } from "lucide-react";
+import { invokeAdminBackend } from "../../lib/adminBackend";
+import { AlertTriangle, ArrowLeft, Edit, Key, Loader2, Save, Trash2, X } from "lucide-react";
 
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
@@ -32,6 +33,9 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
   // Edit store state
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<any>({});
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   
   // Password reset state
   const [resetModalUser, setResetModalUser] = useState<any>(null);
@@ -76,8 +80,11 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
           setStaff(staffSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
           // Fetch Analytics (Mocked up via actual queries)
-          const customersQuery = query(collection(db, "users"), where("storeId", "==", storeId), where("role", "==", "customer"));
+          const customersQuery = query(collection(db, "cards"), where("storeId", "==", storeId));
           const customersSnap = await getDocs(customersQuery);
+          const uniqueCustomerCount = new Set(
+            customersSnap.docs.map((customerCard) => customerCard.data().customerId).filter(Boolean),
+          ).size;
           
           const promosQuery = query(collection(db, "promotions"), where("storeId", "==", storeId));
           const promosSnap = await getDocs(promosQuery);
@@ -86,7 +93,7 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
           const claimsSnap = await getDocs(claimsQuery);
 
           setAnalytics({
-            customers: customersSnap.size,
+            customers: uniqueCustomerCount,
             promotions: promosSnap.size,
             claims: claimsSnap.size
           });
@@ -133,39 +140,46 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
     });
   };
 
+  const handleCancelEdit = () => {
+    setEditData({
+      name: store.name || '',
+      subscriptionLevel: store.subscriptionLevel || plans[0]?.name || 'Standard',
+      owedAmount: getSubscriptionOwedAmount(plans, store.subscriptionLevel, Number(store.owedAmount || 0)),
+      subscriptionStart: toDateInputValue(store.subscriptionStart),
+      subscriptionEnd: toDateInputValue(store.subscriptionEnd),
+      paymentDate: toDateInputValue(store.paymentDate),
+      status: store.status || 'active',
+    });
+    setIsEditing(false);
+  };
+
   const handleDeleteStore = async () => {
-    if (!window.confirm("Are you sure you want to permanently delete this store? This will also remove the owner and staff accounts.")) return;
+    setIsDeleting(true);
+    setDeleteError("");
     try {
-      // Simplistic cascade delete for demo purposes. 
-      // In production, an Edge Function/Cloud Function is better.
-      await deleteDoc(doc(db, "stores", storeId));
-      if (owner) await deleteDoc(doc(db, "users", owner.id));
-      for (const s of staff) {
-        await deleteDoc(doc(db, "users", s.id));
-      }
+      await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_store", storeId });
       onBack();
     } catch (error) {
       console.error(error);
-      alert("Failed to delete store");
+      setDeleteError("The store could not be deleted. Please try again.");
+      setIsDeleting(false);
     }
   };
 
   const handleResetPassword = async () => {
     if (!resetModalUser) return;
-    // In a real application, you would need an Admin SDK endpoint to update a user's password without them being logged in.
-    // For this client-side demo, we represent the intent by setting a 'forcePasswordReset' flag on their document
-    // and maybe saving a temporary password in a secure way (or just alerting the admin).
     try {
       let tempPassword = "Password123!";
       if (newPasswordType === 'random') tempPassword = Math.random().toString(36).slice(-8) + "!";
       if (newPasswordType === 'custom') tempPassword = customPassword;
 
-      await updateDoc(doc(db, "users", resetModalUser.id), {
+      await invokeAdminBackend<{ updated: boolean }>({
+        action: "reset_password",
+        userId: resetModalUser.id,
+        password: tempPassword,
         forcePasswordReset: requirePasswordChange,
-        // (Fake storing hash, or communicating to backend)
-        tempPasswordIndicator: "Password reset authorized"
       });
-      alert(`Password has been reset for ${resetModalUser.email}.\nTemporary password: ${tempPassword}\n\nNote: In a true client-only setup, a backend function is required to update another user's Supabase Auth password.`);
+      alert(`Password has been reset for ${resetModalUser.email}.\nTemporary password: ${tempPassword}`);
       setResetModalUser(null);
     } catch (e) {
       console.error(e);
@@ -191,17 +205,28 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
             </button>
             <h3 className="font-bold text-gray-900 dark:text-white text-xl">{store.name} Dashboard</h3>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {!isEditing ? (
               <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors">
                 <Edit className="w-4 h-4" /> Edit
               </button>
             ) : (
-              <button onClick={handleUpdateStore} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-white bg-green-600 hover:bg-green-700 transition-colors">
-                <Save className="w-4 h-4" /> Save
-              </button>
+              <>
+                <button onClick={handleCancelEdit} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                  <X className="w-4 h-4" /> Cancel
+                </button>
+                <button onClick={handleUpdateStore} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-white bg-green-600 hover:bg-green-700 transition-colors">
+                  <Save className="w-4 h-4" /> Save
+                </button>
+              </>
             )}
-            <button onClick={handleDeleteStore} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-red-700 bg-red-100 hover:bg-red-200 transition-colors">
+            <button
+              onClick={() => {
+                setDeleteError("");
+                setShowDeleteModal(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-red-700 bg-red-100 hover:bg-red-200 transition-colors"
+            >
               <Trash2 className="w-4 h-4" /> Delete Store
             </button>
           </div>
@@ -421,6 +446,58 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
           </div>
         )}
       </div>
+
+      {showDeleteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 dark:bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-store-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !isDeleting) setShowDeleteModal(false);
+          }}
+        >
+          <div className="w-full max-w-md rounded-[2rem] border border-gray-100 bg-white p-6 shadow-2xl dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 id="delete-store-title" className="text-xl font-bold text-gray-900 dark:text-white">Delete {store.name}?</h3>
+                <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
+                  This permanently deletes the store and removes its owner and staff accounts. This action cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            {deleteError && (
+              <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                {deleteError}
+              </div>
+            )}
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setShowDeleteModal(false)}
+                className="rounded-xl bg-gray-100 px-5 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+              >
+                Keep Store
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleDeleteStore}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {isDeleting ? "Deleting..." : "Delete Store"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {resetModalUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">

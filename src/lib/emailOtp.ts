@@ -1,6 +1,9 @@
-import { GOOGLE_DRIVE_UPLOAD_URL } from "./imageStorage";
-
-const GAS_EMAIL_URL = import.meta.env.VITE_GAS_EMAIL_URL || GOOGLE_DRIVE_UPLOAD_URL;
+const DEFAULT_GAS_EMAIL_URL =
+  "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
+const GAS_EMAIL_URL =
+  import.meta.env.VITE_GAS_EMAIL_URL ||
+  import.meta.env.VITE_GOOGLE_DRIVE_UPLOAD_URL ||
+  DEFAULT_GAS_EMAIL_URL;
 
 export type EmailOtpPurpose = "signup" | "email_change";
 

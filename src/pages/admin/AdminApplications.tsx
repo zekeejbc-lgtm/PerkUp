@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { collection, getDocs, doc, setDoc, updateDoc, serverTimestamp, getDoc } from "@/src/lib/dataCompat";
-import { createUserWithEmailAndPassword, signOut } from "@/src/lib/supabaseAuthCompat";
-import { db, secondaryAuth } from "../../lib/backend";
+import { collection, getDocs, doc, getDoc } from "@/src/lib/dataCompat";
+import { db } from "../../lib/backend";
+import { invokeAdminBackend } from "../../lib/adminBackend";
 import { Ban, X, FileText, Upload, Image as ImageIcon } from "lucide-react";
 import { CustomDropdown } from "../../components/CustomDropdown";
-import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
   dateInputToDate,
@@ -23,14 +23,16 @@ export default function AdminApplications() {
   // New store form state
   const [storeName, setStoreName] = useState("");
   const [storeLocation, setStoreLocation] = useState("");
+  const [storeCoordinates, setStoreCoordinates] = useState<[number, number] | null>(null);
   const [storeLogo, setStoreLogo] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
+  const [selectedApplicationId, setSelectedApplicationId] = useState("");
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const uploadedUrl = await uploadImageFileToDrive(file, {
+        const uploadedUrl = await uploadImageFileToDriveSecure(file, {
           owner: storeName || ownerEmail,
           purpose: "approved-store-logo",
         });
@@ -79,60 +81,65 @@ export default function AdminApplications() {
     setOwnerName(app.applicantName);
     setOwnerEmail(app.email);
     setStoreLocation(app.address || "");
+    const applicationCoordinates = Array.isArray(app.coordinates) ? app.coordinates.map(Number) : null;
+    setStoreCoordinates(
+      applicationCoordinates?.length === 2 &&
+      applicationCoordinates.every(Number.isFinite)
+        ? [applicationCoordinates[0], applicationCoordinates[1]]
+        : null
+    );
     setStoreLogo(app.logoUrl || "");
     setSubLevel(app.subscriptionLevel || "Standard");
     setSubStart(toDateInputValue(app.subscriptionStart));
     setSubEnd(toDateInputValue(app.subscriptionEnd));
     setPaymentDate(toDateInputValue(app.paymentDate));
     setOwnerPassword(""); 
+    setSelectedApplicationId(app.id);
     setShowAddModal(true);
   };
   
   const handleRejectApplication = async (appId: string) => {
     try {
-       await updateDoc(doc(db, "applications", appId), { status: "rejected" });
+       await invokeAdminBackend<{ rejected: boolean }>({ action: "reject_application", applicationId: appId });
        setApplications(applications.map(a => a.id === appId ? { ...a, status: "rejected" } : a));
-    } catch {}
+    } catch (error) {
+       console.error("Application rejection failed", error);
+       alert("Failed to reject application.");
+    }
   };
 
   const handleAddStore = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const creds = await createUserWithEmailAndPassword(secondaryAuth, ownerEmail, ownerPassword);
-      const newOwnerId = creds.user.uid;
-      
-      await setDoc(doc(db, "users", newOwnerId), {
+      const result = await invokeAdminBackend<{ store: any }>({
+        action: "create_store",
         email: ownerEmail,
+        password: ownerPassword,
         name: ownerName,
-        role: "store_owner",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        applicationId: selectedApplicationId,
+        store: {
+          name: storeName,
+          location: storeLocation,
+          address: storeLocation,
+          ...(storeCoordinates ? { lat: storeCoordinates[0], lng: storeCoordinates[1] } : {}),
+          logoUrl: storeLogo,
+          status: "active",
+          subscriptionLevel: subLevel,
+          owedAmount: selectedOwedAmount,
+          subscriptionStart: dateInputToDate(subStart),
+          subscriptionEnd: dateInputToDate(subEnd),
+          paymentDate: dateInputToDate(paymentDate),
+        },
       });
 
-      await signOut(secondaryAuth);
-
-      const newStoreRef = doc(collection(db, "stores"));
-      const newStore = {
-        name: storeName,
-        location: storeLocation,
-        logoUrl: storeLogo,
-        ownerId: newOwnerId,
-        status: "active",
-        subscriptionLevel: subLevel,
-        owedAmount: selectedOwedAmount,
-        subscriptionStart: dateInputToDate(subStart),
-        subscriptionEnd: dateInputToDate(subEnd),
-        paymentDate: dateInputToDate(paymentDate),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
-      
-      await setDoc(newStoreRef, newStore);
-
+      setApplications(applications.map((app) =>
+        app.id === selectedApplicationId
+          ? { ...app, status: "approved", approvedStoreId: result.store.id }
+          : app
+      ));
       setShowAddModal(false);
       alert("Store approved and created!");
-      // Optionally update the app status in applications collection here
     } catch (error) {
       console.error(error);
       alert("Failed to create store: " + (error as Error).message);

@@ -5,7 +5,7 @@ import { Save, MapPin, Clock, Image as ImageIcon, CheckCircle2, Upload, X, Store
 import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 
 function LocationPicker({ setPosition }: { position: [number, number], setPosition: (p: [number, number]) => void }) {
   useMapEvents({
@@ -21,12 +21,12 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
     name: store?.name || "",
     description: store?.description || "",
     address: store?.address || "",
-    latitude: store?.latitude || "",
-    longitude: store?.longitude || "",
+    latitude: store?.lat ?? store?.latitude ?? "",
+    longitude: store?.lng ?? store?.longitude ?? "",
     logoUrl: store?.logoUrl || "",
     images: store?.images || [], // array of up to 3 images
     menuUrl: store?.menuUrl || "",
-    openingHours: store?.openingHours || "Mon-Sun: 9AM - 9PM",
+    openingHours: store?.openingHours || store?.hours || "Mon-Sun: 9AM - 9PM",
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -42,15 +42,17 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
         name: store?.name || "",
         description: store?.description || "",
         address: store?.address || "",
-        latitude: store?.latitude || "",
-        longitude: store?.longitude || "",
+        latitude: store?.lat ?? store?.latitude ?? "",
+        longitude: store?.lng ?? store?.longitude ?? "",
         logoUrl: store?.logoUrl || "",
         images: store?.images || [],
         menuUrl: store?.menuUrl || "",
-        openingHours: store?.openingHours || "Mon-Sun: 9AM - 9PM",
+        openingHours: store?.openingHours || store?.hours || "Mon-Sun: 9AM - 9PM",
       });
-      if (store.latitude && store.longitude) {
-         setMapCenter([parseFloat(store.latitude), parseFloat(store.longitude)]);
+      const storeLat = Number(store.lat ?? store.latitude);
+      const storeLng = Number(store.lng ?? store.longitude);
+      if (Number.isFinite(storeLat) && Number.isFinite(storeLng)) {
+         setMapCenter([storeLat, storeLng]);
       }
     }
   }, [store]);
@@ -61,8 +63,21 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
     setSaving(true);
     setSaved(false);
     try {
-      await updateDoc(doc(db, "stores", store.id), { ...formData });
-      setStore({ ...store, ...formData });
+      const nextStoreData = {
+        ...formData,
+        lat: Number(formData.latitude),
+        lng: Number(formData.longitude),
+        hours: formData.openingHours,
+      };
+      await updateDoc(doc(db, "stores", store.id), nextStoreData);
+      const previousImages = [store.logoUrl, store.menuUrl, ...(store.images || [])].filter(Boolean);
+      const retainedImages = new Set([formData.logoUrl, formData.menuUrl, ...formData.images].filter(Boolean));
+      await Promise.all(
+        previousImages
+          .filter((url: string) => !retainedImages.has(url))
+          .map((url: string) => deleteImageFromDriveSecure(url).catch(console.error)),
+      );
+      setStore({ ...store, ...nextStoreData });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {
@@ -81,7 +96,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
       if (field === 'images') {
         const newImages = [...formData.images];
         for (let i = 0; i < files.length && newImages.length < 3; i++) {
-           const imageUrl = await uploadImageFileToDrive(files[i], {
+           const imageUrl = await uploadImageFileToDriveSecure(files[i], {
              owner: formData.name || store?.id,
              purpose: "store-photo",
            });
@@ -89,7 +104,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
         }
         setFormData(prev => ({ ...prev, images: newImages }));
       } else {
-        const imageUrl = await uploadImageFileToDrive(files[0], {
+        const imageUrl = await uploadImageFileToDriveSecure(files[0], {
           owner: formData.name || store?.id,
           purpose: field === "logoUrl" ? "store-logo" : "store-menu",
         });

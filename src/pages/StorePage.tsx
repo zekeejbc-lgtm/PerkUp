@@ -15,34 +15,12 @@ interface StoreContent {
   website?: string;
   address?: string;
   hours?: string;
+  openingHours?: string;
+  lat?: number | string;
+  lng?: number | string;
+  latitude?: number | string;
+  longitude?: number | string;
 }
-
-// Keep demo stores in sync for testing when DB is empty
-const DEMO_STORES: Record<string, StoreContent> = {
-  "demo1": { 
-    id: "demo1", name: "The Daily Grind", 
-    description: "Artisan coffee & pastries locally sourced. We pride ourselves on the best espresso in town.", 
-    contact: "(084) 123-4567",
-    website: "https://dailygrind.example.com",
-    address: "Tagum City, Davao del Norte",
-    hours: "Mon-Sat: 7:00 AM - 9:00 PM"
-  },
-  "demo2": { 
-    id: "demo2", name: "Green Leaf Salads", 
-    description: "Fresh, locally sourced salads and healthy grain bowls. Your daily dose of greens.", 
-    contact: "(084) 987-6543",
-    website: "https://greenleaf.example.com",
-    address: "Pioneer Ave, Tagum City",
-    hours: "Everyday: 10:00 AM - 8:00 PM"
-  },
-  "demo3": { 
-    id: "demo3", name: "Midnight Diner", 
-    description: "We serve comfort food anytime you need it. 24/7 service all year round.", 
-    contact: "(084) 555-0000",
-    address: "Downtown Tagum",
-    hours: "Open 24/7"
-  }
-};
 
 export default function StorePage() {
   const { storeId } = useParams();
@@ -53,6 +31,14 @@ export default function StorePage() {
   const [comment, setComment] = useState("");
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
+  const directionsQuery = store
+    ? [
+        store.lat ?? store.latitude,
+        store.lng ?? store.longitude,
+      ].every((value) => Number.isFinite(Number(value)))
+      ? `${Number(store.lat ?? store.latitude)},${Number(store.lng ?? store.longitude)}`
+      : store.address || store.name
+    : "";
 
   useEffect(() => {
     async function fetchStore() {
@@ -63,16 +49,12 @@ export default function StorePage() {
         
         if (docSnap.exists()) {
           setStore({ id: docSnap.id, ...docSnap.data() } as StoreContent);
-        } else if (DEMO_STORES[storeId]) {
-          setStore(DEMO_STORES[storeId]);
         } else {
           setStore(null);
         }
       } catch (error) {
         console.error("Error fetching store:", error);
-        if (DEMO_STORES[storeId]) {
-          setStore(DEMO_STORES[storeId]);
-        }
+        setStore(null);
       } finally {
         setLoading(false);
       }
@@ -158,7 +140,14 @@ export default function StorePage() {
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white mb-1 transition-colors">Location</h3>
               <p className="text-gray-500 dark:text-gray-400 text-sm transition-colors">{store.address || "Tagum City, Philippines"}</p>
-              <button onClick={() => alert("Opening Maps...")} className="text-[#1b1b1b] dark:text-white text-sm font-medium mt-2 inline-block hover:underline transition-colors">Get Directions</button>
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(directionsQuery)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[#1b1b1b] dark:text-white text-sm font-medium mt-2 inline-block hover:underline transition-colors"
+              >
+                Get Directions
+              </a>
             </div>
           </div>
 

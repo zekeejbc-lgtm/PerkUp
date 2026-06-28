@@ -358,19 +358,11 @@ Deno.serve(async (req) => {
 
     if (!previewOnly) {
       if (existingCard) {
-        const { error: updateError } = await admin
-          .from("cards")
-          .update({
-            data: {
-              ...existingCard.data,
-              stars: existingStars + points,
-              updatedAt: {
-                seconds: Math.floor(Date.now() / 1000),
-                nanoseconds: 0,
-              },
-            },
-          })
-          .eq("id", existingCard.id);
+        const { error: updateError } = await admin.rpc("increment_loyalty_totals", {
+          p_customer_id: customerId,
+          p_card_id: existingCard.id,
+          p_points: points,
+        });
         if (updateError) throw updateError;
       } else {
         const { error: insertCardError } = await admin.from("cards").insert({
@@ -388,6 +380,12 @@ Deno.serve(async (req) => {
           },
         });
         if (insertCardError) throw insertCardError;
+        const { error: totalError } = await admin.rpc("increment_loyalty_totals", {
+          p_customer_id: customerId,
+          p_card_id: null,
+          p_points: points,
+        });
+        if (totalError) throw totalError;
       }
 
       const scanLog = {

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Layout, Save, Upload, Plus, Trash2, Loader2, ImagePlus, RefreshCcw, CheckCircle2, XCircle, Edit3, QrCode, Star, Coffee, ArrowRight, Store as StoreIcon, Search, MapPin, Mail, Phone } from "lucide-react";
-import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { BrandMark } from "../../components/BrandMark";
 
@@ -284,7 +284,7 @@ export default function AdminHomepage() {
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const uploadedUrl = await uploadImageFileToDrive(file, { purpose: "homepage-hero" });
+        const uploadedUrl = await uploadImageFileToDriveSecure(file, { purpose: "homepage-hero" });
         setConfig({...config, heroImageUrl: uploadedUrl});
       } catch (error) {
         console.error("Hero image upload failed", error);
@@ -298,7 +298,7 @@ export default function AdminHomepage() {
     if (file) {
       try {
         const businessName = config.trustedBusinesses[index]?.name;
-        const uploadedUrl = await uploadImageFileToDrive(file, {
+        const uploadedUrl = await uploadImageFileToDriveSecure(file, {
           owner: businessName,
           purpose: "trusted-business-logo",
         });
@@ -374,6 +374,19 @@ export default function AdminHomepage() {
     setSaving(true);
     try {
       await setDoc(doc(db, "settings", "homepage"), { ...config, updatedAt: serverTimestamp() }, { merge: true });
+      const previousImages = [
+        savedConfig.heroImageUrl,
+        ...savedConfig.trustedBusinesses.map((business) => business.logoUrl),
+      ].filter(Boolean);
+      const retainedImages = new Set([
+        config.heroImageUrl,
+        ...config.trustedBusinesses.map((business) => business.logoUrl),
+      ].filter(Boolean));
+      await Promise.all(
+        previousImages
+          .filter((url) => !retainedImages.has(url))
+          .map((url) => deleteImageFromDriveSecure(url).catch(console.error)),
+      );
       setSavedConfig(cloneConfig(config));
       setIsEditing(false);
       showToast("Homepage configuration saved successfully.", "success");

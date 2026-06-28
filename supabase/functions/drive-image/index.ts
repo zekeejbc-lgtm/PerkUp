@@ -10,6 +10,7 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set([
   "image/gif",
   "image/webp",
 ]);
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 
 const DRIVE_FILE_ID_PATTERNS = [
   /\/file\/d\/([a-zA-Z0-9_-]+)/,
@@ -106,9 +107,13 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = requiredEnv("SUPABASE_URL");
     const anonKey = requiredEnv("SUPABASE_ANON_KEY");
+    const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
     const authorization = req.headers.get("Authorization") || "";
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authorization } },
+      auth: { persistSession: false },
+    });
+    const admin = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false },
     });
 
@@ -123,6 +128,8 @@ Deno.serve(async (req) => {
       const base64 = String(body.base64 || "");
       if (!ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) return jsonResponse({ error: "Unsupported image type." }, 400);
       if (!base64.startsWith("data:image/")) return jsonResponse({ error: "Missing image data." }, 400);
+      const estimatedBytes = Math.ceil((base64.length - (base64.indexOf(",") + 1)) * 0.75);
+      if (estimatedBytes > MAX_IMAGE_BYTES) return jsonResponse({ error: "Image must be 6 MB or smaller." }, 413);
 
       const uploaded = await callDriveScript({
         action: "upload",
@@ -131,9 +138,28 @@ Deno.serve(async (req) => {
         base64,
       });
       const uploadedUrl = uploaded.url || uploaded.webViewLink || "";
+      const fileId = uploaded.fileId || extractDriveFileId(uploadedUrl);
+      if (!fileId) return jsonResponse({ error: "Drive did not return a valid file ID." }, 502);
+      const normalizedUrl = normalizeDriveImageUrl(uploadedUrl);
+      const { error: registryError } = await admin.from("drive_files").upsert({
+        file_id: fileId,
+        owner_id: authData.user.id,
+        purpose: cleanText(body.purpose || "image", 80),
+        url: normalizedUrl,
+      });
+      if (registryError) {
+        console.error("Could not register uploaded Drive file", registryError);
+        const secret = Deno.env.get("DRIVE_CRUD_SECRET");
+        if (secret) {
+          await callDriveScript({ action: "delete", secret, fileId }).catch((cleanupError) => {
+            console.error("Could not roll back unregistered Drive file", cleanupError);
+          });
+        }
+        return jsonResponse({ error: "Uploaded image could not be registered." }, 500);
+      }
       return jsonResponse({
-        fileId: uploaded.fileId || extractDriveFileId(uploadedUrl),
-        url: normalizeDriveImageUrl(uploadedUrl),
+        fileId,
+        url: normalizedUrl,
       });
     }
 
@@ -142,11 +168,29 @@ Deno.serve(async (req) => {
       const fileId = extractDriveFileId(body.fileId || body.url);
       if (!fileId) return jsonResponse({ error: "Missing Drive file ID." }, 400);
 
+      const { data: actorRow, error: actorError } = await admin
+        .from("users")
+        .select("data")
+        .eq("id", authData.user.id)
+        .maybeSingle();
+      if (actorError) throw actorError;
+      const isAdmin = ["admin", "assistant_admin"].includes(String(actorRow?.data?.role || ""));
+      const { data: fileRow, error: fileError } = await admin
+        .from("drive_files")
+        .select("owner_id")
+        .eq("file_id", fileId)
+        .maybeSingle();
+      if (fileError) throw fileError;
+      if (!isAdmin && fileRow?.owner_id !== authData.user.id) {
+        return jsonResponse({ error: "You are not allowed to delete this image." }, 403);
+      }
+
       await callDriveScript({
         action: "delete",
         secret,
         fileId,
       });
+      await admin.from("drive_files").delete().eq("file_id", fileId);
       return jsonResponse({ deleted: true, fileId });
     }
 

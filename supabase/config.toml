@@ -12,3 +12,12 @@ verify_jwt = false
 
 [functions.store-referrals]
 verify_jwt = false
+
+[functions.check-signup-availability]
+verify_jwt = false
+
+[functions.admin-backend]
+verify_jwt = false
+
+[functions.partner-application]
+verify_jwt = false

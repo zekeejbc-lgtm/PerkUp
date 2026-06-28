@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { collection, query, where, getDocs, doc, addDoc, updateDoc, deleteDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Plus, Edit2, Trash2, X, Image as ImageIcon, Upload } from "lucide-react";
-import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 export default function StoreOwnerProducts({ store }: { store: any }) {
@@ -56,7 +56,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const imageUrl = await uploadImageFileToDrive(file, {
+      const imageUrl = await uploadImageFileToDriveSecure(file, {
         owner: store?.name || store?.id,
         purpose: "product-image",
       });
@@ -83,6 +83,9 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
 
       if (editingProduct) {
         await updateDoc(doc(db, "products", editingProduct.id), productData);
+        if (editingProduct.imageUrl && editingProduct.imageUrl !== productData.imageUrl) {
+          await deleteImageFromDriveSecure(editingProduct.imageUrl).catch(console.error);
+        }
         setProducts(products.map(p => p.id === editingProduct.id ? { ...p, ...productData } : p));
       } else {
         const docRef = await addDoc(collection(db, "products"), { ...productData, createdAt: serverTimestamp() });
@@ -99,7 +102,9 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this product?")) return;
     try {
+      const product = products.find((item) => item.id === id);
       await deleteDoc(doc(db, "products", id));
+      if (product?.imageUrl) await deleteImageFromDriveSecure(product.imageUrl).catch(console.error);
       setProducts(products.filter(p => p.id !== id));
     } catch (error) {
       alert("Failed to delete product");

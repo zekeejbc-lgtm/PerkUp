@@ -24,9 +24,6 @@ export default function StaffDashboard() {
   useEffect(() => {
     async function loadAssignment() {
       let activeStoreId = user?.storeId;
-      if (!activeStoreId && user?.role === 'staff' && user?.email?.includes('demo_staff')) {
-        activeStoreId = 'demo1';
-      }
 
       if (!activeStoreId) {
         setLoading(false);
@@ -37,28 +34,10 @@ export default function StaffDashboard() {
         const storeSnap = await getDoc(storeRef);
         if (storeSnap.exists()) {
           setStore({ id: storeSnap.id, ...storeSnap.data() });
-        } else if (activeStoreId.startsWith('demo')) {
-          setStore({
-            id: activeStoreId,
-            name: "Demo Store",
-            address: "Tagum City, Davao del Norte",
-            contactPhone: "(084) 123-4567",
-            lat: 7.4474,
-            lng: 125.8093,
-          });
         }
       } catch (err) {
         console.error("Failed to load store assignment", err);
-        if (activeStoreId.startsWith('demo')) {
-          setStore({
-            id: activeStoreId,
-            name: "Demo Store",
-            address: "Tagum City, Davao del Norte",
-            contactPhone: "(084) 123-4567",
-            lat: 7.4474,
-            lng: 125.8093,
-          });
-        }
+        setStore(null);
       } finally {
         setLoading(false);
       }

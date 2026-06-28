@@ -25,13 +25,6 @@ interface MapStore {
   logoUrl?: string;
 }
 
-// Temporary demo stores in case DB is empty or lacks location data
-const DEMO_STORES: MapStore[] = [
-  { id: "demo1", name: "The Daily Grind", lat: 7.4474, lng: 125.8093, description: "Artisan coffee & pastries", contact: "(084) 123-4567" },
-  { id: "demo2", name: "Green Leaf Salads", lat: 7.4450, lng: 125.8110, description: "Fresh, locally sourced salads", contact: "(084) 987-6543" },
-  { id: "demo3", name: "Midnight Diner", lat: 7.4500, lng: 125.8050, description: "Comfort food 24/7", contact: "(084) 555-0000" }
-];
-
 const LOGOS = [
   { icon: Coffee, name: "The Daily Grind" },
   { icon: Pizza, name: "Slice & Co" },
@@ -115,23 +108,18 @@ export default function LandingPage() {
         let loadedStores = snap.docs.map(doc => ({
           id: doc.id,
           name: doc.data().name,
-          lat: doc.data().lat,
-          lng: doc.data().lng,
+          lat: Number(doc.data().lat ?? doc.data().latitude),
+          lng: Number(doc.data().lng ?? doc.data().longitude),
           description: doc.data().description,
           contact: doc.data().contact,
           logoUrl: doc.data().logoUrl
         }));
 
-        // Filter out those without location, if none have location, use demo stores
-        const validStores = loadedStores.filter(s => s.lat !== undefined && s.lng !== undefined);
-        if (validStores.length > 0) {
-          setStores(validStores);
-        } else {
-          setStores(DEMO_STORES);
-        }
+        const validStores = loadedStores.filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+        setStores(validStores);
       } catch (error) {
         console.error("Failed to fetch stores", error);
-        setStores(DEMO_STORES);
+        setStores([]);
       } finally {
         setMapLoaded(true);
       }
@@ -243,13 +231,13 @@ export default function LandingPage() {
 
             <div className="relative">
               {/* Abstract visual representation */}
-              <div className="aspect-[4/3] rounded-[2rem] bg-[#f6f6f6] dark:bg-[#202020] border border-[#1b1b1b]/10 dark:border-white/10 p-8 relative overflow-hidden shadow-sm transition-colors">
-                <div className="absolute inset-x-8 top-8 h-px bg-[#1b1b1b]/10 dark:bg-white/10"></div>
-                <div className="absolute inset-y-8 left-8 w-px bg-[#1b1b1b]/10 dark:bg-white/10"></div>
+              <div className="aspect-[4/3] rounded-[2rem] bg-[#f6f6f6] dark:bg-[#202020] border border-[#1b1b1b]/10 dark:border-white/10 p-4 sm:p-8 relative overflow-hidden shadow-sm transition-colors">
+                <div className="absolute inset-x-4 top-4 h-px bg-[#1b1b1b]/10 dark:bg-white/10 sm:inset-x-8 sm:top-8"></div>
+                <div className="absolute inset-y-4 left-4 w-px bg-[#1b1b1b]/10 dark:bg-white/10 sm:inset-y-8 sm:left-8"></div>
 
-                <div className="relative h-full flex flex-col items-center justify-center space-y-6">
-                  <div className="bg-white dark:bg-[#1b1b1b] p-6 rounded-3xl shadow-sm border border-[#1b1b1b]/10 dark:border-white/10 w-64 transform -rotate-6 transition-all hover:rotate-0 duration-500">
-                    <div className="flex justify-between items-start mb-6">
+                <div className="relative h-full flex flex-col items-center justify-center space-y-4 sm:space-y-6">
+                  <div className="bg-white dark:bg-[#1b1b1b] p-4 sm:p-6 rounded-3xl shadow-sm border border-[#1b1b1b]/10 dark:border-white/10 w-full max-w-64 transform -rotate-3 sm:-rotate-6 transition-all hover:rotate-0 duration-500">
+                    <div className="flex justify-between items-start mb-4 sm:mb-6">
                       <div className="w-12 h-12 bg-[#1b1b1b] dark:bg-white rounded-2xl flex items-center justify-center">
                         <QrCode className="w-6 h-6 text-white dark:text-[#1b1b1b]" />
                       </div>
@@ -265,19 +253,19 @@ export default function LandingPage() {
                     </div>
                   </div>
 
-                  <div className="bg-white dark:bg-[#1b1b1b] p-6 rounded-3xl shadow-sm border border-[#1b1b1b]/10 dark:border-white/10 w-64 transform translate-x-12 rotate-3 transition-all hover:rotate-0 duration-500">
+                  <div className="bg-white dark:bg-[#1b1b1b] p-4 sm:p-6 rounded-3xl shadow-sm border border-[#1b1b1b]/10 dark:border-white/10 w-full max-w-64 transform sm:translate-x-8 rotate-2 sm:rotate-3 transition-all hover:rotate-0 duration-500">
                     <div className="flex justify-between items-center mb-4">
                       <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Coffee Card</span>
                       <span className="text-xs font-medium text-white dark:text-[#1b1b1b] bg-[#1b1b1b] dark:bg-white px-2 py-1 rounded-full">8/10</span>
                     </div>
-                    <div className="flex gap-2 mb-2">
+                    <div className="grid grid-cols-10 gap-1.5 mb-2">
                       {[...Array(8)].map((_, i) => (
-                        <div key={i} className="w-6 h-6 bg-[#1b1b1b] dark:bg-white rounded-full flex items-center justify-center">
+                        <div key={i} className="w-full aspect-square bg-[#1b1b1b] dark:bg-white rounded-full flex items-center justify-center">
                           <Coffee className="w-3 h-3 text-white dark:text-[#1b1b1b]" />
                         </div>
                       ))}
                       {[...Array(2)].map((_, i) => (
-                        <div key={`empty-${i}`} className="w-6 h-6 bg-gray-50 dark:bg-gray-900 rounded-full border border-gray-100 dark:border-gray-800"></div>
+                        <div key={`empty-${i}`} className="w-full aspect-square bg-gray-50 dark:bg-gray-900 rounded-full border border-gray-100 dark:border-gray-800"></div>
                       ))}
                     </div>
                   </div>

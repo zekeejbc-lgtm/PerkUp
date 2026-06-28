@@ -17,15 +17,18 @@ export default function CustomerStores() {
   useEffect(() => {
     async function fetchStores() {
       try {
-        const q = query(collection(db, "users"), where("role", "==", "store_owner"));
+        const q = query(collection(db, "stores"), where("status", "==", "active"));
         const querySnapshot = await getDocs(q);
         const fetchedStores = querySnapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
+          name: doc.data().name || doc.data().storeName || "Store",
+          lat: Number(doc.data().lat ?? doc.data().latitude),
+          lng: Number(doc.data().lng ?? doc.data().longitude),
         }));
         setStores(fetchedStores);
       } catch (error) {
-        handleDataError(error, OperationType.GET, "users");
+        handleDataError(error, OperationType.GET, "stores");
       } finally {
         setLoading(false);
       }
@@ -36,7 +39,7 @@ export default function CustomerStores() {
 
   const filteredStores = stores.filter((store) => {
     const term = searchQuery.toLowerCase();
-    const name = store.storeName?.toLowerCase() || "";
+    const name = store.name?.toLowerCase() || "";
     const category = store.category?.toLowerCase() || "";
     return name.includes(term) || category.includes(term);
   });
@@ -106,7 +109,7 @@ export default function CustomerStores() {
                       <Marker key={store.id} position={[store.lat, store.lng]} icon={customIcon}>
                         <Popup className="rounded-xl">
                           <div className="p-1">
-                            <h3 className="font-semibold text-gray-900">{store.storeName}</h3>
+                            <h3 className="font-semibold text-gray-900">{store.name}</h3>
                             <p className="text-xs text-gray-500">{store.category || "Retail"}</p>
                             <Link to={`/store/${store.id}`} className="text-[#1b1b1b] text-xs font-medium mt-2 inline-block hover:underline">
                               View Details
@@ -142,7 +145,7 @@ export default function CustomerStores() {
                   <MapPin className="w-5 h-5 text-[#1b1b1b] dark:text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-gray-900 dark:text-white truncate">{store.storeName}</h3>
+                  <h3 className="font-semibold text-gray-900 dark:text-white truncate">{store.name}</h3>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="inline-flex items-center gap-1 rounded bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-300">
                       {store.category || "Retail"}

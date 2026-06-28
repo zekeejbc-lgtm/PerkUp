@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, where, getDocs, doc, setDoc, deleteDoc, serverTimestamp, updateDoc } from "@/src/lib/dataCompat";
-import { createUserWithEmailAndPassword, signOut } from "@/src/lib/supabaseAuthCompat";
-import { db, logOut, secondaryAuth } from "../../lib/backend";
+import { collection, query, where, getDocs, doc, updateDoc } from "@/src/lib/dataCompat";
+import { db, logOut } from "../../lib/backend";
+import { invokeAdminBackend } from "../../lib/adminBackend";
 import { useAuth } from "../../contexts/AuthContext";
 import { User, Mail, Plus, Trash2, Shield, Save, X, AtSign, Phone, Calendar, FileText, ImagePlus, LogOut, CheckCircle2 } from "lucide-react";
 import AccountSecurity from "@/src/components/AccountSecurity";
-import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
 
 export default function AdminAccount() {
@@ -69,6 +69,10 @@ export default function AdminAccount() {
           avatarUrl: myAvatarUrl,
           photoURL: myAvatarUrl,
         });
+        const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
+        if (previousAvatarUrl && previousAvatarUrl !== myAvatarUrl) {
+          await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
+        }
         await refreshUser();
       }
       setIsEditingMyAccount(false);
@@ -97,7 +101,7 @@ export default function AdminAccount() {
     if (!file || !user?.id) return;
 
     try {
-      const avatarUrl = await uploadImageFileToDrive(file, {
+      const avatarUrl = await uploadImageFileToDriveSecure(file, {
         owner: myUsername || myEmail || user.id,
         purpose: "admin-avatar",
       });
@@ -128,21 +132,15 @@ export default function AdminAccount() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const creds = await createUserWithEmailAndPassword(secondaryAuth, newAdminEmail, newAdminPassword);
-      const newAdminId = creds.user.uid;
-      
-      const newAdminData = {
+      const result = await invokeAdminBackend<{ user: any }>({
+        action: "create_account",
         email: newAdminEmail,
+        password: newAdminPassword,
         name: newAdminName,
         role: "assistant_admin",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      };
+      });
 
-      await setDoc(doc(db, "users", newAdminId), newAdminData);
-      await signOut(secondaryAuth);
-
-      setAdmins([...admins, { id: newAdminId, ...newAdminData }]);
+      setAdmins([...admins, result.user]);
       setShowAddModal(false);
       setNewAdminName("");
       setNewAdminEmail("");
@@ -162,7 +160,7 @@ export default function AdminAccount() {
     }
     if (!window.confirm("Delete this assistant admin?")) return;
     try {
-      await deleteDoc(doc(db, "users", adminId));
+      await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_user", userId: adminId });
       setAdmins(admins.filter(a => a.id !== adminId));
     } catch (error) {
       console.error(error);

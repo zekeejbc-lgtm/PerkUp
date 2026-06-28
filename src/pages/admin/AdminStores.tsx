@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { collection, getDocs, doc, setDoc, updateDoc, serverTimestamp, getDoc } from "@/src/lib/dataCompat";
-import { createUserWithEmailAndPassword, signOut } from "@/src/lib/supabaseAuthCompat";
-import { db, secondaryAuth, handleDataError, OperationType } from "../../lib/backend";
+import { collection, getDocs, doc, updateDoc, serverTimestamp, getDoc } from "@/src/lib/dataCompat";
+import { db, handleDataError, OperationType } from "../../lib/backend";
+import { invokeAdminBackend } from "../../lib/adminBackend";
 import { ShieldAlert, CheckCircle, Ban, Store, Plus, X, Upload, Image as ImageIcon } from "lucide-react";
 import AdminStoreDetail from "./AdminStoreDetail";
 import { CustomDropdown } from "../../components/CustomDropdown";
-import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
   dateInputToDate,
@@ -31,7 +31,7 @@ export default function AdminStores() {
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const uploadedUrl = await uploadImageFileToDrive(file, {
+        const uploadedUrl = await uploadImageFileToDriveSecure(file, {
           owner: storeName || ownerEmail,
           purpose: "admin-store-logo",
         });
@@ -90,38 +90,25 @@ export default function AdminStores() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const creds = await createUserWithEmailAndPassword(secondaryAuth, ownerEmail, ownerPassword);
-      const newOwnerId = creds.user.uid;
-
-      await setDoc(doc(db, "users", newOwnerId), {
+      const result = await invokeAdminBackend<{ store: any }>({
+        action: "create_store",
         email: ownerEmail,
+        password: ownerPassword,
         name: ownerName,
-        role: "store_owner", // assign store_owner role
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        store: {
+          name: storeName,
+          location: storeLocation,
+          logoUrl: storeLogo,
+          status: "active",
+          subscriptionLevel: subLevel,
+          owedAmount: selectedOwedAmount,
+          subscriptionStart: dateInputToDate(subStart),
+          subscriptionEnd: dateInputToDate(subEnd),
+          paymentDate: dateInputToDate(paymentDate),
+        },
       });
 
-      await signOut(secondaryAuth);
-
-      const newStoreRef = doc(collection(db, "stores"));
-      const newStore = {
-        name: storeName,
-        location: storeLocation,
-        logoUrl: storeLogo,
-        ownerId: newOwnerId,
-        status: "active",
-        subscriptionLevel: subLevel,
-        owedAmount: selectedOwedAmount,
-        subscriptionStart: dateInputToDate(subStart),
-        subscriptionEnd: dateInputToDate(subEnd),
-        paymentDate: dateInputToDate(paymentDate),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
-
-      await setDoc(newStoreRef, newStore);
-
-      setStores([...stores, { id: newStoreRef.id, ...newStore }]);
+      setStores([...stores, result.store]);
       setShowAddModal(false);
       setStoreName("");
       setStoreLocation("");

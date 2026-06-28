@@ -3,7 +3,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { doc, updateDoc } from "@/src/lib/dataCompat";
 import { db, logOut } from "../../lib/backend";
 import { UserCircle, Mail, Phone, MapPin, AtSign, Save, CheckCircle2, X, Calendar, FileText, LogOut } from "lucide-react";
-import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import AccountSecurity from "@/src/components/AccountSecurity";
 
 export default function StoreOwnerAccount() {
@@ -42,7 +42,7 @@ export default function StoreOwnerAccount() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const avatarUrl = await uploadImageFileToDrive(file, {
+      const avatarUrl = await uploadImageFileToDriveSecure(file, {
         owner: formData.username || user?.email || user?.id,
         purpose: "store-owner-avatar",
       });
@@ -70,6 +70,10 @@ export default function StoreOwnerAccount() {
         bio: formData.bio,
         birthday: formData.birthday,
       });
+      const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
+      if (previousAvatarUrl && previousAvatarUrl !== formData.avatarUrl) {
+        await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
+      }
       await refreshUser();
       setSaved(true);
       setIsEditing(false);

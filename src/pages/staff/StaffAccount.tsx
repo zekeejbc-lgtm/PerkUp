@@ -4,7 +4,7 @@ import { doc, updateDoc } from "@/src/lib/dataCompat";
 import { db, logOut } from "../../lib/backend";
 import { AtSign, Calendar, CheckCircle2, FileText, ImagePlus, LogOut, Mail, Phone, Save, Shield, User, X } from "lucide-react";
 import React, { useEffect, useState } from "react";
-import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 
 export default function StaffAccount() {
   const { user, refreshUser } = useAuth();
@@ -56,6 +56,10 @@ export default function StaffAccount() {
         avatarUrl: formData.avatarUrl,
         photoURL: formData.avatarUrl,
       });
+      const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
+      if (previousAvatarUrl && previousAvatarUrl !== formData.avatarUrl) {
+        await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
+      }
       await refreshUser();
       setIsEditing(false);
       setSaved(true);
@@ -73,7 +77,7 @@ export default function StaffAccount() {
     if (!file || !user?.id) return;
 
     try {
-      const avatarUrl = await uploadImageFileToDrive(file, {
+      const avatarUrl = await uploadImageFileToDriveSecure(file, {
         owner: formData.username || user.email || user.id,
         purpose: "staff-avatar",
       });

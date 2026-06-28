@@ -4,7 +4,7 @@ import { db } from "../../lib/backend";
 import { Gift, Calendar, Plus, Edit2, Trash2, ArrowLeft, MapPin, ImagePlus, Users, Copy, Ticket } from "lucide-react";
 import { Circle, MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
-import { getDisplayImageUrl, uploadImageFileToDrive } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { getStoreReferralCode } from "../../lib/secureQr";
 
 type PromotionFormData = {
@@ -164,7 +164,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     if (!file) return;
     setUploadingBanner(true);
     try {
-      const imageUrl = await uploadImageFileToDrive(file, {
+      const imageUrl = await uploadImageFileToDriveSecure(file, {
         owner: store?.id,
         purpose: "promotion-banner",
       });
@@ -194,6 +194,9 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
 
       if (editingPromo) {
         await updateDoc(doc(db, "promotions", editingPromo.id), data);
+        if (editingPromo.bannerImageUrl && editingPromo.bannerImageUrl !== data.bannerImageUrl) {
+          await deleteImageFromDriveSecure(editingPromo.bannerImageUrl).catch(console.error);
+        }
         setPromotions(promotions.map((p) => (p.id === editingPromo.id ? { ...p, ...data } : p)));
       } else {
         const newRef = await addDoc(collection(db, "promotions"), { ...data, createdAt: serverTimestamp() });
@@ -211,7 +214,9 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this promotion?")) return;
     try {
+      const promotion = promotions.find((item) => item.id === id);
       await deleteDoc(doc(db, "promotions", id));
+      if (promotion?.bannerImageUrl) await deleteImageFromDriveSecure(promotion.bannerImageUrl).catch(console.error);
       setPromotions(promotions.filter((p) => p.id !== id));
     } catch (error) {
       alert("Failed to delete promotion");

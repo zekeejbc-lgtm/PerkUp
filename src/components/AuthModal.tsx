@@ -11,6 +11,7 @@ import { requestEmailOtp, verifyEmailOtp } from '@/src/lib/emailOtp';
 import { redeemStoreReferralCode, updateCustomerProfile, validateStoreReferralCode } from '@/src/lib/secureQr';
 import { useToast } from './ToastProvider';
 import { supabase } from '@/src/lib/supabase';
+import { checkSignupAvailability } from '@/src/lib/signupAvailability';
 import { doc, getDoc } from '@/src/lib/dataCompat';
 import {
   findTrustedLoginDevice,
@@ -62,11 +63,13 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
   const toast = useToast();
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(initialMode);
   const [hasAgreedToPrivacy, setHasAgreedToPrivacy] = useState(initialMode !== 'signup');
+  const [signupStep, setSignupStep] = useState(1);
 
   useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
       setHasAgreedToPrivacy(initialMode !== 'signup');
+      setSignupStep(1);
       setUsername('');
       setPassword('');
       setSignupProfile(emptySignupProfile);
@@ -127,6 +130,10 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
   };
 
   const requestSignupOtp = async (targetEmail: string) => {
+    const availability = await checkSignupAvailability({ email: targetEmail });
+    if (!availability.emailAvailable) {
+      throw new Error('An account is already associated with this email. Please sign in instead.');
+    }
     const otp = await requestEmailOtp(targetEmail, targetEmail, 'signup');
     setOtpToken(otp.otpToken);
     setOtpEmail(targetEmail);
@@ -243,6 +250,15 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
           showInlineError('Enter a valid email address.');
           return;
         }
+        if (signupStep === 1) {
+          const availability = await checkSignupAvailability({ email: targetEmail });
+          if (!availability.emailAvailable) {
+            showInlineError('An account is already associated with this email. Please sign in instead.');
+            return;
+          }
+          setSignupStep(2);
+          return;
+        }
         if (!signupProfile.name.trim()) {
           showInlineError('Enter your full name.');
           return;
@@ -260,13 +276,31 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
           showInlineError('Enter your birthday.');
           return;
         }
+        if (signupStep === 2) {
+          const availability = await checkSignupAvailability({ username: normalizedAccountUsername });
+          if (!availability.usernameAvailable) {
+            showInlineError('This username is already taken. Choose another one.');
+            return;
+          }
+          setSignupStep(3);
+          return;
+        }
+        if (password.length < 8) {
+          showInlineError('Use a password with at least 8 characters.');
+          return;
+        }
+        if (signupStep === 3) {
+          setSignupStep(4);
+          return;
+        }
         const referralCode = signupProfile.referralCode.trim().toUpperCase();
         if (referralCode) {
           await validateStoreReferralCode(referralCode);
         }
 
-        if (!otpToken || otpEmail !== targetEmail) {
+        if (signupStep === 4 || !otpToken || otpEmail !== targetEmail) {
           await requestSignupOtp(targetEmail);
+          setSignupStep(5);
           return;
         }
 
@@ -280,6 +314,18 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
           return;
         }
 
+        const finalAvailability = await checkSignupAvailability({
+          email: targetEmail,
+          username: normalizedAccountUsername,
+        });
+        if (!finalAvailability.emailAvailable) {
+          showInlineError('An account is already associated with this email. Please sign in instead.');
+          return;
+        }
+        if (!finalAvailability.usernameAvailable) {
+          showInlineError('This username was just taken. Go back and choose another one.');
+          return;
+        }
         await verifyEmailOtp(otpToken, otpCode, targetEmail, 'signup');
         await createUserWithEmailAndPassword(auth, targetEmail, password, {
           name: signupProfile.name,
@@ -361,62 +407,10 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     }
   };
 
-  const handleDemoLogin = async (role: 'customer' | 'store_owner' | 'staff' | 'admin') => {
-    setLoading(true);
-    setError('');
-    const demoEmail = `demo_${role}@perkup.local`;
-    const demoPassword = 'password123';
-
-    try {
-      const creds = await signInWithEmailAndPassword(auth, demoEmail, demoPassword);
-      if (role === 'staff') {
-        const { doc, setDoc } = await import('@/src/lib/dataCompat');
-        const { db } = await import('../lib/backend');
-        await setDoc(doc(db, 'users', creds.user.uid), { storeId: 'demo1' }, { merge: true });
-      }
-      toast.success(`Signed in as demo ${role.replace('_', ' ')}.`);
-      onClose();
-    } catch (err: any) {
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
-        try {
-          const creds = await createUserWithEmailAndPassword(auth, demoEmail, demoPassword);
-          if (role !== 'customer') {
-            const { doc, setDoc } = await import('@/src/lib/dataCompat');
-            const { db } = await import('../lib/backend');
-            const userData: any = {
-              email: creds.user.email,
-              name: `Demo ${role}`,
-              role: role,
-              updatedAt: new Date(),
-            };
-            if (role === 'staff') {
-              userData.storeId = 'demo1';
-            }
-            await setDoc(doc(db, 'users', creds.user.uid), userData, { merge: true });
-            
-            // Reload to ensure the correct role is fetched by AuthContext if we overwrote it.
-            setTimeout(() => {
-              window.location.reload();
-            }, 500);
-          }
-          toast.success(`Created and signed in as demo ${role.replace('_', ' ')}.`);
-          onClose();
-        } catch (createErr: any) {
-          showInlineError('Failed to create demo account: ' + createErr.message);
-        }
-      } else if (err.code === 'auth/operation-not-allowed') {
-        showInlineError('Email/password sign-in is disabled. Please enable it in Supabase Auth.');
-      } else {
-        showInlineError('Demo login failed: ' + err.message);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const switchMode = (newMode: 'signin' | 'signup' | 'forgot') => {
     setMode(newMode);
     setHasAgreedToPrivacy(newMode !== 'signup');
+    setSignupStep(1);
     setError('');
     setMessage('');
     setPassword('');
@@ -432,6 +426,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
 
   const handlePrivacyAgreement = () => {
     setHasAgreedToPrivacy(true);
+    setSignupStep(1);
     setError('');
     setMessage('');
   };
@@ -447,47 +442,59 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div 
-        className="bg-white dark:bg-gray-900 w-full max-w-[400px] max-h-[90vh] overflow-y-auto rounded-[2rem] shadow-xl relative border border-gray-100 dark:border-gray-800 transition-colors mx-4"
+        className="relative mx-4 h-[min(760px,90vh)] max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-[2rem] border border-gray-100 bg-white shadow-xl transition-all dark:border-gray-800 dark:bg-gray-900"
         onClick={e => e.stopPropagation()}
       >
-        <button 
-          onClick={handleClose}
-          className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-full transition-colors z-10"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        {!(mode === 'signup' && !hasAgreedToPrivacy) && (
+          <button
+            onClick={handleClose}
+            className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-full transition-colors z-10"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
 
-        <div className="p-8">
+        <div className={mode === 'signup' && !hasAgreedToPrivacy ? 'h-full' : 'h-full overflow-y-auto p-8 sm:p-10'}>
           {mode === 'signup' && !hasAgreedToPrivacy ? (
-            <div className="space-y-6">
-              <div className="text-center">
+            <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]">
+              <header className="relative border-b border-gray-100 px-6 py-5 pr-16 text-center dark:border-gray-800 sm:px-10 sm:py-6">
                 <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white transition-colors mb-2">
                   Data Privacy Notice
                 </h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Please review this before creating a customer account.
                 </p>
-              </div>
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  aria-label="Close data privacy notice"
+                  className="absolute right-4 top-4 rounded-full bg-gray-50 p-2 text-gray-400 transition-colors hover:text-gray-600 dark:bg-gray-800 dark:hover:text-gray-300 sm:right-6 sm:top-6"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </header>
 
-              {(error || message) && (
-                <div className={`p-3 rounded-xl text-sm ${error ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400'}`}>
-                  {error || message}
+              <div className="min-h-0 overflow-y-auto px-6 py-5 sm:px-10 sm:py-6">
+                {(error || message) && (
+                  <div className={`mb-4 p-3 rounded-xl text-sm ${error ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400'}`}>
+                    {error || message}
+                  </div>
+                )}
+
+                <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/70 p-5 sm:p-6 text-left text-sm sm:text-base leading-7 text-gray-600 dark:text-gray-300">
+                  <p>
+                    In accordance with the Data Privacy Act of 2012, PerkUp collects and processes the information you provide during signup, such as your email address, password credentials, profile details, loyalty activity, reward redemptions, and related account records.
+                  </p>
+                  <p className="mt-3">
+                    Your data is used to create and secure your customer account, identify you when earning or redeeming rewards, maintain loyalty cards and transaction history, provide customer support, prevent misuse, and improve PerkUp services. Authorized partner store staff may only access customer information needed to operate loyalty and promotion workflows.
+                  </p>
+                  <p className="mt-3">
+                    By selecting Agree, you confirm that you understand this notice and consent to the collection and use of your data for these purposes.
+                  </p>
                 </div>
-              )}
-
-              <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/70 p-4 text-left text-sm leading-6 text-gray-600 dark:text-gray-300">
-                <p>
-                  In accordance with the Data Privacy Act of 2012, PerkUp collects and processes the information you provide during signup, such as your email address, password credentials, profile details, loyalty activity, reward redemptions, and related account records.
-                </p>
-                <p className="mt-3">
-                  Your data is used to create and secure your customer account, identify you when earning or redeeming rewards, maintain loyalty cards and transaction history, provide customer support, prevent misuse, and improve PerkUp services. Authorized partner store staff may only access customer information needed to operate loyalty and promotion workflows.
-                </p>
-                <p className="mt-3">
-                  By selecting Agree, you confirm that you understand this notice and consent to the collection and use of your data for these purposes.
-                </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <footer className="grid grid-cols-2 gap-3 border-t border-gray-100 px-6 py-4 dark:border-gray-800 sm:px-10 sm:py-5">
                 <button
                   type="button"
                   onClick={handlePrivacyDisagreement}
@@ -502,7 +509,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                 >
                   Agree
                 </button>
-              </div>
+              </footer>
             </div>
           ) : (
             <>
@@ -597,7 +604,28 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
             </form>
           ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1 text-left">
+            {mode === 'signup' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs font-semibold">
+                  <span className="text-gray-900 dark:text-white">Step {signupStep} of 5</span>
+                  <span className="text-gray-500 dark:text-gray-400">
+                    {['Account', 'Profile', 'Password', 'Referral', 'Verify'][signupStep - 1]}
+                  </span>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[1, 2, 3, 4, 5].map((step) => (
+                    <div
+                      key={step}
+                      className={`h-1.5 rounded-full transition-colors ${
+                        step <= signupStep ? 'bg-gray-900 dark:bg-white' : 'bg-gray-200 dark:bg-gray-700'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(mode !== 'signup' || signupStep === 1) && <div className="space-y-1 text-left">
               <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">
                 Email Address
               </label>
@@ -623,9 +651,9 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                   placeholder="name@example.com"
                 />
               </div>
-            </div>
+            </div>}
 
-            {mode === 'signup' && (
+            {mode === 'signup' && signupStep === 2 && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1 text-left sm:col-span-2">
                   <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Full Name</label>
@@ -697,28 +725,10 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                   </div>
                 </div>
 
-                <div className="space-y-1 text-left sm:col-span-2">
-                  <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Referral Code (Optional)</label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                      <Ticket className="h-5 w-5" />
-                    </div>
-                    <input
-                      type="text"
-                      value={signupProfile.referralCode}
-                      onChange={(e) => setSignupProfile({ ...signupProfile, referralCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) })}
-                      className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors uppercase"
-                      placeholder="STORE123"
-                    />
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    New customers can redeem one store referral code during signup for 1 stamp.
-                  </p>
-                </div>
               </div>
             )}
 
-            {mode !== 'forgot' && (
+            {(mode === 'signin' || (mode === 'signup' && signupStep === 3)) && (
               <div className="space-y-1 text-left">
                 <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Password</label>
                 <div className="relative">
@@ -772,7 +782,28 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
               </div>
             )}
 
-            {mode === 'signup' && otpToken && (
+            {mode === 'signup' && signupStep === 4 && (
+              <div className="space-y-1 text-left">
+                <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Referral Code (Optional)</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                    <Ticket className="h-5 w-5" />
+                  </div>
+                  <input
+                    type="text"
+                    value={signupProfile.referralCode}
+                    onChange={(e) => setSignupProfile({ ...signupProfile, referralCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) })}
+                    className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors uppercase"
+                    placeholder="STORE123"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Enter a store referral code for 1 stamp, or leave this blank to continue.
+                </p>
+              </div>
+            )}
+
+            {mode === 'signup' && signupStep === 5 && otpToken && (
               <div className="space-y-1 text-left">
                 <div className="flex items-center justify-between gap-3">
                   <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Email OTP</label>
@@ -828,17 +859,43 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium py-3 px-4 rounded-xl hover:bg-gray-800 dark:hover:bg-gray-100 transition-all active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
-            >
-              {loading ? 'Please wait...' : mode === 'signin' ? 'Sign in' : mode === 'signup' ? (otpToken ? 'Verify OTP & create account' : 'Send OTP') : 'Send reset link'}
-            </button>
+            <div className="flex gap-3">
+              {mode === 'signup' && signupStep > 1 && (
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    setSignupStep((step) => Math.max(1, step - 1));
+                    setError('');
+                    setMessage('');
+                  }}
+                  className="w-1/3 rounded-xl border border-gray-200 bg-white px-4 py-3 font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                >
+                  Back
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium py-3 px-4 rounded-xl hover:bg-gray-800 dark:hover:bg-gray-100 transition-all active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {loading
+                  ? 'Please wait...'
+                  : mode === 'signin'
+                    ? 'Sign in'
+                    : mode === 'signup'
+                      ? signupStep === 4
+                        ? 'Send verification code'
+                        : signupStep === 5
+                          ? 'Verify & create account'
+                          : 'Continue'
+                      : 'Send reset link'}
+              </button>
+            </div>
           </form>
           )}
 
-          {mode !== 'forgot' && !pendingMfa && (
+          {mode !== 'forgot' && !pendingMfa && (mode !== 'signup' || signupStep === 1) && (
             <>
               <div className="mt-6 flex items-center text-xs text-gray-400 dark:text-gray-500 uppercase tracking-widest before:flex-1 before:border-t before:border-gray-200 dark:before:border-gray-800 before:mr-4 after:flex-1 after:border-t after:border-gray-200 dark:after:border-gray-800 after:ml-4">
                 Or
@@ -883,39 +940,6 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
             )}
           </div>}
 
-          {!pendingMfa && <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-800">
-            <p className="text-xs text-center text-gray-500 dark:text-gray-400 mb-3 uppercase tracking-widest font-semibold">Demo Accounts</p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleDemoLogin('customer')}
-                className="text-xs py-2 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
-              >
-                Customer
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDemoLogin('store_owner')}
-                className="text-xs py-2 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
-              >
-                Store Owner
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDemoLogin('staff')}
-                className="text-xs py-2 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
-              >
-                Staff
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDemoLogin('admin')}
-                className="text-xs py-2 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
-              >
-                Admin
-              </button>
-            </div>
-          </div>}
             </>
           )}
         </div>

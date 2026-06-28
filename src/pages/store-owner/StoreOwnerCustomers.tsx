@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { collection, query, where, getDocs, doc, getDoc, updateDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
+import { collection, query, where, getDocs, doc, getDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
+import { invokeAdminBackend } from "../../lib/adminBackend";
 import { Search, User, Star, ArrowLeft, Minus, Plus, Users, Clock, MessageSquare, Heart, CheckCircle2, Gift } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 
@@ -95,11 +96,12 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
   const updateStars = async (delta: number) => {
     if (!selectedCustomer) return;
     try {
-      const newStars = Math.max(0, selectedCustomer.stars + delta);
-      await updateDoc(doc(db, "cards", selectedCustomer.id), {
-        stars: newStars,
-        updatedAt: new Date()
+      const result = await invokeAdminBackend<{ stars: number }>({
+        action: "adjust_card_stars",
+        cardId: selectedCustomer.id,
+        delta,
       });
+      const newStars = result.stars;
       const updatedCustomer = { 
         ...selectedCustomer, 
         stars: newStars,
@@ -117,21 +119,20 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
 
   const updatePromoProgress = async (promoId: string, promoTitle: string, delta: number) => {
     if (!selectedCustomer) return;
-    const currentProgress = selectedCustomer.promoProgress?.[promoId] || 0;
-    const newProgress = Math.max(0, currentProgress + delta);
-    
     try {
-      const cardRef = doc(db, "cards", selectedCustomer.id);
-      await updateDoc(cardRef, {
-        [`promoProgress.${promoId}`]: newProgress,
-        updatedAt: new Date()
+      const result = await invokeAdminBackend<{ progress: number }>({
+        action: "adjust_card_promotion",
+        cardId: selectedCustomer.id,
+        promotionId: promoId,
+        delta,
       });
+      const savedProgress = result.progress;
 
       const updatedCustomer = { 
         ...selectedCustomer, 
         promoProgress: {
           ...(selectedCustomer.promoProgress || {}),
-          [promoId]: newProgress
+          [promoId]: savedProgress
         },
         recentHistory: [
           { id: Date.now(), action: delta > 0 ? `Earned stamp: ${promoTitle}` : `Removed stamp: ${promoTitle}`, points: delta > 0 ? `+${delta}` : `${delta}`, date: new Date().toISOString() },
@@ -143,32 +144,6 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
     } catch (e) {
       console.error(e);
       alert("Failed to update stamp card.");
-    }
-  };
-
-  const loadDemoCustomers = async () => {
-    try {
-      const demoNames = ["Alice Smith", "Bob Johnson", "Charlie Brown", "Diana Prince"];
-      for (let i = 0; i < demoNames.length; i++) {
-        const custId = `demo-cust-${Math.random().toString(36).substring(2, 9)}`;
-        await setDoc(doc(db, "customers", custId), {
-          name: demoNames[i],
-          email: `${demoNames[i].split(" ")[0].toLowerCase()}@example.com`,
-          createdAt: serverTimestamp(),
-          lifetimeStars: Math.floor(Math.random() * 20) + 5
-        });
-        await setDoc(doc(collection(db, "cards")), {
-          storeId: store.id,
-          customerId: custId,
-          stars: Math.floor(Math.random() * 10) + 1,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-      }
-      await fetchCustomers();
-    } catch (error) {
-      console.error(error);
-      alert("Failed to load demo data.");
     }
   };
 
@@ -411,11 +386,6 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
            <div className="col-span-full text-center py-16 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl">
              <Users className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-700 mb-4" />
              <p className="font-bold text-gray-900 dark:text-white mb-2">No customers found.</p>
-             {!search && customers.length === 0 && (
-               <button onClick={loadDemoCustomers} className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white rounded-xl text-sm font-semibold hover:bg-gray-200 transition-colors mx-auto mt-4 inline-flex">
-                 <Users className="w-4 h-4" /> Load Demo Customers
-               </button>
-             )}
            </div>
         ) : (
           filtered.map(c => (

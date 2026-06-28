@@ -166,10 +166,12 @@ const docSnapshot = (id: string, data?: Record<string, unknown> | null): any => 
   data: () => data ?? {},
 });
 
-export async function getDoc(ref: DocumentRef) {
+const fetchDoc = async (ref: DocumentRef, useCache: boolean) => {
   const cacheKey = `${ref.collectionName}:doc:${ref.id}`;
-  const cached = getCachedValue<Record<string, unknown> | null>(cacheKey);
-  if (cached !== null) return docSnapshot(ref.id, cached);
+  if (useCache) {
+    const cached = getCachedValue<Record<string, unknown> | null>(cacheKey);
+    if (cached !== null) return docSnapshot(ref.id, cached);
+  }
 
   const { data, error } = await dataApi(ref.collectionName)
     .select("id,data")
@@ -180,10 +182,14 @@ export async function getDoc(ref: DocumentRef) {
   const value = data?.data ?? null;
   setCachedValue(cacheKey, value);
   return docSnapshot(ref.id, value);
+};
+
+export async function getDoc(ref: DocumentRef) {
+  return fetchDoc(ref, true);
 }
 
 export async function getDocFromServer(ref: DocumentRef) {
-  return getDoc(ref);
+  return fetchDoc(ref, false);
 }
 
 export async function getDocs(ref: CollectionRef | QueryRef) {
@@ -218,14 +224,40 @@ export async function getDocs(ref: CollectionRef | QueryRef) {
 
 const resolveUpdate = (current: Record<string, unknown>, update: Record<string, unknown>) => {
   const next = { ...current };
+  const setNestedValue = (path: string, value: unknown, remove = false) => {
+    const segments = path.split(".");
+    if (segments.length === 1) {
+      if (remove) delete next[path];
+      else next[path] = value;
+      return;
+    }
+    let target = next;
+    for (const segment of segments.slice(0, -1)) {
+      const existing = target[segment];
+      target[segment] = existing && typeof existing === "object" && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+      target = target[segment] as Record<string, unknown>;
+    }
+    const leaf = segments.at(-1)!;
+    if (remove) delete target[leaf];
+    else target[leaf] = value;
+  };
+  const getNestedValue = (path: string) =>
+    path.split(".").reduce<unknown>((value, segment) => (
+      value && typeof value === "object"
+        ? (value as Record<string, unknown>)[segment]
+        : undefined
+    ), next);
+
   for (const [key, rawValue] of Object.entries(update)) {
     const value = serializeValue(rawValue) as unknown;
     if ((value as DeleteFieldValue)?.__op === "deleteField") {
-      delete next[key];
+      setNestedValue(key, undefined, true);
     } else if ((value as IncrementValue)?.__op === "increment") {
-      next[key] = Number(next[key] ?? 0) + (value as IncrementValue).value;
+      setNestedValue(key, Number(getNestedValue(key) ?? 0) + (value as IncrementValue).value);
     } else {
-      next[key] = value;
+      setNestedValue(key, value);
     }
   }
   return next;

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, where, getDocs, doc, getDoc, addDoc, serverTimestamp, deleteDoc } from "@/src/lib/dataCompat";
+import { collection, query, where, getDocs, doc, getDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
+import { invokeAdminBackend } from "../../lib/adminBackend";
 import { Activity, ArrowLeft, BadgeCheck, Calendar, Gift, Mail, Plus, Shield, Star, Trash2, TrendingUp, UserCircle, Users, X, Key } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 
@@ -117,22 +118,17 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
     e.preventDefault();
     setSaving(true);
     try {
-      // In a real application, you would create the user in Supabase Auth via a backend function.
-      // For this preview, we create a document in the users collection to simulate the staff account allocation.
-      const newStaffRef = await addDoc(collection(db, "users"), {
-        storeId: store.id,
+      const result = await invokeAdminBackend<{ user: any }>({
+        action: "create_account",
         role: "staff",
+        storeId: store.id,
         name: formData.name,
         email: formData.email,
-        createdAt: serverTimestamp()
+        password: formData.password,
       });
       
       setStaff([...staff, { 
-        id: newStaffRef.id, 
-        storeId: store.id,
-        role: "staff",
-        name: formData.name,
-        email: formData.email
+        ...result.user,
       }]);
       setIsModalOpen(false);
     } catch (error) {
@@ -145,7 +141,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
   const handleDelete = async (id: string) => {
     if (!confirm("Remove this staff member? They will lose access to scanning customers immediately.")) return;
     try {
-      await deleteDoc(doc(db, "users", id));
+      await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_user", userId: id });
       setStaff(staff.filter(s => s.id !== id));
     } catch (error) {
       alert("Failed to remove staff member");
