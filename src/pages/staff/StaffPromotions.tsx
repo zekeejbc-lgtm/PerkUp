@@ -57,7 +57,7 @@ export default function StaffPromotions({ store }: { store: any }) {
       {loading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3].map(i => (
-            <SkeletonBlock key={i} className="h-48 rounded-3xl" />
+            <SkeletonBlock key={i} className="h-[420px] rounded-[2rem]" />
           ))}
         </div>
       ) : promotions.length === 0 ? (

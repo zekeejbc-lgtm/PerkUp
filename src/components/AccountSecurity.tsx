@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarClock, CheckCircle2, KeyRound, Loader2, Lock, Mail, QrCode, ShieldCheck, Smartphone, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, KeyRound, Loader2, Lock, Mail, QrCode, ShieldCheck, Smartphone, Trash2, X } from "lucide-react";
 import { auth, db } from "@/src/lib/backend";
 import { supabase } from "@/src/lib/supabase";
 import { getPasswordStrength } from "@/src/lib/passwordStrength";
@@ -9,6 +9,7 @@ import { updateEmail } from "@/src/lib/supabaseAuthCompat";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { doc, serverTimestamp, setDoc } from "@/src/lib/dataCompat";
 import { getActiveTrustedDevices, updateTrustedDevicePreference } from "@/src/lib/trustedDevice";
+import { invokeAdminBackend } from "@/src/lib/adminBackend";
 
 type Message = {
   text: string;
@@ -78,6 +79,15 @@ export default function AccountSecurity() {
   const [trustedDeviceEnabled, setTrustedDeviceEnabled] = useState(true);
   const [trustedDeviceBusy, setTrustedDeviceBusy] = useState(false);
   const [trustedDeviceMessage, setTrustedDeviceMessage] = useState<Message | null>(null);
+  const [deletionStep, setDeletionStep] = useState<"start" | "otp" | "credentials">("start");
+  const [deletionOtpToken, setDeletionOtpToken] = useState("");
+  const [deletionOtpCode, setDeletionOtpCode] = useState("");
+  const [deletionOtpExpiresAt, setDeletionOtpExpiresAt] = useState(0);
+  const [deletionProof, setDeletionProof] = useState("");
+  const [deletionPassword, setDeletionPassword] = useState("");
+  const [deletionUsername, setDeletionUsername] = useState("");
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteMessage, setDeleteMessage] = useState<Message | null>(null);
   const passwordStrength = useMemo(() => getPasswordStrength(newPassword), [newPassword]);
   const activeTrustedDevices = useMemo(() => getActiveTrustedDevices(user), [user]);
 
@@ -138,6 +148,77 @@ export default function AccountSecurity() {
     setEmailOtpCode("");
     setEmailOtpExpiresAt(0);
     setShowEmailForm(false);
+  };
+
+  const requestDeletionOtp = async () => {
+    if (!user?.email) return;
+    setIsDeletingAccount(true);
+    setDeleteMessage(null);
+    try {
+      // Reuse the deployed identity-verification OTP channel. No email is changed.
+      const otp = await requestEmailOtp(user.email, user.name || user.email, "email_change");
+      setDeletionOtpToken(otp.otpToken);
+      setDeletionOtpExpiresAt(Date.now() + otp.expiresInSeconds * 1000);
+      setDeletionOtpCode("");
+      setDeletionStep("otp");
+      setDeleteMessage({ text: `A 6-digit verification code was sent to ${user.email}.`, type: "success" });
+    } catch (error) {
+      setDeleteMessage({
+        text: error instanceof Error ? error.message : "Could not send the deletion OTP.",
+        type: "error",
+      });
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
+
+  const verifyDeletionOtpCode = async () => {
+    if (!deletionOtpToken || !/^\d{6}$/.test(deletionOtpCode)) return;
+    if (deletionOtpExpiresAt <= Date.now()) {
+      setDeleteMessage({ text: "The OTP expired. Request a new code.", type: "error" });
+      return;
+    }
+    setIsDeletingAccount(true);
+    setDeleteMessage(null);
+    try {
+      const result = await invokeAdminBackend<{ deletionProof: string; expiresAt: number }>({
+        action: "verify_account_deletion_otp",
+        otpToken: deletionOtpToken,
+        otpCode: deletionOtpCode,
+      });
+      setDeletionProof(result.deletionProof);
+      setDeletionStep("credentials");
+      setDeleteMessage({ text: "Email verified. Complete the final identity check within 5 minutes.", type: "success" });
+    } catch (error) {
+      setDeleteMessage({
+        text: error instanceof Error ? error.message : "The OTP is invalid or expired.",
+        type: "error",
+      });
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    if (!deletionProof || !deletionPassword || !deletionUsername.trim()) return;
+    setIsDeletingAccount(true);
+    setDeleteMessage(null);
+    try {
+      await invokeAdminBackend<{ deleted: boolean }>({
+        action: "delete_my_account",
+        deletionProof,
+        password: deletionPassword,
+        username: deletionUsername.trim(),
+      });
+      await supabase.auth.signOut({ scope: "local" });
+      window.location.assign("/");
+    } catch (error) {
+      setDeleteMessage({
+        text: error instanceof Error ? error.message : "Account deletion failed.",
+        type: "error",
+      });
+      setIsDeletingAccount(false);
+    }
   };
 
   const handleStartEmailChange = async (event: React.FormEvent) => {
@@ -903,6 +984,95 @@ export default function AccountSecurity() {
           </form>
         )}
       </section>
+
+      {user?.role === "customer" && (
+        <section className="rounded-3xl border border-red-200 bg-red-50/60 p-6 dark:border-red-900/50 dark:bg-red-950/20">
+          <div className="flex items-start gap-3">
+            <Trash2 className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-red-900 dark:text-red-200">Delete account</h3>
+              <p className="mt-1 text-sm text-red-800/80 dark:text-red-300/80">
+                This permanently removes your login, profile, contact details, photo, feedback, trusted-device data,
+                rewards, stamps, points, and transaction progress. Nothing can be restored. Store owners and staff will
+                only see an unlinkable “Deleted account” marker.
+              </p>
+
+              {deletionStep === "start" && (
+                <button
+                  type="button"
+                  onClick={requestDeletionOtp}
+                  disabled={isDeletingAccount}
+                  className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {isDeletingAccount ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  Start permanent deletion
+                </button>
+              )}
+
+              {deletionStep === "otp" && (
+                <div className="mt-4 space-y-3">
+                  <label className="block text-sm font-semibold text-red-900 dark:text-red-200">Step 1: Email OTP</label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      value={deletionOtpCode}
+                      onChange={(event) => setDeletionOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="6-digit code"
+                      className="min-w-0 flex-1 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-red-500 dark:border-red-900 dark:bg-gray-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={verifyDeletionOtpCode}
+                      disabled={isDeletingAccount || deletionOtpCode.length !== 6}
+                      className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {isDeletingAccount ? "Verifying…" : "Verify OTP"}
+                    </button>
+                  </div>
+                  <button type="button" onClick={requestDeletionOtp} disabled={isDeletingAccount} className="text-xs font-semibold text-red-700 underline dark:text-red-300">
+                    Send a new code
+                  </button>
+                </div>
+              )}
+
+              {deletionStep === "credentials" && (
+                <div className="mt-4 space-y-3">
+                  <p className="text-sm font-semibold text-red-900 dark:text-red-200">Step 2: Password and username</p>
+                  <input
+                    type="password"
+                    value={deletionPassword}
+                    onChange={(event) => setDeletionPassword(event.target.value)}
+                    autoComplete="current-password"
+                    placeholder="Current password"
+                    className="w-full rounded-xl border border-red-200 bg-white px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-red-500 dark:border-red-900 dark:bg-gray-900 dark:text-white"
+                  />
+                  <input
+                    value={deletionUsername}
+                    onChange={(event) => setDeletionUsername(event.target.value)}
+                    autoComplete="username"
+                    placeholder="Exact username"
+                    className="w-full rounded-xl border border-red-200 bg-white px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-red-500 dark:border-red-900 dark:bg-gray-900 dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={deleteAccount}
+                    disabled={isDeletingAccount || !deletionPassword || !deletionUsername.trim()}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-800 disabled:opacity-50"
+                  >
+                    {isDeletingAccount ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    Permanently delete account and rewards
+                  </button>
+                </div>
+              )}
+
+              {deleteMessage && (
+                <p className={`mt-3 text-sm font-medium ${deleteMessage.type === "success" ? "text-green-700 dark:text-green-300" : "text-red-700 dark:text-red-300"}`}>{deleteMessage.text}</p>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

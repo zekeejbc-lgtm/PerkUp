@@ -59,6 +59,17 @@ type PendingMfa = {
   reason: string;
 };
 
+type DemoRole = 'customer' | 'store_owner' | 'staff' | 'admin';
+
+const DEMO_ACCOUNTS: Array<{ role: DemoRole; label: string }> = [
+  { role: 'customer', label: 'Customer' },
+  { role: 'store_owner', label: 'Store Owner' },
+  { role: 'staff', label: 'Staff' },
+  { role: 'admin', label: 'Admin' },
+];
+
+const DEMO_PASSWORD = 'password123';
+
 export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModalProps) {
   const toast = useToast();
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(initialMode);
@@ -359,7 +370,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
         onClose();
       } else if (mode === 'forgot') {
         await sendPasswordResetEmail(auth, username); // Must provide a valid email to reset
-        showInlineSuccess('Password reset email sent. Check your inbox.');
+        showInlineSuccess('If an account exists for this email, a password reset link has been sent.');
       }
     } catch (err: any) {
       // Improve error messages
@@ -407,6 +418,28 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     }
   };
 
+  const handleDemoLogin = async (role: DemoRole) => {
+    setLoading(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const email = `demo_${role}@perkup.local`;
+      const creds = await signInWithEmailAndPassword(auth, email, DEMO_PASSWORD);
+      const mfaRequired = await prepareMfaChallengeIfNeeded(creds.user.uid);
+      if (mfaRequired) {
+        setMessage('Enter the code from your authenticator app to finish signing in.');
+        return;
+      }
+      toast.success(`Signed in as demo ${DEMO_ACCOUNTS.find((account) => account.role === role)?.label ?? role}.`);
+      onClose();
+    } catch (err: any) {
+      showInlineError(err.message || `Could not sign in to the ${role.replace('_', ' ')} demo account.`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const switchMode = (newMode: 'signin' | 'signup' | 'forgot') => {
     setMode(newMode);
     setHasAgreedToPrivacy(newMode !== 'signup');
@@ -442,7 +475,11 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div 
-        className="relative mx-4 h-[min(760px,90vh)] max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-[2rem] border border-gray-100 bg-white shadow-xl transition-all dark:border-gray-800 dark:bg-gray-900"
+        className={`relative mx-4 w-full overflow-hidden rounded-[2rem] border border-gray-100 bg-white shadow-xl transition-all dark:border-gray-800 dark:bg-gray-900 ${
+          mode === 'forgot'
+            ? 'max-w-lg'
+            : 'h-[min(760px,90vh)] max-h-[90vh] max-w-3xl'
+        }`}
         onClick={e => e.stopPropagation()}
       >
         {!(mode === 'signup' && !hasAgreedToPrivacy) && (
@@ -454,7 +491,13 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
           </button>
         )}
 
-        <div className={mode === 'signup' && !hasAgreedToPrivacy ? 'h-full' : 'h-full overflow-y-auto p-8 sm:p-10'}>
+        <div className={
+          mode === 'signup' && !hasAgreedToPrivacy
+            ? 'h-full'
+            : mode === 'forgot'
+              ? 'overflow-y-auto p-8 sm:p-10'
+              : 'h-full overflow-y-auto p-8 sm:p-10'
+        }>
           {mode === 'signup' && !hasAgreedToPrivacy ? (
             <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]">
               <header className="relative border-b border-gray-100 px-6 py-5 pr-16 text-center dark:border-gray-800 sm:px-10 sm:py-6">
@@ -518,13 +561,30 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
               {mode === 'signin' ? 'Welcome back' : mode === 'signup' ? 'Create account' : 'Reset password'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {mode === 'signin' ? 'Enter your details to sign in.' : mode === 'signup' ? 'Join PerkUp to earn rewards.' : 'We will send you a reset link.'}
+              {mode === 'signin' ? 'Enter your details to sign in.' : mode === 'signup' ? 'Join PerkUp to earn rewards.' : 'Recover access to your PerkUp account.'}
             </p>
           </div>
 
           {(error || message) && (
             <div className={`p-3 rounded-xl mb-4 text-sm ${error ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400'}`}>
               {error || message}
+            </div>
+          )}
+
+          {mode === 'forgot' && !message && (
+            <div className="mb-5 flex items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left dark:border-gray-700 dark:bg-gray-800/70">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-gray-700 dark:text-gray-200" />
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Check your inbox to verify it is you
+                </p>
+                <p className="mt-1 text-sm leading-5 text-gray-600 dark:text-gray-400">
+                  Enter your account email below. We will send a secure link that opens a page where you can create a new password.
+                </p>
+                <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  For security, the same confirmation appears whether or not an account exists for that email.
+                </p>
+              </div>
             </div>
           )}
 
@@ -916,6 +976,30 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                 {mode === 'signup' ? 'Sign up with Google' : 'Sign in with Google'}
               </button>
             </>
+          )}
+
+          {mode === 'signin' && !pendingMfa && (
+            <div className="mt-6 border-t border-gray-100 pt-6 dark:border-gray-800">
+              <p className="mb-3 text-center text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+                Demo Accounts
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {DEMO_ACCOUNTS.map((account) => (
+                  <button
+                    key={account.role}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => handleDemoLogin(account.role)}
+                    className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                  >
+                    {account.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-3 text-center text-xs text-gray-400 dark:text-gray-500">
+                One-click access for testing each role.
+              </p>
+            </div>
           )}
 
           {!pendingMfa && <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">

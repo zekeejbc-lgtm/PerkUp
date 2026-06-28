@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { X, Store, User, Mail, PenTool, Image as ImageIcon, MapPin, Phone, Check, Upload } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Store, User, Mail, PenTool, Image as ImageIcon, MapPin, Phone, Check, Upload, LoaderCircle } from 'lucide-react';
 import { doc, getDoc } from '@/src/lib/dataCompat';
 import { db } from '../lib/backend';
 import 'leaflet/dist/leaflet.css';
 // @ts-ignore
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { submitPartnerApplication } from '../lib/partnerApplication';
 
@@ -28,6 +28,26 @@ function LocationMarker({ position, setPosition }: { position: [number, number] 
   );
 }
 
+function MapViewport({ position }: { position: [number, number] | null }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (position) {
+      map.flyTo(position, Math.max(map.getZoom(), 15), { duration: 0.8 });
+    }
+  }, [map, position]);
+
+  return null;
+}
+
+interface LocationSuggestion {
+  place_id: number;
+  display_name: string;
+  lat: string;
+  lon: string;
+  type?: string;
+}
+
 interface PartnerApplicationModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -47,6 +67,11 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
   const [logoPreview, setLogoPreview] = useState('');
   const [address, setAddress] = useState('');
   const [coordinates, setCoordinates] = useState<[number, number] | null>(null);
+  const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
+  const [isSearchingLocation, setIsSearchingLocation] = useState(false);
+  const [locationSearchError, setLocationSearchError] = useState('');
+  const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
+  const skipNextLocationSearch = useRef(false);
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -74,7 +99,72 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     if (logoPreview) URL.revokeObjectURL(logoPreview);
   }, [logoPreview]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const query = address.trim();
+    if (skipNextLocationSearch.current) {
+      skipNextLocationSearch.current = false;
+      return;
+    }
+    if (query.length < 3) {
+      setLocationSuggestions([]);
+      setLocationSearchError('');
+      setIsSearchingLocation(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setIsSearchingLocation(true);
+      setLocationSearchError('');
+
+      try {
+        const params = new URLSearchParams({
+          q: query,
+          format: 'jsonv2',
+          addressdetails: '1',
+          limit: '5',
+        });
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
+          signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        });
+        if (!response.ok) throw new Error('Location search failed');
+
+        const results = await response.json() as LocationSuggestion[];
+        setLocationSuggestions(results);
+        setShowLocationSuggestions(true);
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          setLocationSuggestions([]);
+          setLocationSearchError('Unable to search locations. Please try again.');
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsSearchingLocation(false);
+      }
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [address, isOpen]);
+
   if (!isOpen) return null;
+
+  const selectLocation = (suggestion: LocationSuggestion) => {
+    const lat = Number(suggestion.lat);
+    const lng = Number(suggestion.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    skipNextLocationSearch.current = true;
+    setAddress(suggestion.display_name);
+    setCoordinates([lat, lng]);
+    setLocationSuggestions([]);
+    setShowLocationSuggestions(false);
+    setLocationSearchError('');
+  };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -232,8 +322,50 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Location Address</label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><MapPin className="h-4 w-4" /></div>
-                        <input type="text" required value={address} onChange={(e) => setAddress(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none text-sm" placeholder="123 Market St, San Francisco, CA" />
+                        <input
+                          type="text"
+                          required
+                          value={address}
+                          onChange={(e) => {
+                            setAddress(e.target.value);
+                            setShowLocationSuggestions(true);
+                          }}
+                          onFocus={() => setShowLocationSuggestions(true)}
+                          onBlur={() => window.setTimeout(() => setShowLocationSuggestions(false), 150)}
+                          autoComplete="off"
+                          role="combobox"
+                          aria-autocomplete="list"
+                          aria-expanded={showLocationSuggestions && locationSuggestions.length > 0}
+                          aria-controls="location-suggestions"
+                          className="block w-full pl-10 pr-10 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none text-sm"
+                          placeholder="Search for a business address"
+                        />
+                        {isSearchingLocation && (
+                          <LoaderCircle className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-gray-400" />
+                        )}
+                        {showLocationSuggestions && locationSuggestions.length > 0 && (
+                          <div
+                            id="location-suggestions"
+                            role="listbox"
+                            className="absolute z-[2000] mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-xl dark:border-gray-700 dark:bg-gray-800"
+                          >
+                            {locationSuggestions.map((suggestion) => (
+                              <button
+                                key={suggestion.place_id}
+                                type="button"
+                                role="option"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => selectLocation(suggestion)}
+                                className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                              >
+                                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                                <span className="line-clamp-2">{suggestion.display_name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
+                      {locationSearchError && <p className="text-xs text-red-500">{locationSearchError}</p>}
                     </div>
                     
                     <div className="space-y-1 text-left flex-1 h-[260px]">
@@ -244,6 +376,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                           />
+                          <MapViewport position={coordinates} />
                           <LocationMarker position={coordinates} setPosition={setCoordinates} />
                         </MapContainer>
                       </div>

@@ -1,28 +1,26 @@
-import { Navigate } from "react-router-dom";
+import { Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { AUTH_REDIRECT_MESSAGE_KEY, db } from "../lib/backend";
-import { QrCode, Star, Coffee, ArrowRight, MapPin, Pizza, Scissors, BookOpen, Shirt, Dumbbell, Glasses, Anchor, Search, Store as StoreIcon, Mail, Phone } from "lucide-react";
+import { QrCode, Star, Coffee, ArrowRight, MapPin, Pizza, Scissors, BookOpen, Shirt, Dumbbell, Glasses, Anchor, Search, Store as StoreIcon, Mail, Phone, Clock3, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import * as ReactDOMServer from "react-dom/server";
 import L from "leaflet";
-import { ThemeToggle } from "../components/ThemeToggle";
 import { BrandMark } from "../components/BrandMark";
 import { AuthModal } from "../components/AuthModal";
+import { PublicSiteHeader } from "../components/PublicSiteHeader";
 import { getDisplayImageUrl } from "../lib/imageStorage";
 import { PageSkeleton, SkeletonBlock } from "../components/LoadingSkeleton";
+import { DirectionsButton } from "../components/DirectionsButton";
+import { DirectoryStore, getStoreCategories, isStoreOpenNow, storeMatchesFilters } from "../lib/storeDirectory";
 
 import { PartnerApplicationModal } from "../components/PartnerApplicationModal";
+import { NewsletterForm } from "../components/NewsletterForm";
 
-interface MapStore {
-  id: string;
-  name: string;
-  lat?: number;
-  lng?: number;
-  description?: string;
-  contact?: string;
-  logoUrl?: string;
+interface AuthNavigationState {
+  authRequired?: boolean;
+  returnTo?: string;
 }
 
 const LOGOS = [
@@ -61,9 +59,13 @@ const createCustomPin = (storeName: string) => {
 
 export default function LandingPage() {
   const { user, loading } = useAuth();
-  const [stores, setStores] = useState<MapStore[]>([]);
+  const location = useLocation();
+  const navigationState = location.state as AuthNavigationState | null;
+  const [stores, setStores] = useState<DirectoryStore[]>([]);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [openNowOnly, setOpenNowOnly] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showAppModal, setShowAppModal] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
@@ -93,11 +95,19 @@ export default function LandingPage() {
 
   useEffect(() => {
     const redirectMessage = window.sessionStorage.getItem(AUTH_REDIRECT_MESSAGE_KEY);
-    if (!loading && !user && redirectMessage) {
+    if (!loading && !user && (redirectMessage || navigationState?.authRequired)) {
       setAuthMode("signin");
       setShowAuthModal(true);
     }
-  }, [loading, user]);
+  }, [loading, navigationState?.authRequired, user]);
+
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get("partner") === "true") setShowAppModal(true);
+  }, [location.search]);
+
+  const closeAuthModal = () => {
+    setShowAuthModal(false);
+  };
 
   useEffect(() => {
     async function fetchStores() {
@@ -112,7 +122,9 @@ export default function LandingPage() {
           lng: Number(doc.data().lng ?? doc.data().longitude),
           description: doc.data().description,
           contact: doc.data().contact,
-          logoUrl: doc.data().logoUrl
+          logoUrl: doc.data().logoUrl,
+          category: doc.data().category,
+          hours: doc.data().hours || doc.data().openingHours || doc.data().operatingHours
         }));
 
         const validStores = loadedStores.filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng));
@@ -153,39 +165,25 @@ export default function LandingPage() {
     fetchConfig();
   }, []);
 
-  if (loading) return <PageSkeleton variant="store" />;
+  if (loading) return <PageSkeleton variant="landing" />;
 
   if (user) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={navigationState?.returnTo || "/dashboard"} replace />;
   }
 
-  const filteredStores = stores.filter(store =>
-    store.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    store.description?.toLowerCase().includes(searchQuery.toLowerCase())
+  const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+  const filteredStores = stores.filter((store) =>
+    storeMatchesFilters(store, searchQuery, selectedCategory, openNowOnly)
   );
+  const categories = getStoreCategories(stores);
+  const hasActiveFilters = selectedCategory !== "All" || openNowOnly || Boolean(normalizedQuery);
 
   return (
     <div className="min-h-screen bg-white dark:bg-[#1b1b1b] selection:bg-[#1b1b1b] selection:text-white dark:selection:bg-white dark:selection:text-[#1b1b1b] flex flex-col">
-      <header className="sticky top-0 z-50 bg-white/85 dark:bg-[#1b1b1b]/85 backdrop-blur-md border-b border-[#1b1b1b]/10 dark:border-white/10 transition-colors">
-        <nav className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between w-full">
-        <BrandMark compact />
-        <div className="flex items-center gap-4">
-          <ThemeToggle />
-          <button
-            onClick={() => openAuthModal('signin')}
-            className="text-sm font-medium text-[#1b1b1b] dark:text-white hover:opacity-70 transition-opacity"
-          >
-            Sign in
-          </button>
-          <button
-            onClick={() => openAuthModal('signup')}
-            className="px-4 py-2 text-sm font-medium text-white bg-[#1b1b1b] hover:bg-black rounded-full transition-colors hidden sm:block dark:bg-white dark:text-[#1b1b1b] dark:hover:bg-gray-100"
-          >
-            Sign up
-          </button>
-        </div>
-        </nav>
-      </header>
+      <PublicSiteHeader
+        onSignIn={() => openAuthModal("signin")}
+        onSignUp={() => openAuthModal("signup")}
+      />
 
       <main className="flex-1">
         <section className="relative pt-12 sm:pt-20 pb-20 sm:pb-32 overflow-hidden">
@@ -345,6 +343,56 @@ export default function LandingPage() {
                   placeholder="Search by store name or category..."
                 />
               </div>
+              <div className="mx-auto mt-5 max-w-3xl" aria-label="Store filters">
+                <div className="flex items-center gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <button
+                    type="button"
+                    aria-pressed={openNowOnly}
+                    onClick={() => setOpenNowOnly((current) => !current)}
+                    className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+                      openNowOnly
+                        ? "border-emerald-600 bg-emerald-600 text-white dark:border-emerald-400 dark:bg-emerald-400 dark:text-[#1b1b1b]"
+                        : "border-gray-200 text-gray-600 hover:border-gray-400 dark:border-white/10 dark:text-gray-300 dark:hover:border-white/30"
+                    }`}
+                  >
+                    <Clock3 className="h-4 w-4" />
+                    Open now
+                  </button>
+                  <span className="mx-1 h-6 w-px shrink-0 bg-gray-200 dark:bg-white/10" aria-hidden="true" />
+                  {categories.map((category) => (
+                    <button
+                      key={category}
+                      type="button"
+                      aria-pressed={selectedCategory === category}
+                      onClick={() => setSelectedCategory(category)}
+                      className={`shrink-0 rounded-full border px-4 py-2 text-sm transition-colors ${
+                        selectedCategory === category
+                          ? "border-[#1b1b1b] bg-[#1b1b1b] text-white dark:border-white dark:bg-white dark:text-[#1b1b1b]"
+                          : "border-gray-200 text-gray-600 hover:border-gray-400 dark:border-white/10 dark:text-gray-300 dark:hover:border-white/30"
+                      }`}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2 flex min-h-8 items-center justify-center gap-3 text-sm text-gray-500 dark:text-gray-400" aria-live="polite">
+                  <span>{filteredStores.length} {filteredStores.length === 1 ? "store" : "stores"} found</span>
+                  {hasActiveFilters && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setSelectedCategory("All");
+                        setOpenNowOnly(false);
+                      }}
+                      className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-black dark:text-gray-300 dark:hover:text-white"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="rounded-[2rem] overflow-hidden border border-[#1b1b1b]/10 dark:border-white/10 shadow-sm h-[400px] sm:h-[600px] relative z-0 transition-colors">
@@ -363,7 +411,20 @@ export default function LandingPage() {
                      <Marker key={store.id} position={[store.lat, store.lng]} icon={createCustomPin(store.name)}>
                        <Popup className="rounded-xl overflow-hidden shadow-md">
                          <div className="p-1 -m-1">
+                           {store.logoUrl && (
+                             <div className="mb-3 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+                               <img
+                                 src={getDisplayImageUrl(store.logoUrl)}
+                                 alt={`${store.name} logo`}
+                                 className="h-full w-full object-cover"
+                               />
+                             </div>
+                           )}
                            <h3 className="font-bold text-gray-900 text-lg mb-1">{store.name}</h3>
+                           <div className={`mb-2 flex items-center gap-1.5 text-xs font-medium ${isStoreOpenNow(store.hours) ? "text-emerald-700" : "text-gray-500"}`}>
+                             <span className={`h-2 w-2 rounded-full ${isStoreOpenNow(store.hours) ? "bg-emerald-500" : "bg-gray-400"}`} />
+                             {isStoreOpenNow(store.hours) ? "Open now" : store.hours ? "Closed now" : "Hours unavailable"}
+                           </div>
                            {store.description && (
                              <p className="text-sm text-gray-600 mb-2 leading-tight">{store.description}</p>
                            )}
@@ -374,18 +435,16 @@ export default function LandingPage() {
                              </div>
                            )}
                            <div className="flex flex-col gap-2 mt-3">
-                             <a
-                               href={`/store/${store.id}`}
-                               className="w-full text-center bg-gray-900 text-white font-medium py-2 rounded-lg text-xs hover:bg-gray-800 transition-colors"
+                             <Link
+                               to={`/store/${store.id}`}
+                               className="w-full text-center bg-gray-900 !text-white font-medium py-2 rounded-lg text-xs hover:bg-gray-800 transition-colors"
                              >
                                View Details
-                             </a>
-                             <button
-                               onClick={() => alert(`Directions to ${store.name} would open here!`)}
+                             </Link>
+                             <DirectionsButton
+                               destination={{ lat: store.lat, lng: store.lng, name: store.name }}
                                className="w-full bg-gray-100 text-[#1b1b1b] font-medium py-2 rounded-lg text-xs hover:bg-gray-200 transition-colors"
-                             >
-                               Get Directions
-                             </button>
+                             />
                            </div>
                          </div>
                        </Popup>
@@ -395,6 +454,23 @@ export default function LandingPage() {
                ) : (
                  <SkeletonBlock className="h-full w-full" />
                )}
+               {mapLoaded && stores.length > 0 && filteredStores.length === 0 && (
+                 <div className="pointer-events-none absolute inset-x-4 top-4 z-[500] flex justify-center">
+                   <div className="rounded-2xl border border-gray-200 bg-white/95 px-5 py-3 text-center shadow-lg backdrop-blur-sm dark:border-white/10 dark:bg-[#202020]/95">
+                     <p className="font-semibold text-gray-900 dark:text-white">No stores match these filters</p>
+                     <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Try another category or clear the filters.</p>
+                   </div>
+                 </div>
+               )}
+            </div>
+            <div className="mt-8 flex justify-center">
+              <Link
+                to="/stores"
+                className="inline-flex items-center gap-2 rounded-full border border-[#1b1b1b] px-6 py-3 text-sm font-semibold text-[#1b1b1b] transition-colors hover:bg-[#1b1b1b] hover:text-white dark:border-white dark:text-white dark:hover:bg-white dark:hover:text-[#1b1b1b]"
+              >
+                Show all affiliated stores
+                <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
           </div>
         </section>
@@ -469,21 +545,30 @@ export default function LandingPage() {
                 )}
               </div>
             </div>
-            <div>
-              <h3 className="font-semibold text-gray-900 dark:text-white mb-4 transition-colors">Product</h3>
-              <ul className="space-y-3 text-sm text-gray-500 dark:text-gray-400">
-                <li><a href="#customers" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">For Customers</a></li>
-                <li><a href="#businesses" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">For Businesses</a></li>
-                <li><a href="#pricing" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">Pricing</a></li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900 dark:text-white mb-4 transition-colors">Company</h3>
-              <ul className="space-y-3 text-sm text-gray-500 dark:text-gray-400">
-                <li><a href="#about" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">About Us</a></li>
-                <li><a href="#careers" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">Careers</a></li>
-                <li><a href="#privacy" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">Privacy Policy</a></li>
-              </ul>
+            <div className="md:col-span-2">
+              <div className="grid grid-cols-1 gap-10 sm:grid-cols-2">
+                <div>
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-4 transition-colors">Product</h3>
+                  <ul className="space-y-3 text-sm text-gray-500 dark:text-gray-400">
+                    <li><Link to="/product" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">The Product</Link></li>
+                    <li><Link to="/customers" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">For Customers</Link></li>
+                    <li><Link to="/businesses" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">For Businesses</Link></li>
+                    <li><Link to="/pricing" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">Pricing</Link></li>
+                  </ul>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-4 transition-colors">Company</h3>
+                  <ul className="space-y-3 text-sm text-gray-500 dark:text-gray-400">
+                    <li><Link to="/privacy" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">Privacy Policy</Link></li>
+                    <li><Link to="/data-deletion" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">Data Deletion</Link></li>
+                    <li><Link to="/terms" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">Terms of Service</Link></li>
+                    <li><Link to="/feedback" className="hover:text-[#1b1b1b] dark:hover:text-white transition-colors">Feedback</Link></li>
+                  </ul>
+                </div>
+              </div>
+              <div className="mt-10 border-t border-gray-100 pt-8 dark:border-gray-800">
+                <NewsletterForm />
+              </div>
             </div>
           </div>
           <div className="border-t border-gray-100 dark:border-gray-800 pt-8 flex justify-center text-xs text-gray-400 dark:text-gray-500 transition-colors">
@@ -492,7 +577,7 @@ export default function LandingPage() {
         </div>
       </footer>
 
-      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} initialMode={authMode} />
+      <AuthModal isOpen={showAuthModal} onClose={closeAuthModal} initialMode={authMode} />
       <PartnerApplicationModal isOpen={showAppModal} onClose={() => setShowAppModal(false)} />
     </div>
   );

@@ -29,7 +29,7 @@ export default function CustomerCards() {
     fetchCards();
   }, [user]);
 
-  if (loading) return <PageSkeleton />;
+  if (loading) return <PageSkeleton variant="cards" />;
 
   return (
     <div className="space-y-6">

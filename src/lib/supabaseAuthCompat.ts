@@ -225,7 +225,7 @@ export async function createUserWithEmailAndPassword(
 
 export async function sendPasswordResetEmail(_authClient: AuthCompat, email: string) {
   const { error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(email), {
-    redirectTo: window.location.origin,
+    redirectTo: `${window.location.origin}/reset-password`,
   });
   if (error) throw error;
 }

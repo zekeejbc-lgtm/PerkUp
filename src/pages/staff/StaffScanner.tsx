@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { CustomerScanCard, isSecureCustomerQr, redeemCustomerScan } from "@/src/lib/secureQr";
 import { getDisplayImageUrl } from "@/src/lib/imageStorage";
+import { CustomDropdown } from "@/src/components/CustomDropdown";
 
 type ScannerLocation = {
   lat: number;
@@ -473,17 +474,18 @@ export default function StaffScanner({ store }: { store: any }) {
 
             <div className="space-y-2">
               <label className="text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Promotion Rules</label>
-              <select
+              <CustomDropdown
                 value={selectedPromotionId}
-                onChange={(event) => setSelectedPromotionId(event.target.value)}
+                onChange={setSelectedPromotionId}
                 disabled={isProcessing}
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-              >
-                <option value="">Store visit credit</option>
-                {promotions.map((promotion) => (
-                  <option key={promotion.id} value={promotion.id}>{promotion.title || "Untitled Promotion"}</option>
-                ))}
-              </select>
+                options={[
+                  { label: "Store visit credit", value: "" },
+                  ...promotions.map((promotion) => ({
+                    label: promotion.title || "Untitled Promotion",
+                    value: promotion.id,
+                  })),
+                ]}
+              />
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {selectedPromotion
                   ? "Selected promotion dates, redemption limits, and geofence are enforced by the scan function."

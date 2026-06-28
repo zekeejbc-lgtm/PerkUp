@@ -54,7 +54,7 @@ export default function StaffDashboard() {
   ];
 
   if (loading) {
-    return <DashboardShellSkeleton />;
+    return <DashboardShellSkeleton navigationItems={4} />;
   }
 
   if (!store && location.pathname !== '/staff/account') {

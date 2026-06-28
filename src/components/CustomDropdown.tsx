@@ -7,9 +7,19 @@ interface CustomDropdownProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  disabled?: boolean;
+  name?: string;
 }
 
-export function CustomDropdown({ options, value, onChange, placeholder = "Select...", className = "" }: CustomDropdownProps) {
+export function CustomDropdown({
+  options,
+  value,
+  onChange,
+  placeholder = "Select...",
+  className = "",
+  disabled = false,
+  name,
+}: CustomDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -27,23 +37,34 @@ export function CustomDropdown({ options, value, onChange, placeholder = "Select
 
   return (
     <div className={`relative ${className}`} ref={containerRef}>
-      <div 
-        className="flex min-h-8 w-full cursor-pointer items-center justify-between rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs transition-colors hover:border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-gray-600"
+      {name && <input type="hidden" name={name} value={value} />}
+      <button
+        type="button"
+        className="flex min-h-8 w-full cursor-pointer items-center justify-between rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs transition-colors hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-gray-600 dark:focus:ring-white"
         onClick={() => setIsOpen(!isOpen)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setIsOpen(false);
+        }}
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
       >
         <span className={selectedOption ? "font-medium text-gray-900 dark:text-white" : "text-gray-500"}>
           {selectedOption ? selectedOption.label : placeholder}
         </span>
         <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-      </div>
+      </button>
 
       {isOpen && (
-        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border border-gray-200 bg-white shadow-md animate-in fade-in slide-in-from-top-2 dark:border-gray-700 dark:bg-gray-800">
+        <div role="listbox" className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border border-gray-200 bg-white shadow-md animate-in fade-in slide-in-from-top-2 dark:border-gray-700 dark:bg-gray-800">
           <div className="max-h-60 overflow-y-auto p-1">
             {options.map((option) => (
-              <div
+              <button
+                type="button"
                 key={option.value}
-                className={`flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-xs transition-colors ${
+                role="option"
+                aria-selected={value === option.value}
+                className={`flex w-full cursor-pointer items-center justify-between rounded px-2 py-1.5 text-left text-xs transition-colors ${
                   value === option.value
                     ? 'bg-gray-100 dark:bg-white/10 text-[#1b1b1b] dark:text-white font-medium'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
@@ -55,7 +76,7 @@ export function CustomDropdown({ options, value, onChange, placeholder = "Select
               >
                 <span>{option.label}</span>
                 {value === option.value && <Check className="h-3.5 w-3.5" />}
-              </div>
+              </button>
             ))}
           </div>
         </div>

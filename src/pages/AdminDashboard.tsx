@@ -1,20 +1,30 @@
 import React, { lazy, Suspense, useState } from "react";
-import { Store, FileText, Layout, CreditCard, Menu, UserCircle } from "lucide-react";
+import { Store, FileText, Layout, CreditCard, Menu, UserCircle, Scale } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { PageSkeleton } from "../components/LoadingSkeleton";
+import { useAuth } from "../contexts/AuthContext";
 
 const AdminStores = lazy(() => import("./admin/AdminStores"));
 const AdminApplications = lazy(() => import("./admin/AdminApplications"));
 const AdminAccount = lazy(() => import("./admin/AdminAccount"));
 const AdminHomepage = lazy(() => import("./admin/AdminHomepage"));
 const AdminSubscriptions = lazy(() => import("./admin/AdminSubscriptions"));
+const AdminLegalPages = lazy(() => import("./admin/AdminLegalPages"));
 
 export default function AdminDashboard() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'stores' | 'applications' | 'homepage' | 'subscriptions'>('stores');
+  const { user } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const isAccountPage = location.pathname === '/admin/account';
+  const requestedTab = new URLSearchParams(location.search).get('tab');
+  const activeTab =
+    requestedTab === 'applications' ||
+    requestedTab === 'homepage' ||
+    requestedTab === 'subscriptions' ||
+    (requestedTab === 'legal' && (user?.role === 'admin' || user?.role === 'assistant_admin'))
+      ? requestedTab
+      : 'stores';
 
   const handleNavClick = (item: typeof navigation[number]) => {
     if (item.id === 'account') {
@@ -22,14 +32,16 @@ export default function AdminDashboard() {
       return;
     }
 
-    setActiveTab(item.id);
-    navigate('/admin');
+    navigate(`/admin?tab=${item.id}`);
   };
 
   const navigation = [
     { id: 'stores', label: 'Partner Stores', icon: Store },
     { id: 'applications', label: 'Applications', icon: FileText },
     { id: 'homepage', label: 'Edit Homepage', icon: Layout },
+    ...((user?.role === "admin" || user?.role === "assistant_admin")
+      ? [{ id: 'legal' as const, label: 'Edit Legal Pages', icon: Scale }]
+      : []),
     { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
     { id: 'account', label: 'Account', icon: UserCircle },
   ] as const;
@@ -102,6 +114,7 @@ export default function AdminDashboard() {
               {activeTab === 'stores' && <AdminStores />}
               {activeTab === 'applications' && <AdminApplications />}
               {activeTab === 'homepage' && <AdminHomepage />}
+              {activeTab === 'legal' && <AdminLegalPages />}
               {activeTab === 'subscriptions' && <AdminSubscriptions />}
             </>
           )}

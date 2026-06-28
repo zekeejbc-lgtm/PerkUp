@@ -417,7 +417,7 @@ export default function AdminHomepage() {
     setConfig({ ...config, trustedBusinesses: newBusinesses });
   };
 
-  if (loading) return <PageSkeleton />;
+  if (loading) return <PageSkeleton variant="homepage" />;
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-300">

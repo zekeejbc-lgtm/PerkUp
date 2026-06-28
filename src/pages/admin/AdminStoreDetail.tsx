@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
@@ -16,6 +17,7 @@ import {
 } from "../../lib/subscriptionBilling";
 
 export default function AdminStoreDetail({ storeId, onBack }: { storeId: string, onBack: () => void }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [store, setStore] = useState<any>(null);
   const [owner, setOwner] = useState<any>(null);
   const [staff, setStaff] = useState<any[]>([]);
@@ -23,7 +25,15 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
   const [loading, setLoading] = useState(true);
 
   // Analytics State
-  const [activeTab, setActiveTab] = useState<'overview'|'accounts'|'analytics'>('overview');
+  const requestedTab = searchParams.get("detailTab");
+  const activeTab: 'overview' | 'accounts' | 'analytics' =
+    requestedTab === 'accounts' || requestedTab === 'analytics' ? requestedTab : 'overview';
+  const setActiveTab = (tab: 'overview' | 'accounts' | 'analytics') => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (tab === 'overview') nextParams.delete("detailTab");
+    else nextParams.set("detailTab", tab);
+    setSearchParams(nextParams);
+  };
   const [analytics, setAnalytics] = useState({
     customers: 0,
     promotions: 0,
@@ -188,7 +198,7 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
   };
 
   if (loading) {
-    return <PageSkeleton />;
+    return <PageSkeleton variant="form" />;
   }
 
   if (!store) {
@@ -508,11 +518,15 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
             <div className="space-y-4 mb-6">
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-2">Password Type</label>
-                <select value={newPasswordType} onChange={e => setNewPasswordType(e.target.value as any)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm">
-                  <option value="default">Default (Password123!)</option>
-                  <option value="random">Randomize</option>
-                  <option value="custom">Set Custom</option>
-                </select>
+                <CustomDropdown
+                  value={newPasswordType}
+                  onChange={(value) => setNewPasswordType(value as "default" | "random" | "custom")}
+                  options={[
+                    { label: "Default (Password123!)", value: "default" },
+                    { label: "Randomize", value: "random" },
+                    { label: "Set Custom", value: "custom" },
+                  ]}
+                />
               </div>
 
               {newPasswordType === 'custom' && (

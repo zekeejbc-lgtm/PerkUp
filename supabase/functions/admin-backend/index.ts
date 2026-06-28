@@ -22,6 +22,7 @@ type UserProfile = {
   role?: string;
   storeId?: string;
   email?: string;
+  username?: string;
 };
 
 Deno.serve(async (req) => {
@@ -271,6 +272,120 @@ Deno.serve(async (req) => {
       return jsonResponse({ deleted: true });
     }
 
+    if (action === "verify_account_deletion_otp") {
+      if (actor.role !== "customer") {
+        return jsonResponse({ error: "Customer access required." }, 403);
+      }
+      const otpToken = cleanText(body.otpToken, 100);
+      const otpCode = cleanText(body.otpCode, 10);
+      if (!otpToken || !/^\d{6}$/.test(otpCode) || !authData.user.email) {
+        return jsonResponse({ error: "A valid deletion OTP is required." }, 400);
+      }
+      await verifyDeletionOtp(otpToken, otpCode, authData.user.email);
+      const expiresAt = Date.now() + 5 * 60 * 1000;
+      const deletionProof = await createDeletionProof(
+        serviceKey,
+        authData.user.id,
+        expiresAt,
+      );
+      return jsonResponse({ deletionProof, expiresAt });
+    }
+
+    if (action === "delete_my_account") {
+      if (actor.role !== "customer") {
+        return jsonResponse({
+          error: "Self-service deletion is currently available for customer accounts only.",
+        }, 403);
+      }
+
+      const userId = authData.user.id;
+      const username = cleanText(body.username, 80).toLowerCase();
+      const password = String(body.password || "");
+      const deletionProof = cleanText(body.deletionProof, 1000);
+      if (!actor.username || username !== String(actor.username).trim().toLowerCase()) {
+        return jsonResponse({ error: "The username does not match this account." }, 403);
+      }
+      if (!await verifyDeletionProof(serviceKey, deletionProof, userId)) {
+        return jsonResponse({ error: "Deletion verification expired. Request a new OTP." }, 403);
+      }
+      if (!authData.user.email || !password) {
+        return jsonResponse({ error: "Your current password is required." }, 400);
+      }
+      const passwordClient = createClient(supabaseUrl, anonKey, {
+        auth: { persistSession: false },
+      });
+      const { data: passwordData, error: passwordError } =
+        await passwordClient.auth.signInWithPassword({
+          email: authData.user.email,
+          password,
+        });
+      if (passwordError || passwordData.user?.id !== userId) {
+        return jsonResponse({ error: "The password is incorrect." }, 403);
+      }
+
+      const deletedAt = timestamp();
+
+      // Keep only an unlinkable store-facing tombstone. All reward progress is erased.
+      const { data: cardRows, error: cardReadError } = await admin
+        .from("cards")
+        .select("id,data")
+        .eq("data->>customerId", userId);
+      if (cardReadError) throw cardReadError;
+      for (const card of cardRows || []) {
+        const { error } = await admin.from("cards").update({
+          data: {
+            storeId: card.data?.storeId,
+            joinedAt: card.data?.joinedAt,
+            customerId: `deleted:${crypto.randomUUID()}`,
+            customerName: "Deleted account",
+            accountDeleted: true,
+            deletedAt,
+            status: "deleted",
+            stars: 0,
+            promoProgress: {},
+          },
+        }).eq("id", card.id);
+        if (error) throw error;
+      }
+
+      const { error: scanError } = await admin
+        .from("promotions_scanned")
+        .delete()
+        .eq("data->>customerId", userId);
+      if (scanError) throw scanError;
+      const { error: feedbackError } = await admin
+        .from("feedback")
+        .delete()
+        .eq("data->>customerId", userId);
+      if (feedbackError) throw feedbackError;
+
+      const { data: files, error: filesError } = await admin
+        .from("drive_files")
+        .select("file_id")
+        .eq("owner_id", userId);
+      if (filesError) throw filesError;
+      for (const file of files || []) {
+        await deleteDriveFile(file.file_id);
+      }
+      const { error: driveRowsError } = await admin.from("drive_files").delete().eq("owner_id", userId);
+      if (driveRowsError) throw driveRowsError;
+
+      const { error: customerError } = await admin.from("customers").delete().eq("id", userId);
+      if (customerError) throw customerError;
+      const { error: profileError } = await admin.from("users").delete().eq("id", userId);
+      if (profileError) throw profileError;
+
+      const { error: authDeleteError } = await admin.auth.admin.deleteUser(userId);
+      if (authDeleteError && !authDeleteError.message.toLowerCase().includes("not found")) {
+        throw authDeleteError;
+      }
+
+      return jsonResponse({
+        deleted: true,
+        retained: "An unlinkable deleted-account marker for each affected store",
+      });
+    }
+
     if (action === "adjust_card_stars") {
       const cardId = cleanText(body.cardId, 100);
       const delta = Math.trunc(Number(body.delta));
@@ -470,4 +585,64 @@ const deleteDriveFile = async (fileId: string) => {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.success) throw new Error(data.error || `Drive delete failed with HTTP ${response.status}.`);
+};
+
+const deletionProofPayload = (userId: string, expiresAt: number) => `${userId}.${expiresAt}`;
+
+const createDeletionProof = async (secret: string, userId: string, expiresAt: number) => {
+  const payload = deletionProofPayload(userId, expiresAt);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return `${expiresAt}.${bytesToHex(new Uint8Array(signature))}`;
+};
+
+const verifyDeletionProof = async (secret: string, proof: string, userId: string) => {
+  const [expiresText, signatureHex, ...rest] = proof.split(".");
+  const expiresAt = Number(expiresText);
+  if (rest.length || !Number.isFinite(expiresAt) || expiresAt < Date.now() || !/^[a-f0-9]{64}$/.test(signatureHex || "")) {
+    return false;
+  }
+  const expected = await createDeletionProof(secret, userId, expiresAt);
+  return timingSafeEqual(expected, proof);
+};
+
+const bytesToHex = (bytes: Uint8Array) =>
+  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+const timingSafeEqual = (left: string, right: string) => {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return difference === 0;
+};
+
+const verifyDeletionOtp = async (otpToken: string, otpCode: string, email: string) => {
+  const url = Deno.env.get("GAS_EMAIL_URL") ||
+    Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") ||
+    DEFAULT_GAS_UPLOAD_URL;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({
+      action: "verify_otp",
+      otpToken,
+      otpCode,
+      recipientEmail: email,
+      // The deployed GAS service currently supports this identity-verification purpose.
+      // This endpoint only verifies the code; it never updates the user's email.
+      purpose: "email_change",
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success || !data.otp?.verified) {
+    throw new Error(data.error || "The deletion OTP is invalid or expired.");
+  }
 };

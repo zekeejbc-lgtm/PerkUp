@@ -7,6 +7,7 @@ import L from "leaflet";
 import { Store as StoreIcon, Search, MapPin } from "lucide-react";
 import { Link } from "react-router-dom";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
+import { DirectionsButton } from "../../components/DirectionsButton";
 
 export default function CustomerStores() {
   const [stores, setStores] = useState<any[]>([]);
@@ -46,12 +47,21 @@ export default function CustomerStores() {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <SkeletonBlock className="h-[400px] rounded-[2rem]" />
-        <div className="space-y-4">
-          <SkeletonBlock className="h-20 rounded-2xl" />
-          <SkeletonBlock className="h-20 rounded-2xl" />
-          <SkeletonBlock className="h-20 rounded-2xl" />
+      <div className="space-y-6">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+          <div className="space-y-3">
+            <SkeletonBlock className="h-8 w-56 rounded-xl" />
+            <SkeletonBlock className="h-4 w-96 max-w-full rounded-lg" />
+          </div>
+          <SkeletonBlock className="h-10 w-full rounded-xl sm:w-64" />
+        </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <SkeletonBlock className="h-[400px] rounded-[2rem]" />
+          <div className="space-y-4">
+            <SkeletonBlock className="h-20 rounded-2xl" />
+            <SkeletonBlock className="h-20 rounded-2xl" />
+            <SkeletonBlock className="h-20 rounded-2xl" />
+          </div>
         </div>
       </div>
     );
@@ -114,6 +124,10 @@ export default function CustomerStores() {
                             <Link to={`/store/${store.id}`} className="text-[#1b1b1b] text-xs font-medium mt-2 inline-block hover:underline">
                               View Details
                             </Link>
+                            <DirectionsButton
+                              destination={{ lat: store.lat, lng: store.lng, address: store.address, name: store.name }}
+                              className="w-full mt-2 rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-[#1b1b1b] hover:bg-gray-200"
+                            />
                           </div>
                         </Popup>
                       </Marker>
@@ -136,16 +150,15 @@ export default function CustomerStores() {
             </div>
           ) : (
             filteredStores.map((store) => (
-              <Link 
+              <div
                 key={store.id} 
-                to={`/store/${store.id}`}
                 className="flex items-center gap-4 bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow"
               >
                 <div className="w-12 h-12 bg-gray-100 dark:bg-white/10 rounded-full flex items-center justify-center shrink-0">
                   <MapPin className="w-5 h-5 text-[#1b1b1b] dark:text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-gray-900 dark:text-white truncate">{store.name}</h3>
+                  <Link to={`/store/${store.id}`} className="font-semibold text-gray-900 dark:text-white truncate hover:underline block">{store.name}</Link>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="inline-flex items-center gap-1 rounded bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-300">
                       {store.category || "Retail"}
@@ -155,7 +168,12 @@ export default function CustomerStores() {
                     </span>
                   </div>
                 </div>
-              </Link>
+                <DirectionsButton
+                  destination={{ lat: store.lat, lng: store.lng, address: store.address, name: store.name }}
+                  label="Navigate"
+                  className="shrink-0 rounded-xl bg-[#1b1b1b] px-3 py-2 text-xs font-medium text-white hover:bg-black dark:bg-white dark:text-[#1b1b1b]"
+                />
+              </div>
             ))
           )}
         </div>

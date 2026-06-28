@@ -41,7 +41,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
       
       const custData = [];
       for (const d of snap.docs) {
-        let name = "Unknown";
+        let name = d.data().accountDeleted ? "Deleted account" : "Unknown";
         let email = "";
         let joinedAt = null;
         let lifetimeStars = 0;
@@ -52,7 +52,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
         try {
            const cSnap = await getDoc(doc(db, "customers", d.data().customerId));
            if (cSnap.exists()) {
-               name = cSnap.data().name || "Unknown";
+               name = cSnap.data().accountDeleted ? "Deleted account" : (cSnap.data().name || "Unknown");
                email = cSnap.data().email || "";
                joinedAt = cSnap.data().createdAt;
                lifetimeStars = cSnap.data().lifetimeStars || d.data().stars || 0;
@@ -77,7 +77,8 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
           favorites,
           recentHistory,
           feedback,
-          promoProgress: d.data().promoProgress || {}
+          promoProgress: d.data().promoProgress || {},
+          accountDeleted: Boolean(d.data().accountDeleted),
         });
       }
       setCustomers(custData.sort((a,b) => b.stars - a.stars));
@@ -149,7 +150,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
 
   const filtered = customers.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || c.customerId.includes(search));
 
-  if (loading) return <PageSkeleton />;
+  if (loading) return <PageSkeleton variant="table" />;
 
   if (selectedCustomer) {
     const isLoyal = selectedCustomer.lifetimeStars > 20;
@@ -168,14 +169,16 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
             </div>
             <div className="flex-1 text-center sm:text-left">
                <h2 className="text-3xl font-black tracking-tight text-gray-900 dark:text-white">{selectedCustomer.name}</h2>
-               <p className="text-gray-500 font-mono text-sm tracking-widest mt-1 uppercase mb-3 text-[#1b1b1b] dark:text-white">{selectedCustomer.customerId}</p>
+               <p className="text-gray-500 font-mono text-sm tracking-widest mt-1 uppercase mb-3 text-[#1b1b1b] dark:text-white">
+                 {selectedCustomer.accountDeleted ? "Customer identifier removed" : selectedCustomer.customerId}
+               </p>
                
                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase ${isLoyal ? 'bg-gray-100 text-[#1b1b1b] dark:bg-white/15 dark:text-white' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}`}>
                    {isLoyal && <Star className="w-3 h-3 fill-current" />} {customerSegment}
                  </span>
                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white rounded-full text-xs font-bold tracking-wide uppercase">
-                   <CheckCircle2 className="w-3 h-3" /> Active Card
+                   <CheckCircle2 className="w-3 h-3" /> {selectedCustomer.accountDeleted ? "Account deleted" : "Active Card"}
                  </span>
                </div>
             </div>
@@ -195,10 +198,10 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm">
                   <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest mb-4">Manage Points</h3>
                   <div className="flex items-center justify-center gap-3">
-                    <button onClick={() => updateStars(-1)} className="flex-1 h-12 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors">
+                    <button disabled={selectedCustomer.accountDeleted} onClick={() => updateStars(-1)} className="flex-1 h-12 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:cursor-not-allowed disabled:opacity-40 transition-colors">
                       <Minus className="w-5 h-5" />
                     </button>
-                    <button onClick={() => updateStars(1)} className="flex-[2] h-12 rounded-xl bg-[#1b1b1b] text-white font-bold flex items-center justify-center gap-2 hover:bg-black transition-colors shadow-sm">
+                    <button disabled={selectedCustomer.accountDeleted} onClick={() => updateStars(1)} className="flex-[2] h-12 rounded-xl bg-[#1b1b1b] text-white font-bold flex items-center justify-center gap-2 hover:bg-black disabled:cursor-not-allowed disabled:opacity-40 transition-colors shadow-sm">
                       <Plus className="w-5 h-5" /> Add Point
                     </button>
                   </div>
@@ -406,7 +409,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
               <div className="w-full">
                 <p className="font-bold text-lg text-gray-900 dark:text-white truncate mb-0.5 group-hover:text-[#1b1b1b] dark:group-hover:text-white transition-colors">{c.name}</p>
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="text-gray-500 uppercase tracking-widest">{c.customerId.slice(0, 8)}</span>
+                  <span className="text-gray-500 uppercase tracking-widest">{c.accountDeleted ? "Deleted" : c.customerId.slice(0, 8)}</span>
                   <span className="text-gray-300 dark:text-gray-700">&bull;</span>
                   <span className={`${c.lifetimeStars > 20 ? 'text-[#1b1b1b] dark:text-white font-bold' : 'text-gray-400'}`}>
                     {c.lifetimeStars > 20 ? 'Loyal' : (c.lifetimeStars > 5 ? 'Regular' : 'New')}

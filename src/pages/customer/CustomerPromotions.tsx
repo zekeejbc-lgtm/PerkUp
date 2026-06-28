@@ -50,7 +50,7 @@ export default function CustomerPromotions() {
     fetchPromotions();
   }, []);
 
-  if (loading) return <PageSkeleton />;
+  if (loading) return <PageSkeleton variant="promotions" />;
 
   return (
     <div className="space-y-6">

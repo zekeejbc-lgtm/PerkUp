@@ -13,12 +13,14 @@ import {
   getSubscriptionOwedAmount,
 } from "../../lib/subscriptionBilling";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
+import { useSearchParams } from "react-router-dom";
 
 export default function AdminStores() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [stores, setStores] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
+  const selectedStoreId = searchParams.get("store");
   const [subscriptionPlans, setSubscriptionPlans] = useState<any[]>([]);
 
   // New store form state
@@ -128,7 +130,12 @@ export default function AdminStores() {
   };
 
   if (selectedStoreId) {
-    return <AdminStoreDetail storeId={selectedStoreId} onBack={() => setSelectedStoreId(null)} />;
+    return <AdminStoreDetail storeId={selectedStoreId} onBack={() => {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("store");
+      nextParams.delete("detailTab");
+      setSearchParams(nextParams);
+    }} />;
   }
 
   return (
@@ -161,7 +168,11 @@ export default function AdminStores() {
       ) : (
         <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
           {stores.map(store => (
-            <div key={store.id} className="group flex cursor-pointer flex-col gap-6 p-6 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 sm:flex-row sm:items-center sm:justify-between sm:gap-6" onClick={() => setSelectedStoreId(store.id)}>
+            <div key={store.id} className="group flex cursor-pointer flex-col gap-6 p-6 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 sm:flex-row sm:items-center sm:justify-between sm:gap-6" onClick={() => {
+              const nextParams = new URLSearchParams(searchParams);
+              nextParams.set("store", store.id);
+              setSearchParams(nextParams);
+            }}>
               <div className="flex min-w-0 flex-1 items-center gap-4 sm:gap-4">
                 {store.logoUrl ? (
                   <img src={getDisplayImageUrl(store.logoUrl)} alt="Store Logo" className="h-14 w-14 shrink-0 rounded-full border border-gray-200 object-cover dark:border-gray-700 sm:h-12 sm:w-12" />

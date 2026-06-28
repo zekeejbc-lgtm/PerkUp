@@ -84,7 +84,7 @@ export default function StaffCustomers({ store }: { store: any }) {
                             <Users className="w-5 h-5 text-[#1b1b1b] dark:text-white" />
                           </div>
                           <div>
-                            <p className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[120px] sm:max-w-xs">{c.customerId || "Unknown"}</p>
+                            <p className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[120px] sm:max-w-xs">{c.accountDeleted ? "Deleted account" : (c.customerId || "Unknown")}</p>
                             <p className="text-xs text-gray-500">Joined {c.joinedAt?.toDate?.()?.toLocaleDateString() || "Recently"}</p>
                           </div>
                         </div>
@@ -94,7 +94,7 @@ export default function StaffCustomers({ store }: { store: any }) {
                           c.status === 'active' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
                         }`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${c.status === 'active' ? 'bg-green-500' : 'bg-gray-500'}`} />
-                          {c.status || "Active"}
+                          {c.accountDeleted ? "Account deleted" : (c.status || "Active")}
                         </span>
                       </td>
                       <td className="px-6 py-4">

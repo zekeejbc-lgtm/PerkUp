@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect } from "react";
-import { Routes, Route, Link, useLocation } from 'react-router-dom';
+import { Routes, Route, Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Store, ShoppingBag, Gift, Users, BadgeCheck, UserCircle, CreditCard, ChevronRight, Building, Menu, ArrowLeft, MessageSquare } from "lucide-react";
 import { DashboardShellSkeleton, PageSkeleton } from "../components/LoadingSkeleton";
 
@@ -17,6 +17,7 @@ import { db, handleDataError, OperationType } from "../lib/backend";
 
 export default function StoreOwnerDashboard() {
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const [stores, setStores] = useState<any[]>([]);
   const [selectedStore, setSelectedStore] = useState<any>(null);
@@ -24,6 +25,7 @@ export default function StoreOwnerDashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const isAccountOnlyRoute = location.pathname === '/owner/account' || location.pathname === '/owner/subscription';
   const activeStore = isAccountOnlyRoute ? null : selectedStore;
+  const requestedStoreId = searchParams.get("branch");
 
   useEffect(() => {
     async function fetchStores() {
@@ -45,8 +47,18 @@ export default function StoreOwnerDashboard() {
   useEffect(() => {
     if (isAccountOnlyRoute) {
       setSelectedStore(null);
+    } else if (requestedStoreId && stores.length > 0) {
+      setSelectedStore(stores.find((store) => store.id === requestedStoreId) || null);
     }
-  }, [isAccountOnlyRoute]);
+  }, [isAccountOnlyRoute, requestedStoreId, stores]);
+
+  const selectStore = (store: any | null) => {
+    setSelectedStore(store);
+    const nextParams = new URLSearchParams(searchParams);
+    if (store) nextParams.set("branch", store.id);
+    else nextParams.delete("branch");
+    setSearchParams(nextParams);
+  };
 
   const navigation = [
     { name: 'Store Info', href: '/owner', icon: Store, requiresBranch: true },
@@ -61,7 +73,7 @@ export default function StoreOwnerDashboard() {
   const visibleNavigation = navigation.filter((item) => activeStore || !item.requiresBranch);
 
   if (loading) {
-    return <DashboardShellSkeleton />;
+    return <DashboardShellSkeleton navigationItems={9} />;
   }
 
   // Branch Selector View
@@ -84,7 +96,7 @@ export default function StoreOwnerDashboard() {
             {stores.map((store) => (
               <button
                 key={store.id}
-                onClick={() => setSelectedStore(store)}
+                onClick={() => selectStore(store)}
                 className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 text-left hover:border-[#1b1b1b] dark:hover:border-[#1b1b1b] hover:shadow-lg transition-all group relative overflow-hidden"
               >
                 <div className="absolute top-0 right-0 w-32 h-32 bg-gray-100 dark:bg-[#1b1b1b]/10 rounded-bl-full -z-10 transition-transform group-hover:scale-110" />
@@ -124,7 +136,7 @@ export default function StoreOwnerDashboard() {
                 {stores.length > 1 && (
                   <button
                     type="button"
-                    onClick={() => setSelectedStore(null)}
+                    onClick={() => selectStore(null)}
                     className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-[#1b1b1b] dark:text-white hover:text-black dark:hover:text-white"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
@@ -135,7 +147,7 @@ export default function StoreOwnerDashboard() {
             ) : (
               <button
                 onClick={() => {
-                  if (stores.length > 1) setSelectedStore(null);
+                  if (stores.length > 1) selectStore(null);
                 }}
                 title={`Branch: ${activeStore.name}`}
                 className={`w-full flex items-center justify-center p-3 bg-gray-100 dark:bg-white/10 border-gray-300 dark:border-white/15 rounded-2xl border ${stores.length > 1 ? 'hover:bg-gray-100 dark:hover:bg-white/15 cursor-pointer' : 'cursor-default'}`}
@@ -152,7 +164,7 @@ export default function StoreOwnerDashboard() {
             return (
               <Link
                 key={item.name}
-                to={item.href}
+                to={item.requiresBranch && activeStore ? `${item.href}?branch=${encodeURIComponent(activeStore.id)}` : item.href}
                 title={!isSidebarOpen ? item.name : undefined}
                 className={`flex items-center ${isSidebarOpen ? 'gap-3 px-4' : 'justify-center'} py-3 rounded-2xl text-sm font-medium transition-all whitespace-nowrap overflow-hidden group ${
                   isActive
@@ -175,7 +187,7 @@ export default function StoreOwnerDashboard() {
           return (
             <Link
               key={item.name}
-              to={item.href}
+              to={item.requiresBranch && activeStore ? `${item.href}?branch=${encodeURIComponent(activeStore.id)}` : item.href}
               className={`flex flex-col items-center gap-1 min-w-[4rem] px-3 py-1.5 rounded-xl transition-all shrink-0 ${
                 isActive
                   ? 'text-[#1b1b1b] dark:text-white bg-gray-100 dark:bg-white/10'
@@ -194,7 +206,7 @@ export default function StoreOwnerDashboard() {
         {activeStore && stores.length > 1 && (
           <button
             type="button"
-            onClick={() => setSelectedStore(null)}
+            onClick={() => selectStore(null)}
             className="mb-5 inline-flex md:hidden items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-800 px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             <ArrowLeft className="w-4 h-4" />

@@ -1,5 +1,5 @@
-import { FormEvent, lazy, ReactNode, Suspense, useEffect, useState } from "react";
-import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { FormEvent, lazy, ReactNode, Suspense, useEffect, useLayoutEffect, useState } from "react";
+import { Routes, Route, Navigate, useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import { useAuth, Role } from "./contexts/AuthContext";
 import { logOut } from "./lib/backend";
 import { supabase } from "./lib/supabase";
@@ -11,11 +11,84 @@ import { BrandMark } from "./components/BrandMark";
 import { findTrustedLoginDevice, getMfaPromptReason, trustCurrentDeviceForUser, TrustedLoginProfile } from "./lib/trustedDevice";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
+const StoresPage = lazy(() => import("./pages/StoresPage"));
 const StorePage = lazy(() => import("./pages/StorePage"));
 const CustomerDashboard = lazy(() => import("./pages/CustomerDashboard"));
 const StaffDashboard = lazy(() => import("./pages/StaffDashboard"));
 const StoreOwnerDashboard = lazy(() => import("./pages/StoreOwnerDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
+const DataDeletionPage = lazy(() => import("./pages/DataDeletionPage"));
+const TermsOfServicePage = lazy(() => import("./pages/TermsOfServicePage"));
+const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
+const MarketingPage = lazy(() => import("./pages/MarketingPage"));
+const PricingPage = lazy(() => import("./pages/MarketingPage").then((module) => ({ default: module.PricingPage })));
+
+const SCROLL_POSITIONS_KEY = "perkup:scroll-positions";
+
+function getSavedScrollPositions(): Record<string, number> {
+  try {
+    return JSON.parse(window.sessionStorage.getItem(SCROLL_POSITIONS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function ScrollPositionManager() {
+  const location = useLocation();
+  const navigationType = useNavigationType();
+
+  useEffect(() => {
+    const previousSetting = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+    return () => {
+      window.history.scrollRestoration = previousSetting;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const savePosition = () => {
+      const positions = getSavedScrollPositions();
+      positions[location.key] = window.scrollY;
+      window.sessionStorage.setItem(SCROLL_POSITIONS_KEY, JSON.stringify(positions));
+    };
+
+    window.addEventListener("pagehide", savePosition);
+    return () => {
+      savePosition();
+      window.removeEventListener("pagehide", savePosition);
+    };
+  }, [location.key]);
+
+  useLayoutEffect(() => {
+    if (location.hash) {
+      document.getElementById(location.hash.slice(1))?.scrollIntoView();
+      return;
+    }
+
+    const targetY = navigationType === "POP"
+      ? getSavedScrollPositions()[location.key] ?? 0
+      : 0;
+    let attempts = 0;
+    let timer: number | undefined;
+
+    const restorePosition = () => {
+      window.scrollTo({ top: targetY, left: 0, behavior: "auto" });
+      attempts += 1;
+      if (Math.abs(window.scrollY - targetY) > 1 && attempts < 20) {
+        timer = window.setTimeout(restorePosition, 50);
+      }
+    };
+
+    restorePosition();
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [location.key, location.hash, navigationType]);
+
+  return null;
+}
 
 function MfaChallenge({ onVerified, profile }: { onVerified: () => void; profile?: TrustedLoginProfile | null }) {
   const [code, setCode] = useState("");
@@ -138,6 +211,7 @@ function MfaChallenge({ onVerified, profile }: { onVerified: () => void; profile
 
 function ProtectedRoute({ children, allowedRoles }: { children: ReactNode, allowedRoles?: Role[] }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   const [checkingMfa, setCheckingMfa] = useState(true);
   const [mfaRequired, setMfaRequired] = useState(false);
 
@@ -181,7 +255,16 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode, allow
   if (loading) return <PageSkeleton variant="auth" />;
 
   if (!user) {
-    return <Navigate to="/" replace />;
+    return (
+      <Navigate
+        to="/"
+        replace
+        state={{
+          authRequired: true,
+          returnTo: `${location.pathname}${location.search}${location.hash}`,
+        }}
+      />
+    );
   }
 
   if (checkingMfa) return <PageSkeleton variant="auth" />;
@@ -278,9 +361,21 @@ function Layout({ children }: { children: ReactNode }) {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Suspense fallback={<PageSkeleton variant="store" />}><LandingPage /></Suspense>} />
+    <>
+      <ScrollPositionManager />
+      <Routes>
+      <Route path="/" element={<Suspense fallback={<PageSkeleton variant="landing" />}><LandingPage /></Suspense>} />
+      <Route path="/reset-password" element={<Suspense fallback={<PageSkeleton variant="auth" />}><ResetPasswordPage /></Suspense>} />
+      <Route path="/stores" element={<Suspense fallback={<PageSkeleton variant="content" />}><StoresPage /></Suspense>} />
       <Route path="/store/:storeId" element={<Suspense fallback={<PageSkeleton variant="store" />}><StorePage /></Suspense>} />
+      <Route path="/privacy" element={<Suspense fallback={<PageSkeleton variant="content" />}><PrivacyPolicyPage /></Suspense>} />
+      <Route path="/data-deletion" element={<Suspense fallback={<PageSkeleton variant="content" />}><DataDeletionPage /></Suspense>} />
+      <Route path="/terms" element={<Suspense fallback={<PageSkeleton variant="content" />}><TermsOfServicePage /></Suspense>} />
+      <Route path="/feedback" element={<Suspense fallback={<PageSkeleton variant="form" />}><FeedbackPage /></Suspense>} />
+      <Route path="/product" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />
+      <Route path="/customers" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />
+      <Route path="/businesses" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />
+      <Route path="/pricing" element={<Suspense fallback={<PageSkeleton variant="pricing" />}><PricingPage /></Suspense>} />
       <Route path="/dashboard" element={<RoleRouter />} />
       
       <Route path="/customer/*" element={
@@ -306,6 +401,7 @@ export default function App() {
           <Layout><Suspense fallback={<PageSkeleton />}><AdminDashboard /></Suspense></Layout>
         </ProtectedRoute>
       } />
-    </Routes>
+      </Routes>
+    </>
   );
 }

@@ -1,11 +1,16 @@
 import { useParams, Link } from "react-router-dom";
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
-import { collection, doc, getDoc, serverTimestamp, setDoc } from "@/src/lib/dataCompat";
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "@/src/lib/dataCompat";
 import { db } from "../lib/backend";
-import { ArrowLeft, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send } from "lucide-react";
+import { ArrowLeft, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send, Image as ImageIcon, Utensils } from "lucide-react";
 import { PageSkeleton } from "../components/LoadingSkeleton";
 import { useAuth } from "../contexts/AuthContext";
+import { DirectionsButton } from "../components/DirectionsButton";
+import { BrandMark } from "../components/BrandMark";
+import { ThemeToggle } from "../components/ThemeToggle";
+import { getDisplayImageUrl } from "../lib/imageStorage";
+import { PublicSiteFooter } from "../components/PublicPageShell";
 
 interface StoreContent {
   id: string;
@@ -20,37 +25,75 @@ interface StoreContent {
   lng?: number | string;
   latitude?: number | string;
   longitude?: number | string;
+  logoUrl?: string;
+  images?: string[];
+  menuUrl?: string;
+}
+
+interface StoreProduct {
+  id: string;
+  name: string;
+  price?: number | string;
+  imageUrl?: string;
+  ingredients?: string;
+  available?: boolean;
 }
 
 export default function StorePage() {
   const { storeId } = useParams();
   const { user } = useAuth();
   const [store, setStore] = useState<StoreContent | null>(null);
+  const [products, setProducts] = useState<StoreProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
-  const directionsQuery = store
-    ? [
-        store.lat ?? store.latitude,
-        store.lng ?? store.longitude,
-      ].every((value) => Number.isFinite(Number(value)))
-      ? `${Number(store.lat ?? store.latitude)},${Number(store.lng ?? store.longitude)}`
-      : store.address || store.name
-    : "";
+  const [shareStatus, setShareStatus] = useState("");
+
+  const handleShare = async () => {
+    if (!store) return;
+
+    const shareData = {
+      title: `${store.name} | PerkUp`,
+      text: `View ${store.name} on PerkUp.`,
+      url: window.location.href,
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        setShareStatus("Shared");
+      } else {
+        await navigator.clipboard.writeText(window.location.href);
+        setShareStatus("Link copied");
+      }
+      window.setTimeout(() => setShareStatus(""), 2500);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setShareStatus("Unable to share");
+      window.setTimeout(() => setShareStatus(""), 2500);
+    }
+  };
 
   useEffect(() => {
     async function fetchStore() {
       if (!storeId) return;
       try {
-        const docRef = doc(db, "stores", storeId);
-        const docSnap = await getDoc(docRef);
+        const [docSnap, productsSnap] = await Promise.all([
+          getDoc(doc(db, "stores", storeId)),
+          getDocs(query(collection(db, "products"), where("storeId", "==", storeId))),
+        ]);
         
         if (docSnap.exists()) {
           setStore({ id: docSnap.id, ...docSnap.data() } as StoreContent);
+          setProducts(productsSnap.docs.map((productDoc) => ({
+            id: productDoc.id,
+            ...productDoc.data(),
+          })) as StoreProduct[]);
         } else {
           setStore(null);
+          setProducts([]);
         }
       } catch (error) {
         console.error("Error fetching store:", error);
@@ -108,31 +151,73 @@ export default function StorePage() {
 
   return (
     <div className="min-h-screen bg-white dark:bg-[#1b1b1b] selection:bg-[#1b1b1b] selection:text-white dark:selection:bg-white dark:selection:text-[#1b1b1b] pb-20 transition-colors">
-      <nav className="bg-white dark:bg-[#1b1b1b] border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10 transition-colors">
-        <div className="mx-auto max-w-3xl px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link to="/" className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
+      <header className="sticky top-0 z-50 border-b border-[#1b1b1b]/10 bg-white/85 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#1b1b1b]/85">
+        <nav className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-6">
+          <Link to="/" aria-label="PerkUp home">
+            <BrandMark compact />
+          </Link>
+          <div className="flex items-center gap-4">
+            <ThemeToggle />
+            {user ? (
+              <Link
+                to="/dashboard"
+                className="rounded-full bg-[#1b1b1b] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black dark:bg-white dark:text-[#1b1b1b] dark:hover:bg-gray-100"
+              >
+                Dashboard
+              </Link>
+            ) : (
+              <Link
+                to="/"
+                state={{ authRequired: true, returnTo: window.location.pathname }}
+                className="text-sm font-medium text-[#1b1b1b] transition-opacity hover:opacity-70 dark:text-white"
+              >
+                Sign in
+              </Link>
+            )}
+          </div>
+        </nav>
+      </header>
+
+      <div className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between">
+          <Link to="/" className="inline-flex items-center gap-2 rounded-xl px-2 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white">
             <ArrowLeft className="w-4 h-4" />
             Back
           </Link>
-          <div className="font-semibold text-gray-900 dark:text-white">Store Details</div>
-          <button className="p-2 text-gray-400 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors">
-            <Share2 className="w-4 h-4" />
-          </button>
-        </div>
-      </nav>
-
-      <main className="mx-auto max-w-3xl px-4 sm:px-6 pt-10">
-        {/* Header section */}
-        <div className="mb-10 text-center">
-          <div className="w-24 h-24 bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-full mx-auto mb-6 flex items-center justify-center transition-colors">
-            <Star className="w-10 h-10 text-gray-300 dark:text-gray-700" />
+          <div className="flex items-center gap-2">
+            {shareStatus && <span className="text-xs font-medium text-gray-500 dark:text-gray-400" role="status">{shareStatus}</span>}
+            <button
+              type="button"
+              onClick={handleShare}
+              className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white"
+              aria-label={`Share ${store.name}`}
+            >
+              <Share2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Share</span>
+            </button>
           </div>
-          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-gray-900 dark:text-white mb-4 transition-colors">{store.name}</h1>
-          <p className="text-lg text-gray-500 dark:text-gray-400 max-w-xl mx-auto transition-colors">{store.description || "A participating partner in our digital rewards program."}</p>
         </div>
+      </div>
 
-        {/* Info Cards */}
-        <div className="grid gap-4 sm:grid-cols-2 mb-10">
+      <main className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 lg:px-8">
+        <div className="mb-12 grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
+          {/* Store overview */}
+          <section className="flex min-h-72 flex-col justify-center rounded-[2rem] border border-gray-200 bg-gray-50 p-7 dark:border-gray-800 dark:bg-gray-900 sm:p-10">
+            <div className="mb-6 flex h-24 w-24 items-center justify-center overflow-hidden rounded-3xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-[#1b1b1b]">
+              {store.logoUrl ? (
+                <img src={getDisplayImageUrl(store.logoUrl)} alt={`${store.name} logo`} className="h-full w-full object-cover" />
+              ) : (
+                <Star className="h-10 w-10 text-gray-300 dark:text-gray-700" />
+              )}
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight text-gray-900 transition-colors dark:text-white sm:text-5xl">{store.name}</h1>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-gray-500 transition-colors dark:text-gray-400 sm:text-lg">
+              {store.description || "A participating partner in our digital rewards program."}
+            </p>
+          </section>
+
+          {/* Essential information */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
           <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-sm flex items-start gap-4 transition-colors">
             <div className="bg-gray-100 dark:bg-white/10 p-3 rounded-2xl text-[#1b1b1b] dark:text-white shrink-0 transition-colors">
               <MapPin className="w-6 h-6" />
@@ -140,14 +225,15 @@ export default function StorePage() {
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white mb-1 transition-colors">Location</h3>
               <p className="text-gray-500 dark:text-gray-400 text-sm transition-colors">{store.address || "Tagum City, Philippines"}</p>
-              <a
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(directionsQuery)}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-[#1b1b1b] dark:text-white text-sm font-medium mt-2 inline-block hover:underline transition-colors"
-              >
-                Get Directions
-              </a>
+              <DirectionsButton
+                destination={{
+                  lat: store.lat ?? store.latitude,
+                  lng: store.lng ?? store.longitude,
+                  address: store.address,
+                  name: store.name,
+                }}
+                className="text-[#1b1b1b] dark:text-white text-sm font-medium mt-2 hover:underline transition-colors"
+              />
             </div>
           </div>
 
@@ -160,8 +246,78 @@ export default function StorePage() {
               <p className="text-gray-500 dark:text-gray-400 text-sm transition-colors">{store.hours || "Store hours vary. Contact for details."}</p>
             </div>
           </div>
+          </div>
         </div>
 
+        {Array.isArray(store.images) && store.images.length > 0 && (
+          <section className="mb-10" aria-labelledby="gallery-heading">
+            <div className="mb-4 flex items-center gap-3">
+              <ImageIcon className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+              <h2 id="gallery-heading" className="text-xl font-bold text-gray-900 dark:text-white">Store Gallery</h2>
+            </div>
+            <div className={`grid gap-3 ${store.images.length > 1 ? "sm:grid-cols-2" : ""}`}>
+              {store.images.filter(Boolean).map((image, index) => (
+                <img
+                  key={`${image}-${index}`}
+                  src={getDisplayImageUrl(image)}
+                  alt={`${store.name} store photo ${index + 1}`}
+                  className={`h-64 w-full rounded-3xl border border-gray-200 object-cover dark:border-gray-800 ${store.images!.length === 3 && index === 0 ? "sm:col-span-2 sm:h-80" : ""}`}
+                  loading="lazy"
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {store.menuUrl && (
+          <section className="mb-10" aria-labelledby="menu-heading">
+            <div className="mb-4 flex items-center gap-3">
+              <Utensils className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+              <h2 id="menu-heading" className="text-xl font-bold text-gray-900 dark:text-white">Menu</h2>
+            </div>
+            <a href={getDisplayImageUrl(store.menuUrl)} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-3xl border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
+              <img src={getDisplayImageUrl(store.menuUrl)} alt={`${store.name} menu`} className="max-h-[48rem] w-full object-contain" loading="lazy" />
+            </a>
+          </section>
+        )}
+
+        {products.length > 0 && (
+          <section className="mb-10" aria-labelledby="products-heading">
+            <div className="mb-4 flex items-center gap-3">
+              <Utensils className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+              <h2 id="products-heading" className="text-xl font-bold text-gray-900 dark:text-white">Food & Products</h2>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {products.map((product) => {
+                const numericPrice = Number(product.price);
+                return (
+                  <article key={product.id} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                    {product.imageUrl && (
+                      <div className="relative h-48 bg-gray-100 dark:bg-gray-800">
+                        <img src={getDisplayImageUrl(product.imageUrl)} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
+                        {product.available === false && (
+                          <span className="absolute right-3 top-3 rounded-full bg-gray-900/90 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">Unavailable</span>
+                        )}
+                      </div>
+                    )}
+                    <div className="p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="font-bold text-gray-900 dark:text-white">{product.name}</h3>
+                        {Number.isFinite(numericPrice) && (
+                          <span className="shrink-0 font-bold text-gray-900 dark:text-white">₱{numericPrice.toFixed(2)}</span>
+                        )}
+                      </div>
+                      {product.ingredients && <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{product.ingredients}</p>}
+                      {product.available === false && !product.imageUrl && <p className="mt-2 text-xs font-bold uppercase tracking-wide text-gray-400">Unavailable</p>}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        <div className="grid items-start gap-6 lg:grid-cols-2">
         {/* Contact Links */}
         <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden transition-colors">
           <div className="p-6 border-b border-gray-100 dark:border-gray-800 transition-colors">
@@ -186,7 +342,7 @@ export default function StorePage() {
           </div>
         </div>
 
-        <div className="mt-10 bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden transition-colors">
+        <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden transition-colors">
           <div className="p-6 border-b border-gray-100 dark:border-gray-800 transition-colors flex items-center gap-3">
             <MessageSquare className="w-5 h-5 text-gray-400 dark:text-gray-500" />
             <h3 className="font-semibold text-gray-900 dark:text-white text-lg transition-colors">Leave Feedback</h3>
@@ -239,13 +395,26 @@ export default function StorePage() {
                 )}
               </div>
             </form>
+          ) : !user ? (
+            <div className="flex flex-col items-start gap-4 p-6 text-sm text-gray-500 dark:text-gray-400">
+              <p>Sign in as a customer to leave feedback for this store.</p>
+              <Link
+                to="/"
+                state={{ authRequired: true, returnTo: window.location.pathname }}
+                className="inline-flex items-center justify-center rounded-xl bg-gray-900 px-5 py-3 font-bold text-white transition-colors hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
+              >
+                Sign in to leave feedback
+              </Link>
+            </div>
           ) : (
             <div className="p-6 text-sm text-gray-500 dark:text-gray-400">
-              Sign in as a customer to leave feedback for this store.
+              Feedback can only be submitted from a customer account.
             </div>
           )}
         </div>
+        </div>
       </main>
+      <PublicSiteFooter />
     </div>
   );
 }

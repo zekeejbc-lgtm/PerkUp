@@ -223,7 +223,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     }
   };
 
-  if (loading) return <PageSkeleton />;
+  if (loading) return <PageSkeleton variant="promotions" />;
 
   const geofenceCenter = {
     lat: Number(formData.geofenceLat || storeCenter.lat),

@@ -513,7 +513,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     setIsScannerActive(true); // resume scanner
   };
 
-  if (loading) return <PageSkeleton />;
+  if (loading) return <PageSkeleton variant="scanner" />;
 
   if (!promo) {
     return (

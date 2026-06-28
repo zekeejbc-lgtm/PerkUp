@@ -111,7 +111,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
     }
   };
 
-  if (loading) return <PageSkeleton />;
+  if (loading) return <PageSkeleton variant="products" />;
 
   return (
     <div className="space-y-6">

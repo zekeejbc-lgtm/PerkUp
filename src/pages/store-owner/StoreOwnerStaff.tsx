@@ -148,7 +148,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
     }
   };
 
-  if (loading) return <PageSkeleton />;
+  if (loading) return <PageSkeleton variant="table" />;
 
   if (selectedStaff) {
     const totalScans = scanLogs.length;
@@ -252,7 +252,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
             </div>
 
             {analyticsLoading ? (
-              <PageSkeleton />
+              <PageSkeleton variant="table" />
             ) : scanLogs.length === 0 ? (
               <div className="py-12 text-center bg-gray-50 dark:bg-[#1b1b1b] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
                 <Activity className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-700 mb-3" />

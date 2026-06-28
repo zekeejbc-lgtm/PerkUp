@@ -47,7 +47,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
     return total / feedback.length;
   }, [feedback]);
 
-  if (loading) return <PageSkeleton />;
+  if (loading) return <PageSkeleton variant="feedback" />;
 
   return (
     <div className="space-y-6">

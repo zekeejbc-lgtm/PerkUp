@@ -3,6 +3,7 @@ import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { CreditCard, Save, Loader2, Check, Plus, Trash2 } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
+import { CustomDropdown } from "../../components/CustomDropdown";
 
 export default function AdminSubscriptions() {
   const [loading, setLoading] = useState(true);
@@ -107,7 +108,7 @@ export default function AdminSubscriptions() {
     setPlans(newPlans);
   };
 
-  if (loading) return <PageSkeleton />;
+  if (loading) return <PageSkeleton variant="subscriptions" />;
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-300">
@@ -154,11 +155,15 @@ export default function AdminSubscriptions() {
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 mb-1">Interval</label>
-                    <select value={plan.interval} onChange={e => handlePlanChange(planIndex, 'interval', e.target.value)} className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg font-medium text-gray-900 dark:text-white">
-                      <option value="month">/ month</option>
-                      <option value="year">/ year</option>
-                      <option value="one-time">One Time</option>
-                    </select>
+                    <CustomDropdown
+                      value={plan.interval}
+                      onChange={(value) => handlePlanChange(planIndex, "interval", value)}
+                      options={[
+                        { label: "/ month", value: "month" },
+                        { label: "/ year", value: "year" },
+                        { label: "One Time", value: "one-time" },
+                      ]}
+                    />
                   </div>
                 </div>
               </div>
