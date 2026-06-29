@@ -54,6 +54,7 @@ function doPost(e) {
     requireCrudSecret(data.secret);
 
     if (action === "delete") return createJsonResponse(deleteImage(data));
+    if (action === "permanent_delete" || action === "erase") return createJsonResponse(permanentlyDeleteImage(data));
     if (action === "restore") return createJsonResponse(restoreImage(data));
     if (action === "rename" || action === "update") return createJsonResponse(updateImageMetadata(data));
     if (action === "replace") return createJsonResponse(replaceImage(data));
@@ -136,6 +137,49 @@ function deleteImage(data) {
     action: "delete",
     fileId: file.getId(),
     trashed: file.isTrashed()
+  };
+}
+
+function permanentlyDeleteImage(data) {
+  var fileId = String(data.fileId || "").trim();
+  if (!/^[a-zA-Z0-9_-]+$/.test(fileId)) throw new Error("Invalid or missing fileId.");
+
+  try {
+    getManagedImageFile(fileId);
+  } catch (lookupError) {
+    if (/not found|does not exist|No item with the given ID/i.test(String(lookupError))) {
+      return {
+        success: true,
+        action: "permanent_delete",
+        fileId: fileId,
+        permanentlyDeleted: true,
+        alreadyDeleted: true
+      };
+    }
+    throw lookupError;
+  }
+
+  var response = UrlFetchApp.fetch(
+    "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId),
+    {
+      method: "delete",
+      headers: {
+        Authorization: "Bearer " + ScriptApp.getOAuthToken()
+      },
+      muteHttpExceptions: true
+    }
+  );
+  var status = response.getResponseCode();
+
+  if (status !== 204) {
+    throw new Error("Google Drive permanent deletion failed (HTTP " + status + "): " + response.getContentText());
+  }
+
+  return {
+    success: true,
+    action: "permanent_delete",
+    fileId: fileId,
+    permanentlyDeleted: true
   };
 }
 

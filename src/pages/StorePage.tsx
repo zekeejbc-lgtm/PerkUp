@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router-dom";
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "@/src/lib/dataCompat";
 import { db } from "../lib/backend";
 import { ArrowLeft, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send, Image as ImageIcon, Utensils } from "lucide-react";
@@ -39,17 +39,48 @@ interface StoreProduct {
   available?: boolean;
 }
 
+interface StoreReview {
+  id: string;
+  customerName?: string;
+  rating?: number;
+  comment?: string;
+  ownerReply?: string;
+  createdAt?: string;
+}
+
+const reviewDate = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString();
+};
+
 export default function StorePage() {
   const { storeId } = useParams();
   const { user } = useAuth();
   const [store, setStore] = useState<StoreContent | null>(null);
   const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [reviews, setReviews] = useState<StoreReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [shareStatus, setShareStatus] = useState("");
+
+  const fetchReviews = useCallback(async () => {
+    if (!storeId) return;
+    const snap = await getDocs(query(collection(db, "store_reviews"), where("storeId", "==", storeId)));
+    setReviews(
+      snap.docs
+        .map((reviewDoc) => ({ id: reviewDoc.id, ...reviewDoc.data() } as StoreReview))
+        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()),
+    );
+  }, [storeId]);
+
+  const averageRating = useMemo(() => {
+    if (!reviews.length) return 0;
+    return reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviews.length;
+  }, [reviews]);
 
   const handleShare = async () => {
     if (!store) return;
@@ -83,6 +114,7 @@ export default function StorePage() {
         const [docSnap, productsSnap] = await Promise.all([
           getDoc(doc(db, "stores", storeId)),
           getDocs(query(collection(db, "products"), where("storeId", "==", storeId))),
+          fetchReviews(),
         ]);
         
         if (docSnap.exists()) {
@@ -103,7 +135,7 @@ export default function StorePage() {
       }
     }
     fetchStore();
-  }, [storeId]);
+  }, [fetchReviews, storeId]);
 
   const handleFeedbackSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -112,13 +144,12 @@ export default function StorePage() {
     setSubmittingFeedback(true);
     setFeedbackSent(false);
     try {
-      const feedbackRef = doc(collection(db, "feedback"));
+      const feedbackRef = doc(collection(db, "store_reviews"));
       await setDoc(feedbackRef, {
         storeId,
         storeName: store.name,
         customerId: user.id,
         customerName: user.name || "Customer",
-        customerEmail: user.email || "",
         rating,
         comment: comment.trim(),
         createdAt: serverTimestamp(),
@@ -127,9 +158,13 @@ export default function StorePage() {
       setComment("");
       setRating(5);
       setFeedbackSent(true);
+      await fetchReviews();
     } catch (error) {
       console.error("Failed to submit feedback:", error);
-      alert("Failed to submit feedback. Please try again.");
+      const message = error instanceof Error && /duplicate|unique/i.test(error.message)
+        ? "You have already reviewed this store."
+        : "Failed to submit review. Please try again.";
+      alert(message);
     } finally {
       setSubmittingFeedback(false);
     }
@@ -317,6 +352,50 @@ export default function StorePage() {
           </section>
         )}
 
+        <section className="mb-10" aria-labelledby="reviews-heading">
+          <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 id="reviews-heading" className="text-2xl font-bold text-gray-900 dark:text-white">Customer Reviews</h2>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {reviews.length ? `${averageRating.toFixed(1)} out of 5 · ${reviews.length} review${reviews.length === 1 ? "" : "s"}` : "No reviews yet."}
+              </p>
+            </div>
+            {reviews.length > 0 && (
+              <div className="flex text-[#1b1b1b] dark:text-white" aria-label={`${averageRating.toFixed(1)} average rating`}>
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <Star key={value} className={`h-5 w-5 ${value <= Math.round(averageRating) ? "fill-current" : "text-gray-300 dark:text-gray-700"}`} />
+                ))}
+              </div>
+            )}
+          </div>
+          {reviews.length > 0 && (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {reviews.map((review) => (
+                <article key={review.id} className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-bold text-gray-900 dark:text-white">{review.customerName || "Customer"}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{reviewDate(review.createdAt) || "Recent review"}</p>
+                    </div>
+                    <div className="flex text-[#1b1b1b] dark:text-white" aria-label={`${review.rating || 0} star rating`}>
+                      {[1, 2, 3, 4, 5].map((value) => (
+                        <Star key={value} className={`h-4 w-4 ${value <= Number(review.rating || 0) ? "fill-current" : "text-gray-300 dark:text-gray-700"}`} />
+                      ))}
+                    </div>
+                  </div>
+                  <p className="mt-4 text-sm leading-6 text-gray-700 dark:text-gray-300">{review.comment}</p>
+                  {review.ownerReply && (
+                    <div className="mt-4 rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/70">
+                      <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Response from {store.name}</p>
+                      <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-300">{review.ownerReply}</p>
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
         <div className="grid items-start gap-6 lg:grid-cols-2">
         {/* Contact Links */}
         <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden transition-colors">
@@ -345,7 +424,7 @@ export default function StorePage() {
         <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden transition-colors">
           <div className="p-6 border-b border-gray-100 dark:border-gray-800 transition-colors flex items-center gap-3">
             <MessageSquare className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-            <h3 className="font-semibold text-gray-900 dark:text-white text-lg transition-colors">Leave Feedback</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white text-lg transition-colors">Leave a Review</h3>
           </div>
 
           {user?.role === "customer" ? (
@@ -388,27 +467,27 @@ export default function StorePage() {
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-black disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
                 >
                   <Send className="h-4 w-4" />
-                  {submittingFeedback ? "Submitting..." : "Submit Feedback"}
+                  {submittingFeedback ? "Submitting..." : "Submit Review"}
                 </button>
                 {feedbackSent && (
-                  <p className="text-sm font-semibold text-green-600 dark:text-green-400">Feedback submitted.</p>
+                  <p className="text-sm font-semibold text-green-600 dark:text-green-400">Review submitted.</p>
                 )}
               </div>
             </form>
           ) : !user ? (
             <div className="flex flex-col items-start gap-4 p-6 text-sm text-gray-500 dark:text-gray-400">
-              <p>Sign in as a customer to leave feedback for this store.</p>
+              <p>Sign in as a customer to rate and review this store.</p>
               <Link
                 to="/"
                 state={{ authRequired: true, returnTo: window.location.pathname }}
                 className="inline-flex items-center justify-center rounded-xl bg-gray-900 px-5 py-3 font-bold text-white transition-colors hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
               >
-                Sign in to leave feedback
+                Sign in to leave a review
               </Link>
             </div>
           ) : (
             <div className="p-6 text-sm text-gray-500 dark:text-gray-400">
-              Feedback can only be submitted from a customer account.
+              Reviews can only be submitted from a customer account.
             </div>
           )}
         </div>

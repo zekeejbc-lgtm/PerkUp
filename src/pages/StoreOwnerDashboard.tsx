@@ -65,7 +65,7 @@ export default function StoreOwnerDashboard() {
     { name: 'Products', href: '/owner/products', icon: ShoppingBag, requiresBranch: true },
     { name: 'Promotions', href: '/owner/promotions', icon: Gift, requiresBranch: true },
     { name: 'Customers', href: '/owner/customers', icon: Users, requiresBranch: true },
-    { name: 'Feedback', href: '/owner/feedback', icon: MessageSquare, requiresBranch: true },
+    { name: 'Reviews', href: '/owner/feedback', icon: MessageSquare, requiresBranch: true },
     { name: 'Staff', href: '/owner/staff', icon: BadgeCheck, requiresBranch: true },
     { name: 'Account', href: '/owner/account', icon: UserCircle, requiresBranch: false },
     { name: 'Subscription', href: '/owner/subscription', icon: CreditCard, requiresBranch: false },

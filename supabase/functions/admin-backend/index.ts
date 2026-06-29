@@ -358,6 +358,11 @@ Deno.serve(async (req) => {
         .delete()
         .eq("data->>customerId", userId);
       if (feedbackError) throw feedbackError;
+      const { error: referralError } = await admin
+        .from("store_referral_redemptions")
+        .delete()
+        .eq("customer_id", userId);
+      if (referralError) throw referralError;
 
       const { data: files, error: filesError } = await admin
         .from("drive_files")
@@ -365,10 +370,14 @@ Deno.serve(async (req) => {
         .eq("owner_id", userId);
       if (filesError) throw filesError;
       for (const file of files || []) {
-        await deleteDriveFile(file.file_id);
+        await permanentlyDeleteDriveFile(file.file_id);
+        const { error: driveRowError } = await admin
+          .from("drive_files")
+          .delete()
+          .eq("file_id", file.file_id)
+          .eq("owner_id", userId);
+        if (driveRowError) throw driveRowError;
       }
-      const { error: driveRowsError } = await admin.from("drive_files").delete().eq("owner_id", userId);
-      if (driveRowsError) throw driveRowsError;
 
       const { error: customerError } = await admin.from("customers").delete().eq("id", userId);
       if (customerError) throw customerError;
@@ -382,7 +391,7 @@ Deno.serve(async (req) => {
 
       return jsonResponse({
         deleted: true,
-        retained: "An unlinkable deleted-account marker for each affected store",
+        retained: "A de-identified deleted-account marker for each affected loyalty card",
       });
     }
 
@@ -585,6 +594,20 @@ const deleteDriveFile = async (fileId: string) => {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.success) throw new Error(data.error || `Drive delete failed with HTTP ${response.status}.`);
+};
+
+const permanentlyDeleteDriveFile = async (fileId: string) => {
+  const secret = requiredEnv("DRIVE_CRUD_SECRET");
+  const url = Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") || DEFAULT_GAS_UPLOAD_URL;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "permanent_delete", secret, fileId }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success || !data.permanentlyDeleted) {
+    throw new Error(data.error || `Drive permanent deletion failed with HTTP ${response.status}.`);
+  }
 };
 
 const deletionProofPayload = (userId: string, expiresAt: number) => `${userId}.${expiresAt}`;

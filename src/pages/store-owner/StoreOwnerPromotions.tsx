@@ -4,6 +4,7 @@ import { db } from "../../lib/backend";
 import { Gift, Calendar, Plus, Edit2, Trash2, ArrowLeft, MapPin, ImagePlus, Users, Copy, Ticket } from "lucide-react";
 import { Circle, MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
+import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { getStoreReferralCode } from "../../lib/secureQr";
 
@@ -49,6 +50,8 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const [promotions, setPromotions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [promotionToDelete, setPromotionToDelete] = useState<any>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [editingPromo, setEditingPromo] = useState<any>(null);
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -211,15 +214,18 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this promotion?")) return;
+  const handleDelete = async () => {
+    if (!promotionToDelete) return;
+    setIsDeleting(true);
     try {
-      const promotion = promotions.find((item) => item.id === id);
-      await deleteDoc(doc(db, "promotions", id));
-      if (promotion?.bannerImageUrl) await deleteImageFromDriveSecure(promotion.bannerImageUrl).catch(console.error);
-      setPromotions(promotions.filter((p) => p.id !== id));
+      await deleteDoc(doc(db, "promotions", promotionToDelete.id));
+      if (promotionToDelete.bannerImageUrl) await deleteImageFromDriveSecure(promotionToDelete.bannerImageUrl).catch(console.error);
+      setPromotions((current) => current.filter((promotion) => promotion.id !== promotionToDelete.id));
+      setPromotionToDelete(null);
     } catch (error) {
       alert("Failed to delete promotion");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -528,7 +534,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                   <button onClick={() => handleOpenModal(promo)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
                     <Edit2 className="w-4 h-4" />
                   </button>
-                  <button onClick={() => handleDelete(promo.id)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
+                  <button onClick={() => setPromotionToDelete(promo)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
@@ -538,6 +544,15 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
         )}
       </div>
 
+      <ConfirmationModal
+        isOpen={Boolean(promotionToDelete)}
+        title="Delete promotion?"
+        description={`“${promotionToDelete?.title || "This promotion"}” will be permanently removed. Existing customer progress associated with it may no longer be available.`}
+        confirmLabel="Delete promotion"
+        isLoading={isDeleting}
+        onClose={() => setPromotionToDelete(null)}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

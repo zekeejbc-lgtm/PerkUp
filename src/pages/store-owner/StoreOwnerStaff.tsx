@@ -4,6 +4,7 @@ import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
 import { Activity, ArrowLeft, BadgeCheck, Calendar, Gift, Mail, Plus, Shield, Star, Trash2, TrendingUp, UserCircle, Users, X, Key } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
+import { ConfirmationModal } from "../../components/ConfirmationModal";
 
 const toDate = (value: any) => {
   if (!value) return null;
@@ -34,6 +35,8 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
   const [scanLogs, setScanLogs] = useState<any[]>([]);
   const [promotionsById, setPromotionsById] = useState<Record<string, any>>({});
   const [customersById, setCustomersById] = useState<Record<string, any>>({});
+  const [staffToRemove, setStaffToRemove] = useState<any>(null);
+  const [isRemovingStaff, setIsRemovingStaff] = useState(false);
   
   const [formData, setFormData] = useState({
     name: "",
@@ -138,13 +141,17 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Remove this staff member? They will lose access to scanning customers immediately.")) return;
+  const handleDelete = async () => {
+    if (!staffToRemove) return;
+    setIsRemovingStaff(true);
     try {
-      await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_user", userId: id });
-      setStaff(staff.filter(s => s.id !== id));
+      await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_user", userId: staffToRemove.id });
+      setStaff((current) => current.filter((member) => member.id !== staffToRemove.id));
+      setStaffToRemove(null);
     } catch (error) {
       alert("Failed to remove staff member");
+    } finally {
+      setIsRemovingStaff(false);
     }
   };
 
@@ -352,7 +359,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                    onKeyDown={(event) => event.stopPropagation()}
                    onClick={(event) => {
                      event.stopPropagation();
-                     handleDelete(member.id);
+                     setStaffToRemove(member);
                    }}
                    className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
                    title="Remove Access"
@@ -403,6 +410,15 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
           </div>
         </div>
       )}
+      <ConfirmationModal
+        isOpen={Boolean(staffToRemove)}
+        title="Remove staff access?"
+        description={`${staffToRemove?.name || staffToRemove?.email || "This staff member"} will immediately lose access to customer scanning and the store workspace.`}
+        confirmLabel="Remove access"
+        isLoading={isRemovingStaff}
+        onClose={() => setStaffToRemove(null)}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

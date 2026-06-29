@@ -7,6 +7,7 @@ import { User, Mail, Plus, Trash2, Shield, Save, X, AtSign, Phone, Calendar, Fil
 import AccountSecurity from "@/src/components/AccountSecurity";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
+import { ConfirmationModal } from "../../components/ConfirmationModal";
 
 export default function AdminAccount() {
   const { user, refreshUser } = useAuth();
@@ -30,6 +31,8 @@ export default function AdminAccount() {
   const [newAdminEmail, setNewAdminEmail] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [adminToDelete, setAdminToDelete] = useState<any>(null);
+  const [isDeletingAdmin, setIsDeletingAdmin] = useState(false);
 
   useEffect(() => {
     async function fetchAdmins() {
@@ -153,18 +156,26 @@ export default function AdminAccount() {
     }
   };
 
-  const handleDeleteAdmin = async (adminId: string) => {
-    if (adminId === user?.id) {
+  const requestDeleteAdmin = (admin: any) => {
+    if (admin.id === user?.id) {
       alert("You cannot delete your own account here.");
       return;
     }
-    if (!window.confirm("Delete this assistant admin?")) return;
+    setAdminToDelete(admin);
+  };
+
+  const handleDeleteAdmin = async () => {
+    if (!adminToDelete) return;
+    setIsDeletingAdmin(true);
     try {
-      await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_user", userId: adminId });
-      setAdmins(admins.filter(a => a.id !== adminId));
+      await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_user", userId: adminToDelete.id });
+      setAdmins((current) => current.filter((admin) => admin.id !== adminToDelete.id));
+      setAdminToDelete(null);
     } catch (error) {
       console.error(error);
       alert("Failed to delete admin");
+    } finally {
+      setIsDeletingAdmin(false);
     }
   };
 
@@ -328,7 +339,7 @@ export default function AdminAccount() {
                        </div>
                      </div>
                      {admin.role !== 'admin' && (
-                       <button onClick={() => handleDeleteAdmin(admin.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
+                       <button onClick={() => requestDeleteAdmin(admin)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
                          <Trash2 className="w-4 h-4" />
                        </button>
                      )}
@@ -371,6 +382,15 @@ export default function AdminAccount() {
           </div>
         </div>
       )}
+      <ConfirmationModal
+        isOpen={Boolean(adminToDelete)}
+        title="Delete assistant admin?"
+        description={`${adminToDelete?.name || adminToDelete?.email || "This assistant admin"} will permanently lose administrative access. This action cannot be undone.`}
+        confirmLabel="Delete admin"
+        isLoading={isDeletingAdmin}
+        onClose={() => setAdminToDelete(null)}
+        onConfirm={handleDeleteAdmin}
+      />
     </div>
   );
 }

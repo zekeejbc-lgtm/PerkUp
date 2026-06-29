@@ -4,6 +4,7 @@ import { db } from "../../lib/backend";
 import { Plus, Edit2, Trash2, X, Image as ImageIcon, Upload } from "lucide-react";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
+import { ConfirmationModal } from "../../components/ConfirmationModal";
 
 export default function StoreOwnerProducts({ store }: { store: any }) {
   const [products, setProducts] = useState<any[]>([]);
@@ -18,6 +19,8 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
     available: true
   });
   const [saving, setSaving] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<any>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (!store?.id) return;
@@ -99,15 +102,18 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this product?")) return;
+  const handleDelete = async () => {
+    if (!productToDelete) return;
+    setIsDeleting(true);
     try {
-      const product = products.find((item) => item.id === id);
-      await deleteDoc(doc(db, "products", id));
-      if (product?.imageUrl) await deleteImageFromDriveSecure(product.imageUrl).catch(console.error);
-      setProducts(products.filter(p => p.id !== id));
+      await deleteDoc(doc(db, "products", productToDelete.id));
+      if (productToDelete.imageUrl) await deleteImageFromDriveSecure(productToDelete.imageUrl).catch(console.error);
+      setProducts((current) => current.filter((product) => product.id !== productToDelete.id));
+      setProductToDelete(null);
     } catch (error) {
       alert("Failed to delete product");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -165,7 +171,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
                    <button onClick={() => handleOpenModal(product)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
                      <Edit2 className="w-4 h-4" />
                    </button>
-                   <button onClick={() => handleDelete(product.id)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
+                   <button onClick={() => setProductToDelete(product)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
                      <Trash2 className="w-4 h-4" />
                    </button>
                 </div>
@@ -237,6 +243,15 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
           </div>
         </div>
       )}
+      <ConfirmationModal
+        isOpen={Boolean(productToDelete)}
+        title="Delete product?"
+        description={`“${productToDelete?.name || "This product"}” will be removed from your catalog. This action cannot be undone.`}
+        confirmLabel="Delete product"
+        isLoading={isDeleting}
+        onClose={() => setProductToDelete(null)}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

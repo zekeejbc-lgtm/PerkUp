@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { getPasswordStrength } from "../lib/passwordStrength";
-import { supabase } from "../lib/supabase";
+import { initialRecoveryCallbackDetected, supabase } from "../lib/supabase";
 
 type RecoveryStatus = "checking" | "ready" | "invalid" | "success";
 
@@ -31,7 +31,7 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     let active = true;
-    const arrivedFromRecoveryLink = hasRecoveryParameters();
+    const arrivedFromRecoveryLink = initialRecoveryCallbackDetected || hasRecoveryParameters();
     const search = new URLSearchParams(window.location.search);
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const urlError = search.get("error_description") || hash.get("error_description");

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { AlertTriangle, CalendarClock, CheckCircle2, KeyRound, Loader2, Lock, Mail, QrCode, ShieldCheck, Smartphone, Trash2, X } from "lucide-react";
 import { auth, db } from "@/src/lib/backend";
 import { supabase } from "@/src/lib/supabase";
@@ -86,6 +87,7 @@ export default function AccountSecurity() {
   const [deletionProof, setDeletionProof] = useState("");
   const [deletionPassword, setDeletionPassword] = useState("");
   const [deletionUsername, setDeletionUsername] = useState("");
+  const [deletionAcknowledged, setDeletionAcknowledged] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<Message | null>(null);
   const passwordStrength = useMemo(() => getPasswordStrength(newPassword), [newPassword]);
@@ -200,7 +202,7 @@ export default function AccountSecurity() {
   };
 
   const deleteAccount = async () => {
-    if (!deletionProof || !deletionPassword || !deletionUsername.trim()) return;
+    if (!deletionProof || !deletionPassword || !deletionUsername.trim() || !deletionAcknowledged) return;
     setIsDeletingAccount(true);
     setDeleteMessage(null);
     try {
@@ -992,9 +994,11 @@ export default function AccountSecurity() {
             <div className="flex-1">
               <h3 className="text-lg font-bold text-red-900 dark:text-red-200">Delete account</h3>
               <p className="mt-1 text-sm text-red-800/80 dark:text-red-300/80">
-                This permanently removes your login, profile, contact details, photo, feedback, trusted-device data,
-                rewards, stamps, points, and transaction progress. Nothing can be restored. Store owners and staff will
-                only see an unlinkable “Deleted account” marker.
+                This permanently removes your login, profile, contact details, profile image, feedback, referral record,
+                trusted-device data, scan history, rewards, stamps, points, and promotion progress. A store keeps only a
+                de-identified loyalty-card marker with the store and original join date; it cannot be linked back to you.
+                See <Link to="/data-deletion" className="font-semibold underline">Data Deletion</Link> and{" "}
+                <Link to="/privacy" className="font-semibold underline">Privacy Policy</Link> for full details.
               </p>
 
               {deletionStep === "start" && (
@@ -1054,10 +1058,19 @@ export default function AccountSecurity() {
                     placeholder="Exact username"
                     className="w-full rounded-xl border border-red-200 bg-white px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-red-500 dark:border-red-900 dark:bg-gray-900 dark:text-white"
                   />
+                  <label className="flex items-start gap-2 text-sm text-red-900 dark:text-red-200">
+                    <input
+                      type="checkbox"
+                      checked={deletionAcknowledged}
+                      onChange={(event) => setDeletionAcknowledged(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-red-300 accent-red-700"
+                    />
+                    <span>I understand this deletion is permanent, cannot be undone, and removes all rewards.</span>
+                  </label>
                   <button
                     type="button"
                     onClick={deleteAccount}
-                    disabled={isDeletingAccount || !deletionPassword || !deletionUsername.trim()}
+                    disabled={isDeletingAccount || !deletionPassword || !deletionUsername.trim() || !deletionAcknowledged}
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-800 disabled:opacity-50"
                   >
                     {isDeletingAccount ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}

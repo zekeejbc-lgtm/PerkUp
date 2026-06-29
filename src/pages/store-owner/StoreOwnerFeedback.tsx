@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs, query, where } from "@/src/lib/dataCompat";
+import { collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Inbox, MessageSquare, Star, User } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
@@ -15,13 +15,15 @@ const toDate = (value: any) => {
 export default function StoreOwnerFeedback({ store }: { store: any }) {
   const [feedback, setFeedback] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [savingReplyId, setSavingReplyId] = useState("");
 
   useEffect(() => {
     async function fetchFeedback() {
       if (!store?.id) return;
       setLoading(true);
       try {
-        const q = query(collection(db, "feedback"), where("storeId", "==", store.id));
+        const q = query(collection(db, "store_reviews"), where("storeId", "==", store.id));
         const snap = await getDocs(q);
         const rows = snap.docs
           .map((doc) => ({ id: doc.id, ...doc.data() }))
@@ -41,6 +43,27 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
     fetchFeedback();
   }, [store?.id]);
 
+  const saveReply = async (review: any) => {
+    const reply = (replyDrafts[review.id] ?? review.ownerReply ?? "").trim();
+    if (!reply) return;
+    setSavingReplyId(review.id);
+    try {
+      await updateDoc(doc(db, "store_reviews", review.id), {
+        ownerReply: reply,
+        ownerRepliedAt: serverTimestamp(),
+      });
+      setFeedback((current) => current.map((item) => (
+        item.id === review.id ? { ...item, ownerReply: reply, ownerRepliedAt: new Date().toISOString() } : item
+      )));
+      setReplyDrafts((current) => ({ ...current, [review.id]: reply }));
+    } catch (error) {
+      console.error("Failed to save store reply", error);
+      alert("Failed to save reply. Please try again.");
+    } finally {
+      setSavingReplyId("");
+    }
+  };
+
   const averageRating = useMemo(() => {
     if (feedback.length === 0) return 0;
     const total = feedback.reduce((sum, item) => sum + Number(item.rating || 0), 0);
@@ -53,8 +76,8 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Store Feedback</h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Read customer comments and ratings for this branch.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Store Reviews</h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Read customer reviews and publish a store response.</p>
         </div>
         <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-800/60">
           <Star className="h-5 w-5 fill-[#1b1b1b] text-[#1b1b1b] dark:fill-white dark:text-white" />
@@ -98,6 +121,34 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
                 <div className="mt-4 flex gap-3 rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/60">
                   <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
                   <p className="text-sm font-medium leading-6 text-gray-700 dark:text-gray-300">{item.comment}</p>
+                </div>
+                {item.ownerReply && (
+                  <div className="mt-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
+                    <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Your public response</p>
+                    <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-300">{item.ownerReply}</p>
+                  </div>
+                )}
+                <div className="mt-4">
+                  <label htmlFor={`reply-${item.id}`} className="text-sm font-semibold text-gray-900 dark:text-gray-200">
+                    {item.ownerReply ? "Edit response" : "Reply to this review"}
+                  </label>
+                  <textarea
+                    id={`reply-${item.id}`}
+                    rows={3}
+                    maxLength={500}
+                    value={replyDrafts[item.id] ?? item.ownerReply ?? ""}
+                    onChange={(event) => setReplyDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+                    placeholder="Write a public response from the store..."
+                    className="mt-2 w-full resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => saveReply(item)}
+                    disabled={savingReplyId === item.id || !(replyDrafts[item.id] ?? item.ownerReply ?? "").trim()}
+                    className="mt-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50 dark:bg-white dark:text-gray-900"
+                  >
+                    {savingReplyId === item.id ? "Saving..." : item.ownerReply ? "Update response" : "Publish response"}
+                  </button>
                 </div>
               </article>
             );
