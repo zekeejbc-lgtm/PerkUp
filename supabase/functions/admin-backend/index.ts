@@ -3,6 +3,7 @@ import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
+const DEFAULT_APP_URL = "https://perk-up-navy.vercel.app";
 
 const requiredEnv = (name: string) => {
   const value = Deno.env.get(name);
@@ -18,11 +19,27 @@ const timestamp = () => ({
   nanoseconds: 0,
 });
 
+const isStrongPassword = (password: string, name: string, email: string) => {
+  const normalized = password.toLowerCase();
+  const personalTerms = [
+    ...name.toLowerCase().split(/[^a-z0-9]+/),
+    email.toLowerCase().split("@")[0],
+  ].filter((term) => term.length >= 3);
+  return password.length >= 12 &&
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /\d/.test(password) &&
+    /[^A-Za-z0-9]/.test(password) &&
+    personalTerms.every((term) => !normalized.includes(term));
+};
+
 type UserProfile = {
   role?: string;
   storeId?: string;
   email?: string;
+  name?: string;
   username?: string;
+  forcePasswordReset?: boolean;
 };
 
 Deno.serve(async (req) => {
@@ -67,8 +84,8 @@ Deno.serve(async (req) => {
         ? body.store as Record<string, unknown>
         : {};
       const storeName = cleanText(storeInput.name, 120);
-      if (!email || password.length < 8 || !name || !storeName) {
-        return jsonResponse({ error: "Owner name, store name, valid email, and an 8-character password are required." }, 400);
+      if (!email || !name || !storeName || !isStrongPassword(password, name, email)) {
+        return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, and no owner name or email." }, 400);
       }
 
       const { data: created, error: createError } = await admin.auth.admin.createUser({
@@ -87,6 +104,8 @@ Deno.serve(async (req) => {
         email,
         name,
         role: "store_owner",
+        storeId,
+        forcePasswordReset: Boolean(body.forcePasswordReset),
         createdAt: timestamp(),
         updatedAt: timestamp(),
       };
@@ -146,7 +165,25 @@ Deno.serve(async (req) => {
         }
       }
 
-      return jsonResponse({ store: { id: storeId, ...store }, owner: { id: ownerId, ...profile } });
+      let notification = { sent: false, error: "" };
+      try {
+        await sendStoreCreatedEmail({
+          recipientEmail: email,
+          userName: name,
+          store,
+          requirePasswordChange: Boolean(body.forcePasswordReset),
+        });
+        notification = { sent: true, error: "" };
+      } catch (emailError) {
+        notification.error = emailError instanceof Error ? emailError.message : "Store email could not be sent.";
+        console.error("Store creation email failed", { storeId, ownerId, error: notification.error });
+      }
+
+      return jsonResponse({
+        store: { id: storeId, ...store },
+        owner: { id: ownerId, ...profile },
+        notification,
+      });
     }
 
     if (action === "reject_application") {
@@ -252,6 +289,26 @@ Deno.serve(async (req) => {
       await mergeUserData(admin, userId, {
         forcePasswordReset: Boolean(body.forcePasswordReset),
         passwordResetAt: timestamp(),
+      });
+      return jsonResponse({ updated: true });
+    }
+
+    if (action === "complete_first_login_password_change") {
+      if (!actor.forcePasswordReset) {
+        return jsonResponse({ error: "A first-login password change is not required." }, 400);
+      }
+      const password = String(body.password || "");
+      const accountName = cleanText(actor.name, 80);
+      const accountEmail = cleanText(actor.email || authData.user.email, 254).toLowerCase();
+      if (!isStrongPassword(password, accountName, accountEmail)) {
+        return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, and no account name or email." }, 400);
+      }
+      const { error: passwordError } = await admin.auth.admin.updateUserById(authData.user.id, { password });
+      if (passwordError) throw passwordError;
+      await mergeUserData(admin, authData.user.id, {
+        forcePasswordReset: false,
+        passwordChangedAt: timestamp(),
+        updatedAt: timestamp(),
       });
       return jsonResponse({ updated: true });
     }
@@ -667,5 +724,67 @@ const verifyDeletionOtp = async (otpToken: string, otpCode: string, email: strin
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.success || !data.otp?.verified) {
     throw new Error(data.error || "The deletion OTP is invalid or expired.");
+  }
+};
+
+const emailDate = (value: unknown) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value && "seconds" in value) {
+    const seconds = Number((value as { seconds?: unknown }).seconds);
+    if (Number.isFinite(seconds)) {
+      return new Intl.DateTimeFormat("en-PH", {
+        dateStyle: "long",
+        timeZone: "Asia/Manila",
+      }).format(new Date(seconds * 1000));
+    }
+  }
+  return "";
+};
+
+const paymentScheduleLabel = (value: unknown) => {
+  const schedule = cleanText(value, 60);
+  if (schedule === "every_30_days") return "Every 30 days from subscription start";
+  return schedule.replaceAll("_", " ");
+};
+
+const sendStoreCreatedEmail = async ({
+  recipientEmail,
+  userName,
+  store,
+  requirePasswordChange,
+}: {
+  recipientEmail: string;
+  userName: string;
+  store: Record<string, unknown>;
+  requirePasswordChange: boolean;
+}) => {
+  const url = Deno.env.get("GAS_EMAIL_URL") ||
+    Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") ||
+    DEFAULT_GAS_UPLOAD_URL;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({
+      action: "store_created",
+      secret: requiredEnv("DRIVE_CRUD_SECRET"),
+      recipientEmail,
+      userName,
+      requirePasswordChange,
+      loginLink: Deno.env.get("APP_URL") || DEFAULT_APP_URL,
+      store: {
+        name: cleanText(store.name, 120),
+        location: cleanText(store.location || store.address, 240),
+        logoUrl: cleanText(store.logoUrl, 2000),
+        subscriptionLevel: cleanText(store.subscriptionLevel, 80),
+        paymentSchedule: paymentScheduleLabel(store.paymentSchedule),
+        subscriptionStart: emailDate(store.subscriptionStart),
+        subscriptionEnd: emailDate(store.subscriptionEnd),
+      },
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success || !data.email) {
+    throw new Error(data.error || `Store email failed with HTTP ${response.status}.`);
   }
 };

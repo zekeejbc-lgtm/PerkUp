@@ -20,6 +20,9 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
   const [formData, setFormData] = useState({
     name: store?.name || "",
     description: store?.description || "",
+    category: store?.category || "",
+    contact: store?.contact || "",
+    website: store?.website || "",
     address: store?.address || "",
     latitude: store?.lat ?? store?.latitude ?? "",
     longitude: store?.lng ?? store?.longitude ?? "",
@@ -27,9 +30,12 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
     images: store?.images || [], // array of up to 3 images
     menuUrl: store?.menuUrl || "",
     openingHours: store?.openingHours || store?.hours || "Mon-Sun: 9AM - 9PM",
+    openingTime: store?.openingTime || "09:00",
+    closingTime: store?.closingTime || "21:00",
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
 
   // Parse coords
   const lat = parseFloat(formData.latitude) || 14.5995; // Default to Manila
@@ -41,6 +47,9 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
       setFormData({
         name: store?.name || "",
         description: store?.description || "",
+        category: store?.category || "",
+        contact: store?.contact || "",
+        website: store?.website || "",
         address: store?.address || "",
         latitude: store?.lat ?? store?.latitude ?? "",
         longitude: store?.lng ?? store?.longitude ?? "",
@@ -48,6 +57,8 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
         images: store?.images || [],
         menuUrl: store?.menuUrl || "",
         openingHours: store?.openingHours || store?.hours || "Mon-Sun: 9AM - 9PM",
+        openingTime: store?.openingTime || "09:00",
+        closingTime: store?.closingTime || "21:00",
       });
       const storeLat = Number(store.lat ?? store.latitude);
       const storeLng = Number(store.lng ?? store.longitude);
@@ -63,21 +74,42 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
     setSaving(true);
     setSaved(false);
     try {
+      const uploadPending = async (url: string, purpose: string) => {
+        const file = pendingFiles[url];
+        return file
+          ? uploadImageFileToDriveSecure(file, {
+              owner: formData.name || store?.id,
+              purpose,
+            })
+          : url;
+      };
+      const logoUrl = await uploadPending(formData.logoUrl, "store-logo");
+      const menuUrl = await uploadPending(formData.menuUrl, "store-menu");
+      const images = await Promise.all(
+        formData.images.map((url: string) => uploadPending(url, "store-photo")),
+      );
       const nextStoreData = {
         ...formData,
+        logoUrl,
+        menuUrl,
+        images,
         lat: Number(formData.latitude),
         lng: Number(formData.longitude),
-        hours: formData.openingHours,
+        location: formData.address,
+        hours: `Mon-Sun: ${formData.openingTime} - ${formData.closingTime}`,
+        openingHours: `Mon-Sun: ${formData.openingTime} - ${formData.closingTime}`,
       };
       await updateDoc(doc(db, "stores", store.id), nextStoreData);
       const previousImages = [store.logoUrl, store.menuUrl, ...(store.images || [])].filter(Boolean);
-      const retainedImages = new Set([formData.logoUrl, formData.menuUrl, ...formData.images].filter(Boolean));
+      const retainedImages = new Set([logoUrl, menuUrl, ...images].filter(Boolean));
       await Promise.all(
         previousImages
           .filter((url: string) => !retainedImages.has(url))
           .map((url: string) => deleteImageFromDriveSecure(url).catch(console.error)),
       );
       setStore({ ...store, ...nextStoreData });
+      Object.keys(pendingFiles).forEach((url) => URL.revokeObjectURL(url));
+      setPendingFiles({});
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {
@@ -88,35 +120,47 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logoUrl' | 'menuUrl' | 'images') => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, field: 'logoUrl' | 'menuUrl' | 'images') => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    try {
-      if (field === 'images') {
-        const newImages = [...formData.images];
-        for (let i = 0; i < files.length && newImages.length < 3; i++) {
-           const imageUrl = await uploadImageFileToDriveSecure(files[i], {
-             owner: formData.name || store?.id,
-             purpose: "store-photo",
-           });
-           newImages.push(imageUrl);
-        }
-        setFormData(prev => ({ ...prev, images: newImages }));
-      } else {
-        const imageUrl = await uploadImageFileToDriveSecure(files[0], {
-          owner: formData.name || store?.id,
-          purpose: field === "logoUrl" ? "store-logo" : "store-menu",
-        });
-        setFormData(prev => ({ ...prev, [field]: imageUrl }));
+    if (field === 'images') {
+      const newImages = [...formData.images];
+      const additions: Record<string, File> = {};
+      for (let i = 0; i < files.length && newImages.length < 3; i++) {
+        const previewUrl = URL.createObjectURL(files[i]);
+        additions[previewUrl] = files[i];
+        newImages.push(previewUrl);
       }
-    } catch (err) {
-      console.error("Image upload failed", err);
-      alert("Failed to process image");
+      setPendingFiles((current) => ({ ...current, ...additions }));
+      setFormData(prev => ({ ...prev, images: newImages }));
+    } else {
+      const previousUrl = formData[field];
+      if (previousUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(previousUrl);
+        setPendingFiles((current) => {
+          const next = { ...current };
+          delete next[previousUrl];
+          return next;
+        });
+      }
+      const previewUrl = URL.createObjectURL(files[0]);
+      setPendingFiles((current) => ({ ...current, [previewUrl]: files[0] }));
+      setFormData(prev => ({ ...prev, [field]: previewUrl }));
     }
+    e.target.value = "";
   };
 
   const removeImage = (index: number) => {
+    const removedUrl = formData.images[index];
+    if (removedUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(removedUrl);
+      setPendingFiles((current) => {
+        const next = { ...current };
+        delete next[removedUrl];
+        return next;
+      });
+    }
     setFormData(prev => ({ ...prev, images: prev.images.filter((_, i) => i !== index) }));
   };
 
@@ -150,6 +194,19 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
               />
             </div>
 
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Category</label>
+              <input type="text" required value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} placeholder="Coffee, Bakery, Retail..." className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Contact Number</label>
+              <input type="tel" required value={formData.contact} onChange={e => setFormData({...formData, contact: e.target.value})} placeholder="+63..." className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Website (Optional)</label>
+              <input type="url" value={formData.website} onChange={e => setFormData({...formData, website: e.target.value})} placeholder="https://example.com" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+            </div>
+
             <div className="space-y-2 sm:col-span-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Description</label>
               <textarea
@@ -163,11 +220,10 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2">
                  <Clock className="w-4 h-4 text-gray-400" /> Opening Hours
                </label>
-              <input
-                type="text" value={formData.openingHours} onChange={e => setFormData({...formData, openingHours: e.target.value})}
-                placeholder="Mon-Sun: 9AM - 9PM"
-                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none"
-              />
+              <div className="grid grid-cols-2 gap-4">
+                <input aria-label="Opening time" type="time" required value={formData.openingTime} onChange={e => setFormData({...formData, openingTime: e.target.value})} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+                <input aria-label="Closing time" type="time" required value={formData.closingTime} onChange={e => setFormData({...formData, closingTime: e.target.value})} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+              </div>
             </div>
           </div>
         </div>

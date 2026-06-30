@@ -31,6 +31,7 @@ export interface AppUser {
   storeId?: string;
   skipMfaOnTrustedDevice?: boolean;
   trustedLoginDevices?: TrustedLoginDevice[];
+  forcePasswordReset?: boolean;
 }
 
 interface AuthContextType {

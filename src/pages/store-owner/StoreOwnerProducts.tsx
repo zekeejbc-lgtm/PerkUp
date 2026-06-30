@@ -21,6 +21,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
   const [saving, setSaving] = useState(false);
   const [productToDelete, setProductToDelete] = useState<any>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (!store?.id) return;
@@ -39,6 +40,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
   }, [store]);
 
   const handleOpenModal = (product: any = null) => {
+    setPendingImageFile(null);
     if (product) {
       setEditingProduct(product);
       setFormData({
@@ -55,30 +57,30 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
     setIsModalOpen(true);
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    try {
-      const imageUrl = await uploadImageFileToDriveSecure(file, {
-        owner: store?.name || store?.id,
-        purpose: "product-image",
-      });
-      setFormData(prev => ({ ...prev, imageUrl }));
-    } catch (err) {
-      console.error("Product image upload failed", err);
-      alert("Failed to upload product image");
-    }
+    if (formData.imageUrl.startsWith("blob:")) URL.revokeObjectURL(formData.imageUrl);
+    setPendingImageFile(file);
+    setFormData(prev => ({ ...prev, imageUrl: URL.createObjectURL(file) }));
+    e.target.value = "";
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
+      const imageUrl = pendingImageFile
+        ? await uploadImageFileToDriveSecure(pendingImageFile, {
+            owner: store?.name || store?.id,
+            purpose: "product-image",
+          })
+        : formData.imageUrl;
       const productData = {
         storeId: store.id,
         name: formData.name,
         price: parseFloat(formData.price),
-        imageUrl: formData.imageUrl,
+        imageUrl,
         ingredients: formData.ingredients,
         available: formData.available,
         updatedAt: serverTimestamp(),
@@ -95,6 +97,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
         setProducts([...products, { id: docRef.id, ...productData }]);
       }
       setIsModalOpen(false);
+      setPendingImageFile(null);
     } catch (error) {
       alert("Failed to save product");
     } finally {

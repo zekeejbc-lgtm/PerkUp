@@ -47,6 +47,20 @@ function doPost(e) {
       });
     }
 
+    if (action === "store_created" || action === "storecreated") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        email: sendStoreCreatedEmail(
+          data.recipientEmail,
+          data.userName,
+          data.store,
+          data.loginLink,
+          data.requirePasswordChange
+        )
+      });
+    }
+
     if (action === "upload") {
       return createJsonResponse(uploadImage(data));
     }

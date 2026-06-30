@@ -120,6 +120,47 @@ function sendConfirmationEmail(recipientEmail, userName, confirmationLink) {
   });
 }
 
+function sendStoreCreatedEmail(recipientEmail, userName, store, loginLink, requirePasswordChange) {
+  validateEmailInput_(recipientEmail, userName);
+  store = store || {};
+
+  var storeName = String(store.name || "").trim();
+  if (!storeName) {
+    throw new Error("store.name is required.");
+  }
+
+  var safeLoginLink = String(loginLink || EMAIL_CONFIG.websiteLink).trim();
+  var passwordMessage = requirePasswordChange
+    ? "For security, you will be asked to create a private password immediately after your first login."
+    : "You can update your password at any time from your account security settings.";
+
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: storeName + " is ready on PerkUp",
+    userName: userName,
+    heading: "Your store is ready, " + userName + "!",
+    introText: "Your PerkUp store account has been created successfully. Here are the details currently registered for your store.",
+    secondaryText: passwordMessage,
+    store: {
+      name: storeName,
+      location: String(store.location || "").trim(),
+      subscriptionLevel: String(store.subscriptionLevel || "").trim(),
+      paymentSchedule: String(store.paymentSchedule || "").trim(),
+      subscriptionStart: String(store.subscriptionStart || "").trim(),
+      subscriptionEnd: String(store.subscriptionEnd || "").trim(),
+      logoUrl: String(store.logoUrl || "").trim()
+    },
+    buttonText: "Log in to PerkUp",
+    buttonLink: safeLoginLink,
+    showButton: true,
+    plainText:
+      storeName + " is ready on PerkUp.\n" +
+      (store.location ? "Location: " + store.location + "\n" : "") +
+      (store.subscriptionLevel ? "Subscription: " + store.subscriptionLevel + "\n" : "") +
+      passwordMessage + "\nLog in: " + safeLoginLink
+  });
+}
+
 function sendTestOtpEmail() {
   return sendOtpEmail("user@example.com", "John Doe", "123456");
 }
@@ -129,6 +170,24 @@ function sendTestConfirmationEmail() {
     "user@example.com",
     "John Doe",
     EMAIL_CONFIG.websiteLink + "/confirm-email?token=sample-token"
+  );
+}
+
+function sendTestStoreCreatedEmail() {
+  return sendStoreCreatedEmail(
+    "user@example.com",
+    "John Doe",
+    {
+      name: "Downtown Coffee",
+      location: "123 Main Street, Manila",
+      subscriptionLevel: "Standard",
+      paymentSchedule: "Every 30 days",
+      subscriptionStart: "June 30, 2026",
+      subscriptionEnd: "June 30, 2027",
+      logoUrl: EMAIL_CONFIG.logoUrl
+    },
+    EMAIL_CONFIG.websiteLink,
+    true
   );
 }
 
@@ -146,6 +205,7 @@ function sendSystemEmail_(emailData) {
   template.introText = emailData.introText;
   template.secondaryText = emailData.secondaryText;
   template.otpCode = emailData.otpCode || "";
+  template.store = emailData.store || null;
   template.buttonText = emailData.buttonText || "View Dashboard";
   template.buttonLink = emailData.buttonLink || EMAIL_CONFIG.websiteLink;
   template.showButton = emailData.showButton !== false;

@@ -24,6 +24,7 @@ export default function AdminAccount() {
   const [myBirthday, setMyBirthday] = useState(user?.birthday || "");
   const [myAvatarUrl, setMyAvatarUrl] = useState(user?.avatarUrl || user?.photoURL || "");
   const [myAccountSaved, setMyAccountSaved] = useState(false);
+  const [pendingMyAvatarFile, setPendingMyAvatarFile] = useState<File | null>(null);
 
   // New admin state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -62,6 +63,12 @@ export default function AdminAccount() {
   const handleUpdateMyAccount = async () => {
     try {
       if (user?.id) {
+        const avatarUrl = pendingMyAvatarFile
+          ? await uploadImageFileToDriveSecure(pendingMyAvatarFile, {
+              owner: myUsername || myEmail || user.id,
+              purpose: "admin-avatar",
+            })
+          : myAvatarUrl;
         await updateDoc(doc(db, "users", user.id), {
           name: myName,
           username: myUsername,
@@ -69,14 +76,15 @@ export default function AdminAccount() {
           number: myPhone,
           bio: myBio,
           birthday: myBirthday,
-          avatarUrl: myAvatarUrl,
-          photoURL: myAvatarUrl,
+          avatarUrl,
+          photoURL: avatarUrl,
         });
         const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
-        if (previousAvatarUrl && previousAvatarUrl !== myAvatarUrl) {
+        if (previousAvatarUrl && previousAvatarUrl !== avatarUrl) {
           await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
         }
         await refreshUser();
+        setPendingMyAvatarFile(null);
       }
       setIsEditingMyAccount(false);
       setMyAccountSaved(true);
@@ -88,6 +96,8 @@ export default function AdminAccount() {
   };
 
   const handleCancelMyAccountEdit = () => {
+    if (myAvatarUrl.startsWith("blob:")) URL.revokeObjectURL(myAvatarUrl);
+    setPendingMyAvatarFile(null);
     setMyName(user?.name || "");
     setMyEmail(user?.email || "");
     setMyUsername(user?.username || "");
@@ -99,22 +109,14 @@ export default function AdminAccount() {
     setIsEditingMyAccount(false);
   };
 
-  const handleMyAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMyAvatarUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !user?.id) return;
 
-    try {
-      const avatarUrl = await uploadImageFileToDriveSecure(file, {
-        owner: myUsername || myEmail || user.id,
-        purpose: "admin-avatar",
-      });
-      setMyAvatarUrl(avatarUrl);
-    } catch (error) {
-      console.error("Failed to upload admin profile picture:", error);
-      alert("Failed to upload profile picture.");
-    } finally {
-      event.target.value = "";
-    }
+    if (myAvatarUrl.startsWith("blob:")) URL.revokeObjectURL(myAvatarUrl);
+    setPendingMyAvatarFile(file);
+    setMyAvatarUrl(URL.createObjectURL(file));
+    event.target.value = "";
   };
 
   const scrollToEmailSecurity = () => {

@@ -11,6 +11,7 @@ export default function StaffAccount() {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     username: "",
@@ -34,6 +35,8 @@ export default function StaffAccount() {
   }, [user]);
 
   const handleCancel = () => {
+    if (formData.avatarUrl.startsWith("blob:")) URL.revokeObjectURL(formData.avatarUrl);
+    setPendingAvatarFile(null);
     setFormData(buildFormData());
     setSaved(false);
     setIsEditing(false);
@@ -46,6 +49,12 @@ export default function StaffAccount() {
     setSaving(true);
     setSaved(false);
     try {
+      const avatarUrl = pendingAvatarFile
+        ? await uploadImageFileToDriveSecure(pendingAvatarFile, {
+            owner: formData.username || user.email || user.id,
+            purpose: "staff-avatar",
+          })
+        : formData.avatarUrl;
       await updateDoc(doc(db, "users", user.id), {
         name: formData.name,
         username: formData.username,
@@ -53,14 +62,15 @@ export default function StaffAccount() {
         number: formData.phone,
         bio: formData.bio,
         birthday: formData.birthday,
-        avatarUrl: formData.avatarUrl,
-        photoURL: formData.avatarUrl,
+        avatarUrl,
+        photoURL: avatarUrl,
       });
       const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
-      if (previousAvatarUrl && previousAvatarUrl !== formData.avatarUrl) {
+      if (previousAvatarUrl && previousAvatarUrl !== avatarUrl) {
         await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
       }
       await refreshUser();
+      setPendingAvatarFile(null);
       setIsEditing(false);
       setSaved(true);
       window.setTimeout(() => setSaved(false), 3000);
@@ -72,22 +82,14 @@ export default function StaffAccount() {
     }
   };
 
-  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !user?.id) return;
 
-    try {
-      const avatarUrl = await uploadImageFileToDriveSecure(file, {
-        owner: formData.username || user.email || user.id,
-        purpose: "staff-avatar",
-      });
-      setFormData((current) => ({ ...current, avatarUrl }));
-    } catch (error) {
-      console.error("Failed to upload staff profile picture:", error);
-      alert("Failed to upload profile picture.");
-    } finally {
-      event.target.value = "";
-    }
+    if (formData.avatarUrl.startsWith("blob:")) URL.revokeObjectURL(formData.avatarUrl);
+    setPendingAvatarFile(file);
+    setFormData((current) => ({ ...current, avatarUrl: URL.createObjectURL(file) }));
+    event.target.value = "";
   };
 
   const scrollToEmailSecurity = () => {

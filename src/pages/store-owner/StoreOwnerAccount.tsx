@@ -20,6 +20,7 @@ export default function StoreOwnerAccount() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
 
   const buildFormData = () => ({
     name: user?.name || "",
@@ -37,20 +38,14 @@ export default function StoreOwnerAccount() {
     }
   }, [user]);
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!isEditing) return;
     const file = e.target.files?.[0];
     if (!file) return;
-    try {
-      const avatarUrl = await uploadImageFileToDriveSecure(file, {
-        owner: formData.username || user?.email || user?.id,
-        purpose: "store-owner-avatar",
-      });
-      setFormData(prev => ({ ...prev, avatarUrl }));
-    } catch (err) {
-      console.error("Avatar upload failed", err);
-      alert("Failed to upload profile image");
-    }
+    if (formData.avatarUrl.startsWith("blob:")) URL.revokeObjectURL(formData.avatarUrl);
+    setPendingAvatarFile(file);
+    setFormData(prev => ({ ...prev, avatarUrl: URL.createObjectURL(file) }));
+    e.target.value = "";
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -59,22 +54,29 @@ export default function StoreOwnerAccount() {
     setSaving(true);
     setSaved(false);
     try {
+      const avatarUrl = pendingAvatarFile
+        ? await uploadImageFileToDriveSecure(pendingAvatarFile, {
+            owner: formData.username || user?.email || user?.id,
+            purpose: "store-owner-avatar",
+          })
+        : formData.avatarUrl;
       await updateDoc(doc(db, "users", user.id), {
         name: formData.name,
         address: formData.address,
         phone: formData.phone,
         number: formData.phone,
         username: formData.username,
-        avatarUrl: formData.avatarUrl,
-        photoURL: formData.avatarUrl,
+        avatarUrl,
+        photoURL: avatarUrl,
         bio: formData.bio,
         birthday: formData.birthday,
       });
       const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
-      if (previousAvatarUrl && previousAvatarUrl !== formData.avatarUrl) {
+      if (previousAvatarUrl && previousAvatarUrl !== avatarUrl) {
         await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
       }
       await refreshUser();
+      setPendingAvatarFile(null);
       setSaved(true);
       setIsEditing(false);
       setTimeout(() => setSaved(false), 3000);
@@ -87,6 +89,8 @@ export default function StoreOwnerAccount() {
   };
 
   const handleCancel = () => {
+    if (formData.avatarUrl.startsWith("blob:")) URL.revokeObjectURL(formData.avatarUrl);
+    setPendingAvatarFile(null);
     setFormData(buildFormData());
     setSaved(false);
     setIsEditing(false);

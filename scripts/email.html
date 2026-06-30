@@ -15,6 +15,11 @@
     .content { padding: 40px 30px; color: #333333; line-height: 1.6; font-size: 16px; }
     .content h2 { color: #1F4F5B; margin-top: 0; font-weight: 600; }
     .otp-code { margin: 24px auto 8px auto; padding: 16px 20px; max-width: 260px; text-align: center; color: #1F4F5B; background-color: #f5f7f8; border: 1px solid #dbe4e7; border-radius: 6px; font-size: 30px; font-weight: 700; letter-spacing: 6px; }
+    .store-card { margin: 24px 0; padding: 22px; background-color: #f5f7f8; border: 1px solid #dbe4e7; border-radius: 8px; }
+    .store-logo { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .store-name { margin: 10px 0 16px; color: #1F4F5B; font-size: 20px; font-weight: 700; }
+    .store-detail { padding: 7px 0; border-top: 1px solid #dbe4e7; font-size: 14px; }
+    .store-label { color: #698f98; font-weight: 600; }
     .action-button { display: inline-block; padding: 12px 28px; background-color: #DE922A; color: #ffffff; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 20px; }
 
     .footer { background-color: #1F4F5B; color: #ffffff; padding: 30px 30px 20px 30px; text-align: center; font-size: 14px; }
@@ -38,6 +43,32 @@
 
         <? if (otpCode) { ?>
           <div class="otp-code"><?= otpCode ?></div>
+        <? } ?>
+
+        <? if (store) { ?>
+          <div class="store-card">
+            <div style="text-align: center;">
+              <? if (store.logoUrl) { ?>
+                <img src="<?= store.logoUrl ?>" alt="<?= store.name ?> logo" class="store-logo">
+              <? } ?>
+              <div class="store-name"><?= store.name ?></div>
+            </div>
+            <? if (store.location) { ?>
+              <div class="store-detail"><span class="store-label">Location:</span> <?= store.location ?></div>
+            <? } ?>
+            <? if (store.subscriptionLevel) { ?>
+              <div class="store-detail"><span class="store-label">Subscription:</span> <?= store.subscriptionLevel ?></div>
+            <? } ?>
+            <? if (store.paymentSchedule) { ?>
+              <div class="store-detail"><span class="store-label">Payment schedule:</span> <?= store.paymentSchedule ?></div>
+            <? } ?>
+            <? if (store.subscriptionStart) { ?>
+              <div class="store-detail"><span class="store-label">Subscription start:</span> <?= store.subscriptionStart ?></div>
+            <? } ?>
+            <? if (store.subscriptionEnd) { ?>
+              <div class="store-detail"><span class="store-label">Subscription end:</span> <?= store.subscriptionEnd ?></div>
+            <? } ?>
+          </div>
         <? } ?>
 
         <p><?= secondaryText ?></p>

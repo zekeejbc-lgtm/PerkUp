@@ -253,6 +253,7 @@ export default function AdminHomepage() {
   });
   const [config, setConfig] = useState<HomepageConfig>(DEFAULT_CONFIG);
   const [savedConfig, setSavedConfig] = useState<HomepageConfig>(DEFAULT_CONFIG);
+  const [pendingImageFiles, setPendingImageFiles] = useState<Record<string, File>>({});
 
   const loadConfig = async () => {
     setLoading(true);
@@ -280,33 +281,26 @@ export default function AdminHomepage() {
     loadConfig();
   }, []);
 
-  const handleHeroImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleHeroImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      try {
-        const uploadedUrl = await uploadImageFileToDriveSecure(file, { purpose: "homepage-hero" });
-        setConfig({...config, heroImageUrl: uploadedUrl});
-      } catch (error) {
-        console.error("Hero image upload failed", error);
-        showToast("Failed to upload hero image", "error");
-      }
+      if (config.heroImageUrl.startsWith("blob:")) URL.revokeObjectURL(config.heroImageUrl);
+      const previewUrl = URL.createObjectURL(file);
+      setPendingImageFiles((current) => ({ ...current, [previewUrl]: file }));
+      setConfig({...config, heroImageUrl: previewUrl});
+      e.target.value = "";
     }
   };
 
-  const handleBusinessLogoUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBusinessLogoUpload = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      try {
-        const businessName = config.trustedBusinesses[index]?.name;
-        const uploadedUrl = await uploadImageFileToDriveSecure(file, {
-          owner: businessName,
-          purpose: "trusted-business-logo",
-        });
-        handleBusinessChange(index, "logoUrl", uploadedUrl);
-      } catch (error) {
-        console.error("Business logo upload failed", error);
-        showToast("Failed to upload business logo", "error");
-      }
+      const previousUrl = config.trustedBusinesses[index]?.logoUrl || "";
+      if (previousUrl.startsWith("blob:")) URL.revokeObjectURL(previousUrl);
+      const previewUrl = URL.createObjectURL(file);
+      setPendingImageFiles((current) => ({ ...current, [previewUrl]: file }));
+      handleBusinessChange(index, "logoUrl", previewUrl);
+      e.target.value = "";
     }
   };
 
@@ -326,6 +320,8 @@ export default function AdminHomepage() {
   };
 
   const handleCancel = () => {
+    Object.keys(pendingImageFiles).forEach((url) => URL.revokeObjectURL(url));
+    setPendingImageFiles({});
     setConfig(cloneConfig(savedConfig));
     setUrlErrors({ facebook: false, instagram: false, twitter: false });
     setIsEditing(false);
@@ -373,21 +369,37 @@ export default function AdminHomepage() {
 
     setSaving(true);
     try {
-      await setDoc(doc(db, "settings", "homepage"), { ...config, updatedAt: serverTimestamp() }, { merge: true });
+      const heroImageUrl = pendingImageFiles[config.heroImageUrl]
+        ? await uploadImageFileToDriveSecure(pendingImageFiles[config.heroImageUrl], { purpose: "homepage-hero" })
+        : config.heroImageUrl;
+      const trustedBusinesses = await Promise.all(config.trustedBusinesses.map(async (business) => ({
+        ...business,
+        logoUrl: pendingImageFiles[business.logoUrl]
+          ? await uploadImageFileToDriveSecure(pendingImageFiles[business.logoUrl], {
+              owner: business.name,
+              purpose: "trusted-business-logo",
+            })
+          : business.logoUrl,
+      })));
+      const nextConfig = { ...config, heroImageUrl, trustedBusinesses };
+      await setDoc(doc(db, "settings", "homepage"), { ...nextConfig, updatedAt: serverTimestamp() }, { merge: true });
       const previousImages = [
         savedConfig.heroImageUrl,
         ...savedConfig.trustedBusinesses.map((business) => business.logoUrl),
       ].filter(Boolean);
       const retainedImages = new Set([
-        config.heroImageUrl,
-        ...config.trustedBusinesses.map((business) => business.logoUrl),
+        nextConfig.heroImageUrl,
+        ...nextConfig.trustedBusinesses.map((business) => business.logoUrl),
       ].filter(Boolean));
       await Promise.all(
         previousImages
           .filter((url) => !retainedImages.has(url))
           .map((url) => deleteImageFromDriveSecure(url).catch(console.error)),
       );
-      setSavedConfig(cloneConfig(config));
+      Object.keys(pendingImageFiles).forEach((url) => URL.revokeObjectURL(url));
+      setPendingImageFiles({});
+      setConfig(cloneConfig(nextConfig));
+      setSavedConfig(cloneConfig(nextConfig));
       setIsEditing(false);
       showToast("Homepage configuration saved successfully.", "success");
     } catch (error) {

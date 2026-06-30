@@ -9,6 +9,7 @@ import { DashboardShellSkeleton, PageSkeleton } from "./components/LoadingSkelet
 import { ThemeToggle } from "./components/ThemeToggle";
 import { BrandMark } from "./components/BrandMark";
 import { findTrustedLoginDevice, getMfaPromptReason, trustCurrentDeviceForUser, TrustedLoginProfile } from "./lib/trustedDevice";
+import { FirstLoginPasswordChange } from "./components/FirstLoginPasswordChange";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
@@ -265,6 +266,10 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode, allow
         }}
       />
     );
+  }
+
+  if (user.forcePasswordReset) {
+    return <FirstLoginPasswordChange />;
   }
 
   if (checkingMfa) return <PageSkeleton variant="auth" />;

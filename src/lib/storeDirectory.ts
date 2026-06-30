@@ -38,6 +38,17 @@ const DAY_INDEX: Record<string, number> = {
 export const normalizeStoreCategory = (category?: string) =>
   category?.trim().toLocaleLowerCase() || "";
 
+export const splitStoreCategories = (category?: string) =>
+  Array.from(
+    new Map(
+      String(category || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .map((value) => [normalizeStoreCategory(value), value])
+    ).values()
+  );
+
 const parseTimeInMinutes = (value: string) => {
   const match = value.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
   if (!match) return null;
@@ -95,7 +106,7 @@ export const getStoreCategories = (stores: DirectoryStore[]) => [
   "All",
   ...Array.from(
     new Map(
-      [...FEATURED_STORE_CATEGORIES, ...stores.map((store) => store.category).filter(Boolean) as string[]]
+      [...FEATURED_STORE_CATEGORIES, ...stores.flatMap((store) => splitStoreCategories(store.category))]
         .map((category) => [normalizeStoreCategory(category), category.trim()])
     ).values()
   ),
@@ -105,7 +116,7 @@ export const getAvailableStoreCategories = (stores: DirectoryStore[]) => [
   "All",
   ...Array.from(
     new Map(
-      (stores.map((store) => store.category).filter(Boolean) as string[])
+      stores.flatMap((store) => splitStoreCategories(store.category))
         .map((category) => [normalizeStoreCategory(category), category.trim()])
     ).values()
   ).sort((a, b) => a.localeCompare(b)),
@@ -119,9 +130,10 @@ export const storeMatchesFilters = (
   availableAt?: Date | null,
 ) => {
   const query = searchQuery.trim().toLocaleLowerCase();
+  const storeCategories = splitStoreCategories(store.category);
   return (
     (selectedCategory === "All" ||
-      normalizeStoreCategory(store.category) === normalizeStoreCategory(selectedCategory)) &&
+      storeCategories.some((category) => normalizeStoreCategory(category) === normalizeStoreCategory(selectedCategory))) &&
     ((!openNowOnly && !availableAt) || isStoreOpenNow(store.hours, availableAt || new Date())) &&
     (!query ||
       store.name.toLocaleLowerCase().includes(query) ||

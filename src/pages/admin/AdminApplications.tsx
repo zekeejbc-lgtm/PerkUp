@@ -10,9 +10,13 @@ import {
   dateInputToDate,
   formatMoney,
   getSubscriptionOwedAmount,
+  PAYMENT_SCHEDULE_OPTIONS,
   toDateInputValue,
 } from "../../lib/subscriptionBilling";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
+import { ImageCropEditor } from "../../components/ImageCropEditor";
+import { TemporaryPasswordField } from "../../components/TemporaryPasswordField";
+import { validateStrongPassword } from "../../lib/passwordStrength";
 
 export default function AdminApplications() {
   const [applications, setApplications] = useState<any[]>([]);
@@ -25,30 +29,23 @@ export default function AdminApplications() {
   const [storeLocation, setStoreLocation] = useState("");
   const [storeCoordinates, setStoreCoordinates] = useState<[number, number] | null>(null);
   const [storeLogo, setStoreLogo] = useState("");
+  const [pendingLogo, setPendingLogo] = useState<File | null>(null);
+  const [logoEditorFile, setLogoEditorFile] = useState<File | null>(null);
   const [ownerEmail, setOwnerEmail] = useState("");
   const [selectedApplicationId, setSelectedApplicationId] = useState("");
 
-  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      try {
-        const uploadedUrl = await uploadImageFileToDriveSecure(file, {
-          owner: storeName || ownerEmail,
-          purpose: "approved-store-logo",
-        });
-        setStoreLogo(uploadedUrl);
-      } catch (error) {
-        console.error("Store logo upload failed", error);
-        alert("Failed to upload store logo");
-      }
-    }
+    if (file) setLogoEditorFile(file);
+    e.target.value = "";
   };
   const [ownerName, setOwnerName] = useState("");
   const [ownerPassword, setOwnerPassword] = useState("");
+  const [requirePasswordChange, setRequirePasswordChange] = useState(true);
   const [subLevel, setSubLevel] = useState("Standard");
   const [subStart, setSubStart] = useState("");
   const [subEnd, setSubEnd] = useState("");
-  const [paymentDate, setPaymentDate] = useState("");
+  const [paymentSchedule, setPaymentSchedule] = useState("every_30_days");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const billingPlans = subscriptionPlans.length > 0 ? subscriptionPlans : DEFAULT_SUBSCRIPTION_PLANS;
   const selectedOwedAmount = getSubscriptionOwedAmount(billingPlans, subLevel);
@@ -89,10 +86,11 @@ export default function AdminApplications() {
         : null
     );
     setStoreLogo(app.logoUrl || "");
+    setPendingLogo(null);
     setSubLevel(app.subscriptionLevel || "Standard");
     setSubStart(toDateInputValue(app.subscriptionStart));
     setSubEnd(toDateInputValue(app.subscriptionEnd));
-    setPaymentDate(toDateInputValue(app.paymentDate));
+    setPaymentSchedule(app.paymentSchedule || "every_30_days");
     setOwnerPassword(""); 
     setSelectedApplicationId(app.id);
     setShowAddModal(true);
@@ -110,26 +108,37 @@ export default function AdminApplications() {
 
   const handleAddStore = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validateStrongPassword(ownerPassword, { name: ownerName, email: ownerEmail }).valid) {
+      alert("Use a strong password that meets every requirement.");
+      return;
+    }
     setIsSubmitting(true);
     try {
-      const result = await invokeAdminBackend<{ store: any }>({
+      const logoUrl = pendingLogo
+        ? await uploadImageFileToDriveSecure(pendingLogo, {
+            owner: storeName || ownerEmail,
+            purpose: "approved-store-logo",
+          })
+        : storeLogo;
+      const result = await invokeAdminBackend<{ store: any; notification?: { sent: boolean; error?: string } }>({
         action: "create_store",
         email: ownerEmail,
         password: ownerPassword,
         name: ownerName,
+        forcePasswordReset: requirePasswordChange,
         applicationId: selectedApplicationId,
         store: {
           name: storeName,
           location: storeLocation,
           address: storeLocation,
           ...(storeCoordinates ? { lat: storeCoordinates[0], lng: storeCoordinates[1] } : {}),
-          logoUrl: storeLogo,
+          logoUrl,
           status: "active",
           subscriptionLevel: subLevel,
           owedAmount: selectedOwedAmount,
           subscriptionStart: dateInputToDate(subStart),
           subscriptionEnd: dateInputToDate(subEnd),
-          paymentDate: dateInputToDate(paymentDate),
+          paymentSchedule,
         },
       });
 
@@ -139,7 +148,12 @@ export default function AdminApplications() {
           : app
       ));
       setShowAddModal(false);
-      alert("Store approved and created!");
+      setPendingLogo(null);
+      alert(
+        result.notification && !result.notification.sent
+          ? `Store approved and created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`
+          : "Store approved and created! The owner email has been sent.",
+      );
     } catch (error) {
       console.error(error);
       alert("Failed to create store: " + (error as Error).message);
@@ -243,16 +257,27 @@ export default function AdminApplications() {
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Logo Image Upload</label>
                   <div className="flex items-center gap-4">
                     {storeLogo ? (
-                      <div className="w-12 h-12 rounded-xl border border-gray-200 overflow-hidden shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => pendingLogo && setLogoEditorFile(pendingLogo)}
+                        disabled={!pendingLogo}
+                        className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-gray-200 disabled:cursor-default"
+                        aria-label={pendingLogo ? "Edit selected logo" : "Logo preview"}
+                      >
                         <img src={getDisplayImageUrl(storeLogo)} alt="Logo Preview" className="w-full h-full object-cover" />
-                      </div>
+                        {pendingLogo && (
+                          <span className="absolute inset-0 flex scale-95 items-center justify-center bg-black/60 text-xs font-semibold text-white opacity-0 transition-all duration-200 group-hover:scale-100 group-hover:opacity-100 group-focus-visible:scale-100 group-focus-visible:opacity-100">
+                            Edit
+                          </span>
+                        )}
+                      </button>
                     ) : (
-                      <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center shrink-0 border border-gray-200 text-gray-400">
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-gray-100 text-gray-400">
                        <ImageIcon className="w-5 h-5" />
                       </div>
                     )}
-                    <label className="flex-1 cursor-pointer">
-                      <div className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700">
+                    <label className="cursor-pointer">
+                      <div className="flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100">
                         <Upload className="w-4 h-4" />
                         Choose File
                       </div>
@@ -288,8 +313,13 @@ export default function AdminApplications() {
                     <input type="date" required value={subEnd} onChange={e => setSubEnd(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Payment Date</label>
-                    <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" />
+                    <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Payment Schedule</label>
+                    <CustomDropdown
+                      options={PAYMENT_SCHEDULE_OPTIONS}
+                      value={paymentSchedule}
+                      onChange={setPaymentSchedule}
+                      className="w-full"
+                    />
                   </div>
                 </div>
               </div>
@@ -306,19 +336,38 @@ export default function AdminApplications() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Temporary Password</label>
-                  <input type="password" required minLength={6} value={ownerPassword} onChange={e => setOwnerPassword(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" placeholder="At least 6 characters" />
+                  <TemporaryPasswordField value={ownerPassword} onChange={setOwnerPassword} name={ownerName} email={ownerEmail} />
                 </div>
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
+                  <input type="checkbox" checked={requirePasswordChange} onChange={(event) => setRequirePasswordChange(event.target.checked)} className="mt-0.5 h-4 w-4 rounded" />
+                  <span>
+                    <span className="block text-xs font-semibold text-gray-900 dark:text-white">Require password change on first login</span>
+                    <span className="mt-0.5 block text-[11px] text-gray-500 dark:text-gray-400">The owner must create a private password before opening their dashboard.</span>
+                  </span>
+                </label>
               </div>
 
-              <div className="flex justify-end gap-2 pt-4">
+              <footer className="sticky bottom-0 z-10 -mx-6 -mb-6 flex justify-end gap-2 border-t border-gray-200 bg-white/95 px-6 py-4 backdrop-blur-sm dark:border-gray-800 dark:bg-gray-900/95">
                 <button type="button" onClick={() => setShowAddModal(false)} className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-[#1b1b1b] px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-50 dark:bg-[#1b1b1b] dark:hover:bg-black">
+                <button type="submit" disabled={isSubmitting || !validateStrongPassword(ownerPassword, { name: ownerName, email: ownerEmail }).valid} className="rounded-lg bg-[#1b1b1b] px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-50 dark:bg-[#1b1b1b] dark:hover:bg-black">
                   {isSubmitting ? 'Creating...' : 'Create Record'}
                 </button>
-              </div>
+              </footer>
             </form>
           </div>
         </div>
+      )}
+      {logoEditorFile && (
+        <ImageCropEditor
+          file={logoEditorFile}
+          onCancel={() => setLogoEditorFile(null)}
+          onApply={(file, previewUrl) => {
+            if (storeLogo.startsWith("blob:")) URL.revokeObjectURL(storeLogo);
+            setPendingLogo(file);
+            setStoreLogo(previewUrl);
+            setLogoEditorFile(null);
+          }}
+        />
       )}
     </div>
   );

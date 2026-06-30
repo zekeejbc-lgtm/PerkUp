@@ -225,7 +225,7 @@ export default function StoreOwnerDashboard() {
             <Route path="/feedback" element={<StoreOwnerFeedback store={activeStore} />} />
             <Route path="/staff" element={<StoreOwnerStaff store={activeStore} />} />
             <Route path="/account" element={<StoreOwnerAccount />} />
-            <Route path="/subscription" element={<StoreOwnerSubscription />} />
+            <Route path="/subscription" element={<StoreOwnerSubscription stores={stores} />} />
           </Routes>
         </Suspense>
       </div>

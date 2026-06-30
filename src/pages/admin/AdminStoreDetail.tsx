@@ -12,11 +12,23 @@ import {
   dateInputToDate,
   formatBillingDate,
   formatMoney,
+  formatPaymentSchedule,
+  formatPredictedPaymentDate,
   getSubscriptionOwedAmount,
+  PAYMENT_SCHEDULE_OPTIONS,
+  predictPaymentDates,
   toDateInputValue,
 } from "../../lib/subscriptionBilling";
 
-export default function AdminStoreDetail({ storeId, onBack }: { storeId: string, onBack: () => void }) {
+export default function AdminStoreDetail({
+  storeId,
+  onBack,
+  onDeleted,
+}: {
+  storeId: string;
+  onBack: () => void;
+  onDeleted?: (deletedStoreId: string) => void;
+}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [store, setStore] = useState<any>(null);
   const [owner, setOwner] = useState<any>(null);
@@ -39,6 +51,7 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
     promotions: 0,
     claims: 0
   });
+  const [reviews, setReviews] = useState<any[]>([]);
 
   // Edit store state
   const [isEditing, setIsEditing] = useState(false);
@@ -46,12 +59,20 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [deleteNameConfirmation, setDeleteNameConfirmation] = useState("");
+  const [deleteWordConfirmation, setDeleteWordConfirmation] = useState("");
+  const predictedPaymentDates = store
+    ? predictPaymentDates(store.paymentSchedule, store.subscriptionStart, store.subscriptionEnd, 6)
+    : [];
   
   // Password reset state
   const [resetModalUser, setResetModalUser] = useState<any>(null);
   const [newPasswordType, setNewPasswordType] = useState<'default' | 'random' | 'custom'>('default');
   const [customPassword, setCustomPassword] = useState('');
   const [requirePasswordChange, setRequirePasswordChange] = useState(false);
+  const deleteNameMatches = String(store?.name || "").trim() !== "" && deleteNameConfirmation.trim() === String(store?.name || "").trim();
+  const deleteWordMatches = deleteWordConfirmation.trim() === "DELETE";
+  const canConfirmDelete = deleteNameMatches && deleteWordMatches && !isDeleting;
 
   useEffect(() => {
     async function fetchDetails() {
@@ -72,9 +93,13 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
             name: storeData.name || '',
             subscriptionLevel,
             owedAmount,
+            address: String(storeData.address || ""),
+            contact: String(storeData.contact || ""),
+            website: String(storeData.website || ""),
+            description: String(storeData.description || ""),
             subscriptionStart: toDateInputValue(storeData.subscriptionStart),
             subscriptionEnd: toDateInputValue(storeData.subscriptionEnd),
-            paymentDate: toDateInputValue(storeData.paymentDate),
+            paymentSchedule: storeData.paymentSchedule || "",
             status: storeData.status || 'active',
           });
 
@@ -102,11 +127,17 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
           const claimsQuery = query(collection(db, "promotions_scanned"), where("storeId", "==", storeId));
           const claimsSnap = await getDocs(claimsQuery);
 
+          // Fetch reviews for this store
+          const reviewsQuery = query(collection(db, "store_reviews"), where("storeId", "==", storeId));
+          const reviewsSnap = await getDocs(reviewsQuery);
+          const loadedReviews = reviewsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
           setAnalytics({
             customers: uniqueCustomerCount,
             promotions: promosSnap.size,
             claims: claimsSnap.size
           });
+          setReviews(loadedReviews.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
 
         }
       } catch (error) {
@@ -122,10 +153,14 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
     try {
       const nextData = {
         ...editData,
+        address: editData.address || "",
+        contact: editData.contact || "",
+        website: editData.website || "",
+        description: editData.description || "",
         owedAmount: getSubscriptionOwedAmount(plans, editData.subscriptionLevel, Number(editData.owedAmount || 0)),
         subscriptionStart: dateInputToDate(editData.subscriptionStart),
         subscriptionEnd: dateInputToDate(editData.subscriptionEnd),
-        paymentDate: dateInputToDate(editData.paymentDate),
+        paymentSchedule: editData.paymentSchedule,
         updatedAt: serverTimestamp(),
       };
 
@@ -155,19 +190,38 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
       name: store.name || '',
       subscriptionLevel: store.subscriptionLevel || plans[0]?.name || 'Standard',
       owedAmount: getSubscriptionOwedAmount(plans, store.subscriptionLevel, Number(store.owedAmount || 0)),
+      address: String(store.address || ""),
+      contact: String(store.contact || ""),
+      website: String(store.website || ""),
+      description: String(store.description || ""),
       subscriptionStart: toDateInputValue(store.subscriptionStart),
       subscriptionEnd: toDateInputValue(store.subscriptionEnd),
-      paymentDate: toDateInputValue(store.paymentDate),
+      paymentSchedule: store.paymentSchedule || "",
       status: store.status || 'active',
     });
     setIsEditing(false);
   };
 
   const handleDeleteStore = async () => {
+    if (!store) return;
+
+    const expectedStoreName = String(store.name || "").trim();
+    if (deleteNameConfirmation.trim() !== expectedStoreName) {
+      setDeleteError(`Type the exact store name: ${expectedStoreName}`);
+      return;
+    }
+
+    if (deleteWordConfirmation.trim() !== "DELETE") {
+      setDeleteError("Type DELETE to confirm.");
+      return;
+    }
+
     setIsDeleting(true);
     setDeleteError("");
     try {
       await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_store", storeId });
+      onDeleted?.(storeId);
+      setShowDeleteModal(false);
       onBack();
     } catch (error) {
       console.error(error);
@@ -233,6 +287,8 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
             <button
               onClick={() => {
                 setDeleteError("");
+                setDeleteNameConfirmation("");
+                setDeleteWordConfirmation("");
                 setShowDeleteModal(true);
               }}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-red-700 bg-red-100 hover:bg-red-200 transition-colors"
@@ -285,6 +341,41 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
                     </span>
                   )}
                 </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Description</label>
+                  {isEditing ? (
+                    <textarea value={editData.description} onChange={e => setEditData({...editData, description: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" rows={3} />
+                  ) : (
+                    <p className="text-gray-700 dark:text-gray-300 text-sm">{store.description || "No description provided."}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Address</label>
+                  {isEditing ? (
+                    <input type="text" value={editData.address} onChange={e => setEditData({...editData, address: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                  ) : (
+                    <p className="text-gray-700 dark:text-gray-300 text-sm">{store.address || "Not provided"}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Contact</label>
+                  {isEditing ? (
+                    <input type="text" value={editData.contact} onChange={e => setEditData({...editData, contact: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                  ) : (
+                    <p className="text-gray-700 dark:text-gray-300 text-sm">{store.contact || "Not provided"}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Website</label>
+                  {isEditing ? (
+                    <input type="text" value={editData.website} onChange={e => setEditData({...editData, website: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                  ) : (
+                    <p className="text-gray-700 dark:text-gray-300 text-sm">{store.website ? store.website.replace(/^https?:\/\//, '') : "Not provided"}</p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -331,13 +422,35 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">Payment Date</label>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Payment Schedule</label>
                     {isEditing ? (
-                      <input type="date" value={editData.paymentDate || ""} onChange={e => setEditData({...editData, paymentDate: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                      <CustomDropdown
+                        options={PAYMENT_SCHEDULE_OPTIONS}
+                        value={editData.paymentSchedule || ""}
+                        onChange={(paymentSchedule) => setEditData({ ...editData, paymentSchedule })}
+                        className="w-full"
+                      />
                     ) : (
-                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatBillingDate(store.paymentDate)}</p>
+                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatPaymentSchedule(store.paymentSchedule)}</p>
                     )}
                   </div>
+                </div>
+                <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+                  <div className="mb-3">
+                    <h5 className="text-sm font-bold text-gray-900 dark:text-white">Predicted payment dates</h5>
+                    <p className="mt-1 text-xs text-gray-500">Calculated from the saved payment schedule and subscription period.</p>
+                  </div>
+                  {predictedPaymentDates.length > 0 ? (
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {predictedPaymentDates.map((date) => (
+                        <div key={date.toISOString()} className="rounded-xl bg-gray-50 px-3 py-2 text-sm font-medium text-gray-800 dark:bg-gray-800 dark:text-gray-200">
+                          {formatPredictedPaymentDate(date)}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">No upcoming dates within the subscription period.</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -394,7 +507,7 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
         {/* Analytics & Logs Subpage */}
         {activeTab === 'analytics' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 text-center">
                  <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-2">Customers</p>
                  <p className="text-4xl font-black text-gray-900 dark:text-white">{analytics.customers}</p>
@@ -407,6 +520,11 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
                  <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-2">Claims Scanned</p>
                  <p className="text-4xl font-black text-gray-900 dark:text-white">{analytics.claims}</p>
                </div>
+              <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 text-center">
+                <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-2">Reviews</p>
+                <p className="text-4xl font-black text-gray-900 dark:text-white">{reviews.length}</p>
+                <p className="text-sm text-gray-500 mt-1">{reviews.length ? `${(reviews.reduce((s, r) => s + Number(r.rating || 0), 0) / reviews.length).toFixed(1)} / 5` : "—"}</p>
+              </div>
             </div>
 
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
@@ -467,43 +585,120 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
             if (event.target === event.currentTarget && !isDeleting) setShowDeleteModal(false);
           }}
         >
-          <div className="w-full max-w-md rounded-[2rem] border border-gray-100 bg-white p-6 shadow-2xl dark:border-gray-800 dark:bg-gray-900">
-            <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400">
-                <AlertTriangle className="h-6 w-6" />
+          <div
+            className="relative mx-4 w-full max-w-lg overflow-hidden rounded-4xl border border-gray-100 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="max-h-[calc(100dvh-2rem)] overflow-y-auto p-6 sm:p-8">
+              <div className="flex items-start gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400">
+                  <AlertTriangle className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 id="delete-store-title" className="text-xl font-bold text-gray-900 dark:text-white">Delete {store.name}?</h3>
+                  <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
+                    This permanently deletes the store and removes its owner and staff accounts. This action cannot be undone.
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 id="delete-store-title" className="text-xl font-bold text-gray-900 dark:text-white">Delete {store.name}?</h3>
-                <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
-                  This permanently deletes the store and removes its owner and staff accounts. This action cannot be undone.
-                </p>
+           
+              {/* Reviews list */}
+              <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-black/20">
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Customer Reviews</h4>
+                </div>
+                <div className="p-6 space-y-4">
+                  {reviews.length === 0 ? (
+                    <p className="text-sm text-gray-500">No reviews yet for this store.</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {reviews.map((r) => (
+                        <div key={r.id} className="rounded-xl bg-white p-4 border border-gray-100 dark:bg-gray-900 dark:border-gray-800">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <p className="font-medium text-sm text-gray-900 dark:text-white">{r.customerName || 'Customer'}</p>
+                              <p className="text-xs text-gray-500">{r.createdAt ? new Date((r.createdAt.seconds || 0) * 1000).toLocaleString() : 'Unknown'}</p>
+                            </div>
+                            <div className="flex items-center gap-1 text-yellow-500">
+                              {Array.from({ length: 5 }).map((_, i) => (
+                                <span key={i} className={`text-sm ${i < Number(r.rating || 0) ? 'opacity-100' : 'opacity-30'}`}>★</span>
+                              ))}
+                            </div>
+                          </div>
+                          <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">{r.comment}</p>
+                          {r.ownerReply && (
+                            <div className="mt-3 rounded-lg bg-gray-100 p-3 text-sm text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                              <strong>Owner reply:</strong> {r.ownerReply}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
 
-            {deleteError && (
-              <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-                {deleteError}
-              </div>
-            )}
+              <div className="mt-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                    Type the store name exactly
+                  </label>
+                  <input
+                    type="text"
+                    value={deleteNameConfirmation}
+                    onChange={(event) => {
+                      setDeleteNameConfirmation(event.target.value);
+                      if (deleteError) setDeleteError("");
+                    }}
+                    disabled={isDeleting}
+                    placeholder={store.name}
+                    className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none transition-colors focus:border-red-300 focus:ring-2 focus:ring-red-200 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:border-red-700 dark:focus:ring-red-900/40"
+                  />
+                </div>
 
-            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => setShowDeleteModal(false)}
-                className="rounded-xl bg-gray-100 px-5 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-              >
-                Keep Store
-              </button>
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={handleDeleteStore}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                {isDeleting ? "Deleting..." : "Delete Store"}
-              </button>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                    Type DELETE to confirm
+                  </label>
+                  <input
+                    type="text"
+                    value={deleteWordConfirmation}
+                    onChange={(event) => {
+                      setDeleteWordConfirmation(event.target.value);
+                      if (deleteError) setDeleteError("");
+                    }}
+                    disabled={isDeleting}
+                    placeholder="DELETE"
+                    className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none transition-colors focus:border-red-300 focus:ring-2 focus:ring-red-200 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:border-red-700 dark:focus:ring-red-900/40"
+                  />
+                </div>
+              </div>
+
+              {deleteError && (
+                <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                  {deleteError}
+                </div>
+              )}
+
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setShowDeleteModal(false)}
+                  className="rounded-xl bg-gray-100 px-5 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                >
+                  Keep Store
+                </button>
+                <button
+                  type="button"
+                  disabled={!canConfirmDelete}
+                  onClick={handleDeleteStore}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  {isDeleting ? "Deleting..." : "Delete Store"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -511,7 +706,7 @@ export default function AdminStoreDetail({ storeId, onBack }: { storeId: string,
 
       {resetModalUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-gray-900 w-full max-w-sm rounded-[2rem] shadow-xl p-6 border border-gray-100 dark:border-gray-800">
+          <div className="bg-white dark:bg-gray-900 w-full max-w-sm rounded-4xl shadow-xl p-6 border border-gray-100 dark:border-gray-800">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Reset Password</h3>
             <p className="text-sm text-gray-600 mb-4">Resetting password for <strong>{resetModalUser.email}</strong></p>
             

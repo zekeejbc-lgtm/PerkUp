@@ -54,6 +54,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [editingPromo, setEditingPromo] = useState<any>(null);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [pendingBannerFile, setPendingBannerFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [referralCode, setReferralCode] = useState<string>(store?.referralCode || "");
   const [loadingReferralCode, setLoadingReferralCode] = useState(false);
@@ -123,6 +124,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   };
 
   const resetForm = () => {
+    setPendingBannerFile(null);
     setFormData({
       title: "",
       description: "",
@@ -140,6 +142,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   };
 
   const handleOpenModal = (promo: any = null) => {
+    setPendingBannerFile(null);
     if (promo) {
       setEditingPromo(promo);
       setFormData({
@@ -163,31 +166,29 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     setIsModalOpen(true);
   };
 
-  const handleBannerUpload = async (file: File | null) => {
+  const handleBannerUpload = (file: File | null) => {
     if (!file) return;
-    setUploadingBanner(true);
-    try {
-      const imageUrl = await uploadImageFileToDriveSecure(file, {
-        owner: store?.id,
-        purpose: "promotion-banner",
-      });
-      setFormData((current) => ({ ...current, bannerImageUrl: imageUrl }));
-    } catch (error) {
-      console.error("Promotion banner upload failed", error);
-      alert("Failed to upload promotion banner.");
-    } finally {
-      setUploadingBanner(false);
-    }
+    if (formData.bannerImageUrl.startsWith("blob:")) URL.revokeObjectURL(formData.bannerImageUrl);
+    setPendingBannerFile(file);
+    setFormData((current) => ({ ...current, bannerImageUrl: URL.createObjectURL(file) }));
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
+      setUploadingBanner(Boolean(pendingBannerFile));
+      const bannerImageUrl = pendingBannerFile
+        ? await uploadImageFileToDriveSecure(pendingBannerFile, {
+            owner: store?.id,
+            purpose: "promotion-banner",
+          })
+        : formData.bannerImageUrl;
       const maxRedemptions = Number(formData.maxRedemptions || 0);
       const data = {
         storeId: store.id,
         ...formData,
+        bannerImageUrl,
         maxRedemptions: maxRedemptions > 0 ? maxRedemptions : null,
         geofenceLat: formData.geofenceEnabled ? Number(formData.geofenceLat || storeCenter.lat) : null,
         geofenceLng: formData.geofenceEnabled ? Number(formData.geofenceLng || storeCenter.lng) : null,
@@ -206,10 +207,12 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
         setPromotions([...promotions, { id: newRef.id, ...data, claimedCount: 0 }]);
       }
       setIsModalOpen(false);
+      setPendingBannerFile(null);
     } catch (error) {
       console.error("Failed to save promotion", error);
       alert("Failed to save promotion");
     } finally {
+      setUploadingBanner(false);
       setSaving(false);
     }
   };
