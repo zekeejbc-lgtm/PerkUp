@@ -111,25 +111,39 @@ export default function StorePage() {
     async function fetchStore() {
       if (!storeId) return;
       try {
-        const [docSnap, productsSnap] = await Promise.all([
-          getDoc(doc(db, "stores", storeId)),
+        const docSnap = await getDoc(doc(db, "stores", storeId));
+
+        if (!docSnap.exists()) {
+          setStore(null);
+          setProducts([]);
+          return;
+        }
+
+        setStore({ id: docSnap.id, ...docSnap.data() } as StoreContent);
+
+        const [productsResult, reviewsResult] = await Promise.allSettled([
           getDocs(query(collection(db, "products"), where("storeId", "==", storeId))),
           fetchReviews(),
         ]);
-        
-        if (docSnap.exists()) {
-          setStore({ id: docSnap.id, ...docSnap.data() } as StoreContent);
-          setProducts(productsSnap.docs.map((productDoc) => ({
+
+        if (productsResult.status === "fulfilled") {
+          setProducts(productsResult.value.docs.map((productDoc) => ({
             id: productDoc.id,
             ...productDoc.data(),
           })) as StoreProduct[]);
         } else {
-          setStore(null);
+          console.error("Error fetching store products:", productsResult.reason);
           setProducts([]);
+        }
+
+        if (reviewsResult.status === "rejected") {
+          console.error("Error fetching store reviews:", reviewsResult.reason);
+          setReviews([]);
         }
       } catch (error) {
         console.error("Error fetching store:", error);
         setStore(null);
+        setProducts([]);
       } finally {
         setLoading(false);
       }
@@ -185,7 +199,7 @@ export default function StorePage() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-[#1b1b1b] selection:bg-[#1b1b1b] selection:text-white dark:selection:bg-white dark:selection:text-[#1b1b1b] pb-20 transition-colors">
+    <div className="flex min-h-screen flex-col bg-white selection:bg-[#1b1b1b] selection:text-white transition-colors dark:bg-[#1b1b1b] dark:selection:bg-white dark:selection:text-[#1b1b1b]">
       <header className="sticky top-0 z-50 border-b border-[#1b1b1b]/10 bg-white/85 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#1b1b1b]/85">
         <nav className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-6">
           <Link to="/" aria-label="PerkUp home">
@@ -234,7 +248,7 @@ export default function StorePage() {
         </div>
       </div>
 
-      <main className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 pt-6 sm:px-6 lg:px-8">
         <div className="mb-12 grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
           {/* Store overview */}
           <section className="flex min-h-72 flex-col justify-center rounded-[2rem] border border-gray-200 bg-gray-50 p-7 dark:border-gray-800 dark:bg-gray-900 sm:p-10">

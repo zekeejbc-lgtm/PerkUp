@@ -353,7 +353,7 @@ function fileToJson(file) {
     dateCreated: file.getDateCreated().toISOString(),
     lastUpdated: file.getLastUpdated().toISOString(),
     trashed: file.isTrashed(),
-    url: "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w4000",
+    url: "https://lh3.googleusercontent.com/d/" + fileId + "=w4000",
     webViewLink: "https://drive.google.com/file/d/" + fileId + "/view?usp=sharing"
   };
 }

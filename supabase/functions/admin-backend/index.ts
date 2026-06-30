@@ -40,6 +40,7 @@ type UserProfile = {
   name?: string;
   username?: string;
   forcePasswordReset?: boolean;
+  branchLimit?: number;
 };
 
 Deno.serve(async (req) => {
@@ -105,6 +106,7 @@ Deno.serve(async (req) => {
         name,
         role: "store_owner",
         storeId,
+        branchLimit: Math.max(1, Math.min(100, Math.trunc(Number(storeInput.branchLimit || 1)))),
         forcePasswordReset: Boolean(body.forcePasswordReset),
         createdAt: timestamp(),
         updatedAt: timestamp(),
@@ -112,6 +114,9 @@ Deno.serve(async (req) => {
       const store = {
         ...storeInput,
         name: storeName,
+        businessName: cleanText(storeInput.businessName, 120) || storeName,
+        branchName: cleanText(storeInput.branchName, 80) || "Main",
+        isPrimaryBranch: true,
         ownerId,
         status: ["pending", "active", "suspended"].includes(String(storeInput.status))
           ? String(storeInput.status)
@@ -184,6 +189,75 @@ Deno.serve(async (req) => {
         owner: { id: ownerId, ...profile },
         notification,
       });
+    }
+
+    if (action === "create_branch") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const ownerId = cleanText(body.ownerId, 100);
+      const storeInput = body.store && typeof body.store === "object"
+        ? body.store as Record<string, unknown>
+        : {};
+      const branchName = cleanText(storeInput.branchName || storeInput.name, 80);
+      if (!ownerId || !branchName) {
+        return jsonResponse({ error: "An owner and branch label are required." }, 400);
+      }
+      const ownerProfile = await getUserProfile(admin, ownerId);
+      if (!ownerProfile || ownerProfile.role !== "store_owner") {
+        return jsonResponse({ error: "Store owner was not found." }, 404);
+      }
+      const { count, error: countError } = await admin
+        .from("stores")
+        .select("id", { count: "exact", head: true })
+        .eq("data->>ownerId", ownerId);
+      if (countError) throw countError;
+      const branchLimit = Math.max(1, Math.min(100, Math.trunc(Number(ownerProfile.branchLimit || 1))));
+      if ((count || 0) >= branchLimit) {
+        return jsonResponse({ error: `This owner has reached the ${branchLimit}-branch limit.` }, 409);
+      }
+      const { data: primaryStore, error: primaryError } = await admin
+        .from("stores")
+        .select("id,data")
+        .eq("data->>ownerId", ownerId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (primaryError) throw primaryError;
+      if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
+      const businessName = cleanText(primaryStore.data?.businessName || primaryStore.data?.name, 120);
+      const storeName = `${businessName} - ${branchName}`;
+      const storeId = crypto.randomUUID();
+      const store = {
+        ...storeInput,
+        name: storeName,
+        businessName,
+        branchName,
+        parentStoreId: cleanText(primaryStore.data?.parentStoreId, 100) || String(primaryStore.id),
+        isPrimaryBranch: false,
+        ownerId,
+        status: ["pending", "active", "suspended"].includes(String(storeInput.status))
+          ? String(storeInput.status)
+          : "active",
+        createdAt: timestamp(),
+        updatedAt: timestamp(),
+      };
+      const { error: storeError } = await admin.from("stores").insert({ id: storeId, data: store });
+      if (storeError) throw storeError;
+      return jsonResponse({ store: { id: storeId, ...store } });
+    }
+
+    if (action === "set_branch_limit") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const ownerId = cleanText(body.ownerId, 100);
+      const branchLimit = Math.trunc(Number(body.branchLimit));
+      if (!ownerId || !Number.isInteger(branchLimit) || branchLimit < 1 || branchLimit > 100) {
+        return jsonResponse({ error: "Branch limit must be between 1 and 100." }, 400);
+      }
+      const ownerProfile = await getUserProfile(admin, ownerId);
+      if (!ownerProfile || ownerProfile.role !== "store_owner") {
+        return jsonResponse({ error: "Store owner was not found." }, 404);
+      }
+      await mergeUserData(admin, ownerId, { branchLimit });
+      return jsonResponse({ updated: true, branchLimit });
     }
 
     if (action === "reject_application") {
@@ -540,9 +614,18 @@ Deno.serve(async (req) => {
         .select("id")
         .eq("data->>storeId", storeId);
       if (usersError) throw usersError;
+      const { count: remainingBranchCount, error: branchCountError } = ownerId
+        ? await admin
+          .from("stores")
+          .select("id", { count: "exact", head: true })
+          .eq("data->>ownerId", ownerId)
+          .neq("id", storeId)
+        : { count: 0, error: null };
+      if (branchCountError) throw branchCountError;
+      const deleteOwner = Boolean(ownerId) && (remainingBranchCount || 0) === 0;
       const userIds = Array.from(new Set([
         ...(staffRows || []).map((row) => String(row.id)),
-        ...(ownerId ? [ownerId] : []),
+        ...(deleteOwner ? [ownerId] : []),
       ]));
 
       const driveFileIds = new Set<string>();

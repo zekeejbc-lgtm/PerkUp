@@ -26,14 +26,14 @@ export function PublicSiteFooter() {
 
 export function PublicPageShell({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-white text-[#1b1b1b] dark:bg-[#1b1b1b] dark:text-white">
+    <div className="flex min-h-screen flex-col bg-white text-[#1b1b1b] dark:bg-[#1b1b1b] dark:text-white">
       <header className="sticky top-0 z-40 border-b border-black/10 bg-white/85 backdrop-blur-xl dark:border-white/10 dark:bg-[#1b1b1b]/85">
         <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
           <Link to="/" aria-label="PerkUp home"><BrandMark compact /></Link>
           <ThemeToggle />
         </nav>
       </header>
-      <main className="mx-auto max-w-3xl px-6 py-8 sm:py-10">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8 sm:py-10">
         <Link
           to="/"
           className="mb-10 inline-flex items-center gap-2 rounded-full border border-black/10 px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-100 dark:border-white/10 dark:hover:bg-white/10 sm:mb-12"

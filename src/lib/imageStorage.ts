@@ -41,7 +41,10 @@ export function normalizeDriveImageUrl(url: string): string {
   const trimmedUrl = String(url || "").trim();
   const fileId = extractDriveFileId(trimmedUrl);
 
-  return fileId ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w4000` : trimmedUrl;
+  // Use Drive's public image host directly. The drive.google.com/thumbnail
+  // endpoint redirects through a Google session-aware URL, which can render as
+  // a broken image depending on the visitor's Google cookies.
+  return fileId ? `https://lh3.googleusercontent.com/d/${fileId}=w4000` : trimmedUrl;
 }
 
 export function getDisplayImageUrl(url: string): string {

@@ -49,6 +49,7 @@ const tableNames = new Set([
   "promotions",
   "promotions_scanned",
   "settings",
+  "store_reviews",
   "stores",
   "test",
   "users",

@@ -71,12 +71,17 @@ export default function AdminStores() {
       const matchesCategory =
         selectedCategory === "All" ||
         storeCategories.some((category) => normalizeStoreCategory(category) === normalizeStoreCategory(selectedCategory));
-      const searchableText = [store.name, store.location, store.description, store.category, store.status, store.subscriptionLevel]
+      const searchableText = [store.name, store.businessName, store.branchName, store.location, store.description, store.category, store.status, store.subscriptionLevel]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
 
       return matchesCategory && (!query || searchableText.includes(query));
+    }).sort((left, right) => {
+      const leftBusiness = String(left.businessName || left.name || "");
+      const rightBusiness = String(right.businessName || right.name || "");
+      return leftBusiness.localeCompare(rightBusiness) ||
+        String(left.branchName || "Main").localeCompare(String(right.branchName || "Main"));
     });
   }, [searchQuery, selectedCategory, stores]);
   const hasActiveFilters = Boolean(searchQuery.trim()) || selectedCategory !== "All";
@@ -134,7 +139,11 @@ export default function AdminStores() {
             purpose: "admin-store-logo",
           })
         : storeLogo;
-      const result = await invokeAdminBackend<{ store: any; notification?: { sent: boolean; error?: string } }>({
+      const result = await invokeAdminBackend<{
+        store: any;
+        owner: { id: string };
+        notification?: { sent: boolean; error?: string };
+      }>({
         action: "create_store",
         email: ownerEmail,
         password: ownerPassword,
@@ -142,6 +151,8 @@ export default function AdminStores() {
         forcePasswordReset: requirePasswordChange,
         store: {
           name: storeName,
+          businessName: storeName,
+          branchName: "Main",
           location: storeLocation,
           address: storeLocation,
           description: storeDescription,
@@ -163,6 +174,10 @@ export default function AdminStores() {
           paymentSchedule,
         },
       });
+
+      if (!result.owner?.id || result.store.ownerId !== result.owner.id) {
+        throw new Error("The store was not linked to a valid owner account.");
+      }
 
       setStores([...stores, result.store]);
       setShowAddModal(false);
@@ -284,6 +299,8 @@ export default function AdminStores() {
           <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
             {filteredStores.length > 0 ? filteredStores.map(store => {
               const storeCategories = splitStoreCategories(store.category);
+              const businessName = store.businessName || store.name;
+              const branchName = store.branchName || "Main";
 
               return (
                 <div key={store.id} className="group flex cursor-pointer flex-col gap-6 p-6 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 sm:flex-row sm:items-center sm:justify-between sm:gap-6" onClick={() => {
@@ -301,7 +318,10 @@ export default function AdminStores() {
                     )}
                     <div className="min-w-0">
                       <div className="mb-2 flex flex-wrap items-center gap-2 sm:mb-1 sm:gap-3">
-                        <h4 className="w-full truncate text-xl font-bold tracking-tight text-gray-900 transition-colors group-hover:text-[#1b1b1b] dark:text-white dark:group-hover:text-white sm:w-auto sm:text-lg">{store.name}</h4>
+                        <h4 className="w-full truncate text-xl font-bold tracking-tight text-gray-900 transition-colors group-hover:text-[#1b1b1b] dark:text-white dark:group-hover:text-white sm:w-auto sm:text-lg">{businessName}</h4>
+                        <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                          {branchName} branch
+                        </span>
                         <span className={`self-start sm:self-auto px-3 py-1 sm:px-2.5 rounded-full text-[11px] sm:text-[10px] font-bold tracking-wider uppercase shrink-0 ${
                           store.status === 'active' ? 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800/50' :
                           store.status === 'pending' ? 'bg-gray-100 text-[#1b1b1b] border border-gray-300 dark:bg-white/10 dark:text-white dark:border-white/15' :
@@ -315,6 +335,9 @@ export default function AdminStores() {
                           </span>
                         )}
                       </div>
+                      {store.name !== businessName && (
+                        <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">{store.name}</p>
+                      )}
                       <div className="flex flex-wrap gap-2">
                         {storeCategories.length > 0 ? storeCategories.map((category) => (
                           <span key={category} className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">

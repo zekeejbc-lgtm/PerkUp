@@ -116,7 +116,7 @@ Deno.serve(async (req) => {
       const rawUrl = uploaded.url || uploaded.webViewLink || "";
       uploadedFileId = uploaded.fileId || extractFileId(rawUrl);
       if (!uploadedFileId) throw new Error("Drive did not return a valid file ID.");
-      logoUrl = `https://drive.google.com/thumbnail?id=${uploadedFileId}&sz=w4000`;
+      logoUrl = `https://lh3.googleusercontent.com/d/${uploadedFileId}=w4000`;
     }
 
     const applicationId = crypto.randomUUID();

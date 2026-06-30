@@ -95,13 +95,13 @@ export default function StoresPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-[#1b1b1b] transition-colors dark:bg-[#1b1b1b] dark:text-white">
+    <div className="flex min-h-screen flex-col bg-white text-[#1b1b1b] transition-colors dark:bg-[#1b1b1b] dark:text-white">
       <PublicSiteHeader
         onSignIn={() => openAuthModal("signin")}
         onSignUp={() => openAuthModal("signup")}
       />
 
-      <main>
+      <main className="flex-1">
         <section className="border-b border-[#1b1b1b]/10 px-6 pb-12 pt-7 dark:border-white/10 sm:pb-16 sm:pt-9">
           <div className="mx-auto max-w-6xl">
             <Link

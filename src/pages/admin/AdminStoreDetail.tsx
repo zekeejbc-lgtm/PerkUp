@@ -3,10 +3,11 @@ import { useSearchParams } from "react-router-dom";
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { AlertTriangle, ArrowLeft, Edit, Key, Loader2, Save, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Building2, Edit, Key, Loader2, Plus, Save, Trash2, Upload, X } from "lucide-react";
 
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
+import { getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
   dateInputToDate,
@@ -34,6 +35,7 @@ export default function AdminStoreDetail({
   const [owner, setOwner] = useState<any>(null);
   const [staff, setStaff] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Analytics State
@@ -56,6 +58,12 @@ export default function AdminStoreDetail({
   // Edit store state
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<any>({});
+  const [pendingLogo, setPendingLogo] = useState<File | null>(null);
+  const [branchLimit, setBranchLimit] = useState(1);
+  const [newBranchName, setNewBranchName] = useState("");
+  const [newBranchAddress, setNewBranchAddress] = useState("");
+  const [branchBusy, setBranchBusy] = useState(false);
+  const [branchError, setBranchError] = useState("");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -97,6 +105,10 @@ export default function AdminStoreDetail({
             contact: String(storeData.contact || ""),
             website: String(storeData.website || ""),
             description: String(storeData.description || ""),
+            logoUrl: String(storeData.logoUrl || ""),
+            category: String(storeData.category || ""),
+            openingTime: String(storeData.openingTime || ""),
+            closingTime: String(storeData.closingTime || ""),
             subscriptionStart: toDateInputValue(storeData.subscriptionStart),
             subscriptionEnd: toDateInputValue(storeData.subscriptionEnd),
             paymentSchedule: storeData.paymentSchedule || "",
@@ -106,7 +118,13 @@ export default function AdminStoreDetail({
           // Fetch owner
           if (storeData.ownerId) {
             const ownerDoc = await getDoc(doc(db, "users", storeData.ownerId));
-            if (ownerDoc.exists()) setOwner({ id: ownerDoc.id, ...ownerDoc.data() });
+            if (ownerDoc.exists()) {
+              const ownerData = ownerDoc.data();
+              setOwner({ id: ownerDoc.id, ...ownerData });
+              setBranchLimit(Math.max(1, Number(ownerData.branchLimit || 1)));
+            }
+            const branchSnap = await getDocs(query(collection(db, "stores"), where("ownerId", "==", storeData.ownerId)));
+            setBranches(branchSnap.docs.map(d => ({ id: d.id, ...d.data() })));
           }
 
           // Fetch staff
@@ -151,8 +169,15 @@ export default function AdminStoreDetail({
 
   const handleUpdateStore = async () => {
     try {
+      const logoUrl = pendingLogo
+        ? await uploadImageFileToDriveSecure(pendingLogo, {
+            owner: store.ownerId || store.name,
+            purpose: "admin-store-logo",
+          })
+        : editData.logoUrl;
       const nextData = {
         ...editData,
+        logoUrl,
         address: editData.address || "",
         contact: editData.contact || "",
         website: editData.website || "",
@@ -171,6 +196,7 @@ export default function AdminStoreDetail({
         owedAmount: nextData.owedAmount,
       });
       setIsEditing(false);
+      setPendingLogo(null);
     } catch (error) {
       console.error(error);
       alert("Failed to update store");
@@ -194,12 +220,67 @@ export default function AdminStoreDetail({
       contact: String(store.contact || ""),
       website: String(store.website || ""),
       description: String(store.description || ""),
+      logoUrl: String(store.logoUrl || ""),
+      category: String(store.category || ""),
+      openingTime: String(store.openingTime || ""),
+      closingTime: String(store.closingTime || ""),
       subscriptionStart: toDateInputValue(store.subscriptionStart),
       subscriptionEnd: toDateInputValue(store.subscriptionEnd),
       paymentSchedule: store.paymentSchedule || "",
       status: store.status || 'active',
     });
     setIsEditing(false);
+    setPendingLogo(null);
+  };
+
+  const handleSaveBranchLimit = async () => {
+    if (!owner) return;
+    setBranchBusy(true);
+    setBranchError("");
+    try {
+      const result = await invokeAdminBackend<{ branchLimit: number }>({
+        action: "set_branch_limit",
+        ownerId: owner.id,
+        branchLimit,
+      });
+      setBranchLimit(result.branchLimit);
+      setOwner({ ...owner, branchLimit: result.branchLimit });
+    } catch (error) {
+      setBranchError((error as Error).message);
+    } finally {
+      setBranchBusy(false);
+    }
+  };
+
+  const handleAddBranch = async () => {
+    if (!owner || !newBranchName.trim()) return;
+    setBranchBusy(true);
+    setBranchError("");
+    try {
+      const result = await invokeAdminBackend<{ store: any }>({
+        action: "create_branch",
+        ownerId: owner.id,
+        store: {
+          branchName: newBranchName,
+          address: newBranchAddress,
+          location: newBranchAddress,
+          status: "active",
+          logoUrl: store.logoUrl || "",
+          category: store.category || "",
+          subscriptionLevel: store.subscriptionLevel || "",
+          subscriptionStart: store.subscriptionStart || null,
+          subscriptionEnd: store.subscriptionEnd || null,
+          paymentSchedule: store.paymentSchedule || "",
+        },
+      });
+      setBranches([...branches, result.store]);
+      setNewBranchName("");
+      setNewBranchAddress("");
+    } catch (error) {
+      setBranchError((error as Error).message);
+    } finally {
+      setBranchBusy(false);
+    }
   };
 
   const handleDeleteStore = async () => {
@@ -312,6 +393,28 @@ export default function AdminStoreDetail({
               
               <div className="space-y-4">
                 <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-2">Store Logo</label>
+                  <div className="flex items-center gap-3">
+                    <div className="h-16 w-16 overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+                      {(pendingLogo || editData.logoUrl) ? (
+                        <img
+                          src={pendingLogo ? URL.createObjectURL(pendingLogo) : getDisplayImageUrl(editData.logoUrl)}
+                          alt={`${store.name} logo`}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-gray-400"><Building2 className="h-6 w-6" /></div>
+                      )}
+                    </div>
+                    {isEditing && (
+                      <label className="cursor-pointer rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                        <span className="flex items-center gap-2"><Upload className="h-4 w-4" /> Change logo</span>
+                        <input type="file" accept="image/*" className="hidden" onChange={(event) => setPendingLogo(event.target.files?.[0] || null)} />
+                      </label>
+                    )}
+                  </div>
+                </div>
+                <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-1">Store Name</label>
                   {isEditing ? (
                     <input type="text" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
@@ -351,6 +454,15 @@ export default function AdminStoreDetail({
                 </div>
 
                 <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Category</label>
+                  {isEditing ? (
+                    <input type="text" value={editData.category} onChange={e => setEditData({...editData, category: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                  ) : (
+                    <p className="text-gray-700 dark:text-gray-300 text-sm">{store.category || "Not provided"}</p>
+                  )}
+                </div>
+
+                <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-1">Address</label>
                   {isEditing ? (
                     <input type="text" value={editData.address} onChange={e => setEditData({...editData, address: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
@@ -375,6 +487,20 @@ export default function AdminStoreDetail({
                   ) : (
                     <p className="text-gray-700 dark:text-gray-300 text-sm">{store.website ? store.website.replace(/^https?:\/\//, '') : "Not provided"}</p>
                   )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Opening Time</label>
+                    {isEditing ? (
+                      <input type="time" value={editData.openingTime} onChange={e => setEditData({...editData, openingTime: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                    ) : <p className="text-sm text-gray-700 dark:text-gray-300">{store.openingTime || "Not set"}</p>}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Closing Time</label>
+                    {isEditing ? (
+                      <input type="time" value={editData.closingTime} onChange={e => setEditData({...editData, closingTime: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                    ) : <p className="text-sm text-gray-700 dark:text-gray-300">{store.closingTime || "Not set"}</p>}
+                  </div>
                 </div>
               </div>
             </div>
@@ -453,6 +579,38 @@ export default function AdminStoreDetail({
                   )}
                 </div>
               </div>
+            </div>
+
+            <div className="md:col-span-2 rounded-2xl border border-gray-100 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-800/50">
+              <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Branch Management</h4>
+                  <p className="mt-1 text-sm text-gray-500">{branches.length} of {branchLimit} branch slots used for this owner.</p>
+                </div>
+                <div className="flex items-end gap-2">
+                  <label className="text-xs font-semibold text-gray-500">
+                    Branch limit
+                    <input type="number" min="1" max="100" value={branchLimit} onChange={e => setBranchLimit(Number(e.target.value))} className="mt-1 block w-24 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
+                  </label>
+                  <button type="button" disabled={branchBusy} onClick={handleSaveBranchLimit} className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-gray-900">Save limit</button>
+                </div>
+              </div>
+              <div className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {branches.map(branch => (
+                  <div key={branch.id} className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
+                    <p className="font-medium text-gray-900 dark:text-white">{branch.name}</p>
+                    <p className="mt-1 truncate text-xs text-gray-500">{branch.address || branch.location || "No address"}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-[1fr_1.5fr_auto]">
+                <input value={newBranchName} onChange={e => setNewBranchName(e.target.value)} placeholder="Branch label (e.g. Tagum)" className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
+                <input value={newBranchAddress} onChange={e => setNewBranchAddress(e.target.value)} placeholder="Branch address" className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
+                <button type="button" disabled={branchBusy || !newBranchName.trim() || branches.length >= branchLimit} onClick={handleAddBranch} className="flex items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+                  <Plus className="h-4 w-4" /> Add branch
+                </button>
+              </div>
+              {branchError && <p className="mt-3 text-sm text-red-600">{branchError}</p>}
             </div>
           </div>
         )}

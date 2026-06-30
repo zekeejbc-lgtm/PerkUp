@@ -70,7 +70,7 @@ const extractDriveFileId = (value: unknown) => {
 
 const normalizeDriveImageUrl = (url: string) => {
   const fileId = extractDriveFileId(url);
-  return fileId ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w4000` : url;
+  return fileId ? `https://lh3.googleusercontent.com/d/${fileId}=w4000` : url;
 };
 
 const buildUploadFileName = (body: Record<string, unknown>, userId: string) => {

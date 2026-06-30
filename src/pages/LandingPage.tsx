@@ -39,9 +39,18 @@ const getStoreIcon = (name: string) => {
   return logo ? logo.icon : StoreIcon;
 };
 
-const createCustomPin = (storeName: string) => {
-  const IconComponent = getStoreIcon(storeName);
-  const iconHtml = ReactDOMServer.renderToString(<IconComponent size={20} strokeWidth={2.5} color="#1b1b1b" />);
+const createCustomPin = (store: DirectoryStore) => {
+  const IconComponent = getStoreIcon(store.name);
+  const markerContent = store.logoUrl
+    ? (
+      <img
+        src={getDisplayImageUrl(store.logoUrl)}
+        alt=""
+        style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover" }}
+      />
+    )
+    : <IconComponent size={20} strokeWidth={2.5} color="#1b1b1b" />;
+  const iconHtml = ReactDOMServer.renderToString(markerContent);
 
   return L.divIcon({
     className: 'custom-pin',
@@ -408,7 +417,7 @@ export default function LandingPage() {
                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                    />
                    {filteredStores.map(store => store.lat && store.lng ? (
-                     <Marker key={store.id} position={[store.lat, store.lng]} icon={createCustomPin(store.name)}>
+                     <Marker key={store.id} position={[store.lat, store.lng]} icon={createCustomPin(store)}>
                        <Popup className="rounded-xl overflow-hidden shadow-md">
                          <div className="p-1 -m-1">
                            {store.logoUrl && (
