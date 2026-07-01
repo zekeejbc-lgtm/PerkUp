@@ -28,6 +28,40 @@ const normalizePhone = (value: unknown) => {
   return digits;
 };
 
+const resolvePhoneOwner = async (
+  admin: ReturnType<typeof createClient>,
+  phone: string,
+) => {
+  const { data: phoneRows, error: phoneError } = await admin
+    .from("customer_phones")
+    .select("customer_id")
+    .eq("phone", phone)
+    .limit(1);
+  if (phoneError) throw phoneError;
+
+  const customerId = phoneRows?.[0]?.customer_id as string | undefined;
+  if (!customerId) return null;
+
+  const { data: userRow, error: userError } = await admin
+    .from("users")
+    .select("id")
+    .eq("id", customerId)
+    .maybeSingle();
+  if (userError) throw userError;
+
+  if (!userRow) {
+    const { error: cleanupError } = await admin
+      .from("customer_phones")
+      .delete()
+      .eq("phone", phone)
+      .eq("customer_id", customerId);
+    if (cleanupError) throw cleanupError;
+    return null;
+  }
+
+  return customerId;
+};
+
 const validateUsername = (username: string) => {
   if (!username) return "Username is required.";
   if (username.length < 4) return "Username must be at least 4 characters.";
@@ -105,7 +139,10 @@ Deno.serve(async (req) => {
     if (phoneOwnerError) throw phoneOwnerError;
     const phoneOwnerId = phoneRows?.[0]?.customer_id as string | undefined;
     if (phoneOwnerId && phoneOwnerId !== authData.user.id) {
+      const livePhoneOwnerId = await resolvePhoneOwner(admin, phone);
+      if (livePhoneOwnerId && livePhoneOwnerId !== authData.user.id) {
       return jsonResponse({ error: "Phone number is already associated with an account." }, 409);
+      }
     }
 
     const payload = {
