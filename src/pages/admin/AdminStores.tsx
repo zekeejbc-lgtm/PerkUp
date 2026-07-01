@@ -20,6 +20,8 @@ import { TemporaryPasswordField } from "../../components/TemporaryPasswordField"
 import { validateStrongPassword } from "../../lib/passwordStrength";
 import { StoreLocationPicker } from "../../components/StoreLocationPicker";
 import { getAvailableStoreCategories, normalizeStoreCategory, splitStoreCategories } from "../../lib/storeDirectory";
+import { TimeInput } from "../../components/TimeInput";
+import { formatStoreHours } from "../../lib/dateTime";
 
 export default function AdminStores() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -40,8 +42,8 @@ export default function AdminStores() {
   const [storeWebsite, setStoreWebsite] = useState("");
   const [storeOpeningTime, setStoreOpeningTime] = useState("09:00");
   const [storeClosingTime, setStoreClosingTime] = useState("21:00");
-  const [storeLatitude, setStoreLatitude] = useState(14.5995);
-  const [storeLongitude, setStoreLongitude] = useState(120.9842);
+  const [storeLatitude, setStoreLatitude] = useState(7.4478);
+  const [storeLongitude, setStoreLongitude] = useState(125.8078);
   const [storeLogo, setStoreLogo] = useState("");
   const [pendingLogo, setPendingLogo] = useState<File | null>(null);
   const [logoEditorFile, setLogoEditorFile] = useState<File | null>(null);
@@ -161,8 +163,8 @@ export default function AdminStores() {
           website: storeWebsite,
           openingTime: storeOpeningTime,
           closingTime: storeClosingTime,
-          hours: `Mon-Sun: ${storeOpeningTime} - ${storeClosingTime}`,
-          openingHours: `Mon-Sun: ${storeOpeningTime} - ${storeClosingTime}`,
+          hours: formatStoreHours(storeOpeningTime, storeClosingTime),
+          openingHours: formatStoreHours(storeOpeningTime, storeClosingTime),
           lat: storeLatitude,
           lng: storeLongitude,
           logoUrl,
@@ -189,8 +191,8 @@ export default function AdminStores() {
       setStoreWebsite("");
       setStoreOpeningTime("09:00");
       setStoreClosingTime("21:00");
-      setStoreLatitude(14.5995);
-      setStoreLongitude(120.9842);
+      setStoreLatitude(7.4478);
+      setStoreLongitude(125.8078);
       setStoreLogo("");
       setPendingLogo(null);
       setOwnerEmail("");
@@ -447,11 +449,11 @@ export default function AdminStores() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Opening Time</label>
-                    <input type="time" required value={storeOpeningTime} onChange={e => setStoreOpeningTime(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-800" />
+                    <TimeInput required value={storeOpeningTime} onChange={setStoreOpeningTime} aria-label="Opening time (Philippine time)" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-800" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Closing Time</label>
-                    <input type="time" required value={storeClosingTime} onChange={e => setStoreClosingTime(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-800" />
+                    <TimeInput required value={storeClosingTime} onChange={setStoreClosingTime} aria-label="Closing time (Philippine time)" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-800" />
                   </div>
                 </div>
                 <div className="space-y-2">

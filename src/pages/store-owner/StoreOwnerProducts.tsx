@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { collection, query, where, getDocs, doc, addDoc, updateDoc, deleteDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Plus, Edit2, Trash2, X, Image as ImageIcon, Upload } from "lucide-react";
+import { Plus, Edit2, Trash2, X, Image as ImageIcon, Upload, Loader2 } from "lucide-react";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
+import { ImageCropEditor } from "../../components/ImageCropEditor";
 
 export default function StoreOwnerProducts({ store }: { store: any }) {
   const [products, setProducts] = useState<any[]>([]);
@@ -19,9 +20,11 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
     available: true
   });
   const [saving, setSaving] = useState(false);
+  const [availabilitySavingIds, setAvailabilitySavingIds] = useState<Set<string>>(new Set());
   const [productToDelete, setProductToDelete] = useState<any>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+  const [imageEditorFile, setImageEditorFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (!store?.id) return;
@@ -59,10 +62,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    if (formData.imageUrl.startsWith("blob:")) URL.revokeObjectURL(formData.imageUrl);
-    setPendingImageFile(file);
-    setFormData(prev => ({ ...prev, imageUrl: URL.createObjectURL(file) }));
+    if (file) setImageEditorFile(file);
     e.target.value = "";
   };
 
@@ -120,6 +120,34 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
     }
   };
 
+  const handleAvailabilityToggle = async (product: any) => {
+    const nextAvailable = !(product.available ?? true);
+
+    setAvailabilitySavingIds((current) => new Set(current).add(product.id));
+    setProducts((current) =>
+      current.map((item) => item.id === product.id ? { ...item, available: nextAvailable } : item)
+    );
+
+    try {
+      await updateDoc(doc(db, "products", product.id), {
+        available: nextAvailable,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error("Failed to update product availability", error);
+      setProducts((current) =>
+        current.map((item) => item.id === product.id ? { ...item, available: !nextAvailable } : item)
+      );
+      alert("Failed to update product availability. Please try again.");
+    } finally {
+      setAvailabilitySavingIds((current) => {
+        const next = new Set(current);
+        next.delete(product.id);
+        return next;
+      });
+    }
+  };
+
   if (loading) return <PageSkeleton variant="products" />;
 
   return (
@@ -156,7 +184,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
                     <ImageIcon className="w-8 h-8 text-gray-300 dark:text-gray-600" />
                   </div>
                 )}
-                {!product.available && (
+                {product.available === false && (
                    <div className="absolute inset-0 bg-white/60 dark:bg-black/60 backdrop-blur-sm flex items-center justify-center">
                      <span className="bg-gray-900 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-widest">Unavailable</span>
                    </div>
@@ -170,13 +198,52 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
                 {product.ingredients && (
                   <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 flex-1">{product.ingredients}</p>
                 )}
-                <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 shrink-0">
-                   <button onClick={() => handleOpenModal(product)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
+                <div className="mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-gray-100 pt-4 dark:border-gray-800">
+                  <div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={product.available ?? true}
+                      aria-label={`Mark ${product.name} as ${(product.available ?? true) ? "unavailable" : "available"}`}
+                      disabled={availabilitySavingIds.has(product.id)}
+                      onClick={() => handleAvailabilityToggle(product)}
+                      className={`group/switch flex min-h-9 items-center gap-2.5 rounded-full border py-1.5 pl-2 pr-3 text-xs font-bold shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70 disabled:hover:translate-y-0 dark:focus-visible:ring-white ${
+                        (product.available ?? true)
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800/70 dark:bg-emerald-950/50 dark:text-emerald-300 dark:hover:bg-emerald-950/80"
+                          : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                      }`}
+                    >
+                      <span className={`relative h-5 w-9 shrink-0 rounded-full shadow-inner transition-colors ${
+                        (product.available ?? true) ? "bg-emerald-500" : "bg-gray-300 dark:bg-gray-600"
+                      }`}>
+                        <span
+                          className={`absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow transition-transform duration-200 ${
+                            (product.available ?? true) ? "translate-x-4" : "translate-x-0"
+                          }`}
+                        >
+                          {availabilitySavingIds.has(product.id) && (
+                            <Loader2 className="h-2.5 w-2.5 animate-spin text-gray-500" />
+                          )}
+                        </span>
+                      </span>
+                      <span className="min-w-[4.6rem] text-left">
+                        {availabilitySavingIds.has(product.id)
+                          ? "Updating..."
+                          : (product.available ?? true) ? "Available" : "Unavailable"}
+                      </span>
+                      <span className="sr-only">
+                        {`Click to mark as ${(product.available ?? true) ? "unavailable" : "available"}`}
+                      </span>
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                   <button type="button" aria-label={`Edit ${product.name}`} onClick={() => handleOpenModal(product)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
                      <Edit2 className="w-4 h-4" />
                    </button>
-                   <button onClick={() => setProductToDelete(product)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
+                   <button type="button" aria-label={`Delete ${product.name}`} onClick={() => setProductToDelete(product)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
                      <Trash2 className="w-4 h-4" />
                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -185,32 +252,49 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-white dark:bg-gray-900 w-full max-w-md my-auto rounded-[2rem] shadow-xl relative border border-gray-100 dark:border-gray-800 overflow-hidden shrink-0">
-            <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm dark:bg-black/60 sm:p-6">
+          <div className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-[2rem] border border-gray-100 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900 sm:max-h-[calc(100dvh-3rem)]">
+            <div className="flex shrink-0 items-center justify-between border-b border-gray-100 p-6 dark:border-gray-800">
               <h3 className="text-xl font-bold">{editingProduct ? 'Edit Product' : 'Add Product'}</h3>
               <button type="button" onClick={() => setIsModalOpen(false)} className="p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
             
-            <form onSubmit={handleSave} className="p-6 space-y-5">
+            <form onSubmit={handleSave} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6 space-y-5">
               
-              <div className="flex justify-center mb-6">
-                <div className="relative w-32 h-32 bg-gray-50 dark:bg-gray-800 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 overflow-hidden group">
+              <div className="mb-6 flex flex-col items-center gap-3">
+                <div className="group relative h-32 w-32 overflow-hidden rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
                   {formData.imageUrl ? (
-                    <img src={getDisplayImageUrl(formData.imageUrl)} alt="Preview" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => pendingImageFile && setImageEditorFile(pendingImageFile)}
+                      disabled={!pendingImageFile}
+                      className="h-full w-full disabled:cursor-default"
+                      aria-label={pendingImageFile ? "Edit selected product image" : "Product image preview"}
+                    >
+                      <img src={getDisplayImageUrl(formData.imageUrl)} alt="Preview" className="h-full w-full object-cover" />
+                      {pendingImageFile && (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/60 text-xs font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                          Edit crop
+                        </span>
+                      )}
+                    </button>
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
                       <ImageIcon className="w-8 h-8 mb-2 opacity-50" />
                       <span className="text-xs font-semibold">Upload Photo</span>
                     </div>
                   )}
-                  <label className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
-                    <Upload className="w-6 h-6 text-white" />
-                    <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                  </label>
                 </div>
+                <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700">
+                  <Upload className="h-4 w-4" />
+                  {formData.imageUrl ? "Choose another image" : "Choose image"}
+                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                </label>
+                <p className="text-center text-xs text-gray-500 dark:text-gray-400">
+                  Recommended: 800 × 800 px (square)
+                </p>
               </div>
               
               <div className="space-y-2">
@@ -245,6 +329,18 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
             </form>
           </div>
         </div>
+      )}
+      {imageEditorFile && (
+        <ImageCropEditor
+          file={imageEditorFile}
+          onCancel={() => setImageEditorFile(null)}
+          onApply={(file, previewUrl) => {
+            if (formData.imageUrl.startsWith("blob:")) URL.revokeObjectURL(formData.imageUrl);
+            setPendingImageFile(file);
+            setFormData((current) => ({ ...current, imageUrl: previewUrl }));
+            setImageEditorFile(null);
+          }}
+        />
       )}
       <ConfirmationModal
         isOpen={Boolean(productToDelete)}

@@ -3,10 +3,11 @@ import { useSearchParams } from "react-router-dom";
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { AlertTriangle, ArrowLeft, Building2, Edit, Key, Loader2, Plus, Save, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Building2, Check, Edit, Key, Loader2, Plus, Save, Trash2, Upload, X } from "lucide-react";
 
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
+import { StoreLocationPicker } from "../../components/StoreLocationPicker";
 import { getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
@@ -20,6 +21,8 @@ import {
   predictPaymentDates,
   toDateInputValue,
 } from "../../lib/subscriptionBilling";
+import { TimeInput } from "../../components/TimeInput";
+import { formatPhilippineDateTime, formatStoreHours, formatTime12Hour } from "../../lib/dateTime";
 
 export default function AdminStoreDetail({
   storeId,
@@ -36,13 +39,14 @@ export default function AdminStoreDetail({
   const [staff, setStaff] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
+  const [branchRequests, setBranchRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Analytics State
   const requestedTab = searchParams.get("detailTab");
-  const activeTab: 'overview' | 'accounts' | 'analytics' =
-    requestedTab === 'accounts' || requestedTab === 'analytics' ? requestedTab : 'overview';
-  const setActiveTab = (tab: 'overview' | 'accounts' | 'analytics') => {
+  const activeTab: 'overview' | 'branches' | 'accounts' | 'analytics' =
+    requestedTab === 'branches' || requestedTab === 'accounts' || requestedTab === 'analytics' ? requestedTab : 'overview';
+  const setActiveTab = (tab: 'overview' | 'branches' | 'accounts' | 'analytics') => {
     const nextParams = new URLSearchParams(searchParams);
     if (tab === 'overview') nextParams.delete("detailTab");
     else nextParams.set("detailTab", tab);
@@ -62,6 +66,9 @@ export default function AdminStoreDetail({
   const [branchLimit, setBranchLimit] = useState(1);
   const [newBranchName, setNewBranchName] = useState("");
   const [newBranchAddress, setNewBranchAddress] = useState("");
+  const [newBranchLatitude, setNewBranchLatitude] = useState(7.4478);
+  const [newBranchLongitude, setNewBranchLongitude] = useState(125.8078);
+  const [newBranchLocationSelected, setNewBranchLocationSelected] = useState(false);
   const [branchBusy, setBranchBusy] = useState(false);
   const [branchError, setBranchError] = useState("");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -84,6 +91,13 @@ export default function AdminStoreDetail({
 
   useEffect(() => {
     async function fetchDetails() {
+      setLoading(true);
+      setIsEditing(false);
+      setPendingLogo(null);
+      setStaff([]);
+      setBranches([]);
+      setBranchRequests([]);
+      setReviews([]);
       try {
         const storeDoc = await getDoc(doc(db, "stores", storeId));
         if (storeDoc.exists()) {
@@ -125,6 +139,8 @@ export default function AdminStoreDetail({
             }
             const branchSnap = await getDocs(query(collection(db, "stores"), where("ownerId", "==", storeData.ownerId)));
             setBranches(branchSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+            const branchRequestSnap = await getDocs(query(collection(db, "branch_requests"), where("ownerId", "==", storeData.ownerId)));
+            setBranchRequests(branchRequestSnap.docs.map(d => ({ id: d.id, ...d.data() })));
           }
 
           // Fetch staff
@@ -182,6 +198,8 @@ export default function AdminStoreDetail({
         contact: editData.contact || "",
         website: editData.website || "",
         description: editData.description || "",
+        hours: formatStoreHours(editData.openingTime, editData.closingTime),
+        openingHours: formatStoreHours(editData.openingTime, editData.closingTime),
         owedAmount: getSubscriptionOwedAmount(plans, editData.subscriptionLevel, Number(editData.owedAmount || 0)),
         subscriptionStart: dateInputToDate(editData.subscriptionStart),
         subscriptionEnd: dateInputToDate(editData.subscriptionEnd),
@@ -252,8 +270,19 @@ export default function AdminStoreDetail({
     }
   };
 
+  const openBranchDashboard = (branchId: string) => {
+    if (branchId === storeId) {
+      setActiveTab("overview");
+      return;
+    }
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("store", branchId);
+    nextParams.delete("detailTab");
+    setSearchParams(nextParams);
+  };
+
   const handleAddBranch = async () => {
-    if (!owner || !newBranchName.trim()) return;
+    if (!owner || !newBranchName.trim() || !newBranchAddress.trim() || !newBranchLocationSelected) return;
     setBranchBusy(true);
     setBranchError("");
     try {
@@ -264,6 +293,8 @@ export default function AdminStoreDetail({
           branchName: newBranchName,
           address: newBranchAddress,
           location: newBranchAddress,
+          lat: newBranchLatitude,
+          lng: newBranchLongitude,
           status: "active",
           logoUrl: store.logoUrl || "",
           category: store.category || "",
@@ -276,6 +307,25 @@ export default function AdminStoreDetail({
       setBranches([...branches, result.store]);
       setNewBranchName("");
       setNewBranchAddress("");
+      setNewBranchLocationSelected(false);
+    } catch (error) {
+      setBranchError((error as Error).message);
+    } finally {
+      setBranchBusy(false);
+    }
+  };
+
+  const handleBranchRequestDecision = async (requestId: string, decision: "approved" | "denied") => {
+    setBranchBusy(true);
+    setBranchError("");
+    try {
+      const result = await invokeAdminBackend<{ request: any; store?: any }>({
+        action: "decide_branch_request",
+        requestId,
+        decision,
+      });
+      setBranchRequests(branchRequests.map(request => request.id === requestId ? result.request : request));
+      if (result.store) setBranches([...branches, result.store]);
     } catch (error) {
       setBranchError((error as Error).message);
     } finally {
@@ -380,6 +430,7 @@ export default function AdminStoreDetail({
         </div>
         <div className="flex gap-4">
           <button onClick={() => setActiveTab('overview')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'overview' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Overview</button>
+          <button onClick={() => setActiveTab('branches')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'branches' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Branches</button>
           <button onClick={() => setActiveTab('accounts')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'accounts' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Accounts</button>
           <button onClick={() => setActiveTab('analytics')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'analytics' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Analytics & Logs</button>
         </div>
@@ -492,14 +543,14 @@ export default function AdminStoreDetail({
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 mb-1">Opening Time</label>
                     {isEditing ? (
-                      <input type="time" value={editData.openingTime} onChange={e => setEditData({...editData, openingTime: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
-                    ) : <p className="text-sm text-gray-700 dark:text-gray-300">{store.openingTime || "Not set"}</p>}
+                      <TimeInput value={editData.openingTime} onChange={openingTime => setEditData({...editData, openingTime})} aria-label="Opening time (Philippine time)" className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                    ) : <p className="text-sm text-gray-700 dark:text-gray-300">{store.openingTime ? `${formatTime12Hour(store.openingTime)} PHT` : "Not set"}</p>}
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 mb-1">Closing Time</label>
                     {isEditing ? (
-                      <input type="time" value={editData.closingTime} onChange={e => setEditData({...editData, closingTime: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
-                    ) : <p className="text-sm text-gray-700 dark:text-gray-300">{store.closingTime || "Not set"}</p>}
+                      <TimeInput value={editData.closingTime} onChange={closingTime => setEditData({...editData, closingTime})} aria-label="Closing time (Philippine time)" className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
+                    ) : <p className="text-sm text-gray-700 dark:text-gray-300">{store.closingTime ? `${formatTime12Hour(store.closingTime)} PHT` : "Not set"}</p>}
                   </div>
                 </div>
               </div>
@@ -581,7 +632,12 @@ export default function AdminStoreDetail({
               </div>
             </div>
 
-            <div className="md:col-span-2 rounded-2xl border border-gray-100 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-800/50">
+          </div>
+        )}
+
+        {activeTab === 'branches' && (
+          <div className="animate-in fade-in slide-in-from-bottom-2">
+            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-800/50">
               <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Branch Management</h4>
@@ -597,16 +653,76 @@ export default function AdminStoreDetail({
               </div>
               <div className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {branches.map(branch => (
-                  <div key={branch.id} className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
-                    <p className="font-medium text-gray-900 dark:text-white">{branch.name}</p>
+                  <button
+                    key={branch.id}
+                    type="button"
+                    onClick={() => openBranchDashboard(branch.id)}
+                    className={`rounded-xl border bg-white p-3 text-left transition-colors hover:border-green-500 hover:bg-green-50 dark:bg-gray-900 dark:hover:border-green-500 dark:hover:bg-green-950/20 ${
+                      branch.id === storeId ? "border-green-500 ring-2 ring-green-500/20" : "border-gray-200 dark:border-gray-700"
+                    }`}
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-gray-900 dark:text-white">{branch.name}</span>
+                      {branch.id === storeId && <span className="text-[10px] font-bold uppercase tracking-wider text-green-600">Current</span>}
+                    </span>
                     <p className="mt-1 truncate text-xs text-gray-500">{branch.address || branch.location || "No address"}</p>
-                  </div>
+                    <p className="mt-2 text-xs font-medium text-green-600">{branch.id === storeId ? "View overview" : "Open dashboard"}</p>
+                  </button>
                 ))}
               </div>
-              <div className="grid gap-3 sm:grid-cols-[1fr_1.5fr_auto]">
-                <input value={newBranchName} onChange={e => setNewBranchName(e.target.value)} placeholder="Branch label (e.g. Tagum)" className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
-                <input value={newBranchAddress} onChange={e => setNewBranchAddress(e.target.value)} placeholder="Branch address" className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
-                <button type="button" disabled={branchBusy || !newBranchName.trim() || branches.length >= branchLimit} onClick={handleAddBranch} className="flex items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+              <div className="mb-6 border-t border-gray-200 pt-5 dark:border-gray-700">
+                <h5 className="text-xs font-bold uppercase tracking-widest text-gray-500">Branch requests</h5>
+                <div className="mt-3 space-y-3">
+                  {branchRequests.filter(request => request.status === "pending").length === 0 ? (
+                    <p className="text-sm text-gray-500">No pending branch requests.</p>
+                  ) : branchRequests.filter(request => request.status === "pending").map(request => (
+                    <div key={request.id} className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/60 dark:bg-amber-950/20 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-semibold text-gray-900 dark:text-white">{request.branchName}</p>
+                        <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{request.address}</p>
+                        <p className="mt-1 text-xs text-gray-500">Requested by {request.ownerName || owner?.name || "store owner"}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button type="button" disabled={branchBusy || branches.length >= branchLimit} onClick={() => handleBranchRequestDecision(request.id, "approved")} className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                          <Check className="h-4 w-4" /> Confirm
+                        </button>
+                        <button type="button" disabled={branchBusy} onClick={() => handleBranchRequestDecision(request.id, "denied")} className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                          <X className="h-4 w-4" /> Deny
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-1 text-xs font-semibold text-gray-500">
+                    Branch label
+                    <input value={newBranchName} onChange={e => setNewBranchName(e.target.value)} placeholder="e.g. Tagum" className="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white" />
+                  </label>
+                  <label className="space-y-1 text-xs font-semibold text-gray-500">
+                    Branch address
+                    <input value={newBranchAddress} onChange={e => setNewBranchAddress(e.target.value)} placeholder="Street, barangay, city" className="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white" />
+                  </label>
+                </div>
+                <div>
+                  <p className="mb-2 text-xs text-gray-500">Click the map to drop the marker at the exact branch location.</p>
+                  <StoreLocationPicker
+                    latitude={newBranchLatitude}
+                    longitude={newBranchLongitude}
+                    onChange={(latitude, longitude) => {
+                      setNewBranchLatitude(latitude);
+                      setNewBranchLongitude(longitude);
+                      setNewBranchLocationSelected(true);
+                    }}
+                  />
+                  <p className="mt-2 text-xs text-gray-500">
+                    {newBranchLocationSelected
+                      ? `${newBranchLatitude.toFixed(6)}, ${newBranchLongitude.toFixed(6)}`
+                      : "No map location selected yet."}
+                  </p>
+                </div>
+                <button type="button" disabled={branchBusy || !newBranchName.trim() || !newBranchAddress.trim() || !newBranchLocationSelected || branches.length >= branchLimit} onClick={handleAddBranch} className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 sm:w-auto">
                   <Plus className="h-4 w-4" /> Add branch
                 </button>
               </div>
@@ -700,7 +816,7 @@ export default function AdminStoreDetail({
                    </thead>
                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-gray-700 dark:text-gray-300">
                      <tr className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
-                       <td className="px-6 py-3 font-mono text-xs">{store.createdAt ? new Date(store.createdAt.seconds * 1000).toLocaleString() : 'Unknown'}</td>
+                       <td className="px-6 py-3 font-mono text-xs">{formatPhilippineDateTime(store.createdAt)}</td>
                        <td className="px-6 py-3 font-medium">Store Profile Created</td>
                        <td className="px-6 py-3 text-gray-500">System</td>
                      </tr>
@@ -760,42 +876,6 @@ export default function AdminStoreDetail({
                 </div>
               </div>
            
-              {/* Reviews list */}
-              <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-black/20">
-                  <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Customer Reviews</h4>
-                </div>
-                <div className="p-6 space-y-4">
-                  {reviews.length === 0 ? (
-                    <p className="text-sm text-gray-500">No reviews yet for this store.</p>
-                  ) : (
-                    <div className="space-y-4">
-                      {reviews.map((r) => (
-                        <div key={r.id} className="rounded-xl bg-white p-4 border border-gray-100 dark:bg-gray-900 dark:border-gray-800">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <p className="font-medium text-sm text-gray-900 dark:text-white">{r.customerName || 'Customer'}</p>
-                              <p className="text-xs text-gray-500">{r.createdAt ? new Date((r.createdAt.seconds || 0) * 1000).toLocaleString() : 'Unknown'}</p>
-                            </div>
-                            <div className="flex items-center gap-1 text-yellow-500">
-                              {Array.from({ length: 5 }).map((_, i) => (
-                                <span key={i} className={`text-sm ${i < Number(r.rating || 0) ? 'opacity-100' : 'opacity-30'}`}>★</span>
-                              ))}
-                            </div>
-                          </div>
-                          <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">{r.comment}</p>
-                          {r.ownerReply && (
-                            <div className="mt-3 rounded-lg bg-gray-100 p-3 text-sm text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                              <strong>Owner reply:</strong> {r.ownerReply}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
               <div className="mt-6 space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">

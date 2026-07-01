@@ -1,13 +1,17 @@
 import { FormEvent, useMemo, useState } from "react";
-import { AlertTriangle, KeyRound, Loader2 } from "lucide-react";
+import { AlertTriangle, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { validateStrongPassword } from "../lib/passwordStrength";
 import { invokeAdminBackend } from "../lib/adminBackend";
 
 export function FirstLoginPasswordChange() {
   const { user, refreshUser } = useAuth();
+  const navigate = useNavigate();
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const validation = useMemo(
@@ -27,6 +31,7 @@ export function FirstLoginPasswordChange() {
         password,
       });
       await refreshUser();
+      navigate(user?.role === "staff" ? "/staff" : "/owner", { replace: true });
     } catch (changeError) {
       setError(changeError instanceof Error ? changeError.message : "Password change failed.");
     } finally {
@@ -42,8 +47,10 @@ export function FirstLoginPasswordChange() {
             <KeyRound className="h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Create your private password</h1>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Your administrator required you to replace the temporary password before continuing.</p>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Change password on first login</h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Replace the temporary password to continue. This screen is shown once and will not appear again after the password is changed successfully.
+            </p>
           </div>
         </div>
         {error && (
@@ -52,8 +59,13 @@ export function FirstLoginPasswordChange() {
           </div>
         )}
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-gray-900 dark:text-white">New password</label>
-          <input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+          <label htmlFor="first-login-password" className="text-sm font-semibold text-gray-900 dark:text-white">New password</label>
+          <div className="relative">
+            <input id="first-login-password" type={showPassword ? "text" : "password"} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 pr-12 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+            <button type="button" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? "Hide new password" : "Show new password"} aria-pressed={showPassword} className="absolute inset-y-0 right-0 flex items-center px-4 text-gray-400 hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1b1b1b] dark:hover:text-gray-200">
+              {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+            </button>
+          </div>
         </div>
         <div className="grid gap-1 sm:grid-cols-2">
           {validation.requirements.map((requirement) => (
@@ -63,8 +75,13 @@ export function FirstLoginPasswordChange() {
           ))}
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-gray-900 dark:text-white">Confirm new password</label>
-          <input type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+          <label htmlFor="first-login-password-confirmation" className="text-sm font-semibold text-gray-900 dark:text-white">Confirm new password</label>
+          <div className="relative">
+            <input id="first-login-password-confirmation" type={showConfirmation ? "text" : "password"} autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 pr-12 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+            <button type="button" onClick={() => setShowConfirmation((visible) => !visible)} aria-label={showConfirmation ? "Hide confirmation password" : "Show confirmation password"} aria-pressed={showConfirmation} className="absolute inset-y-0 right-0 flex items-center px-4 text-gray-400 hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1b1b1b] dark:hover:text-gray-200">
+              {showConfirmation ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+            </button>
+          </div>
         </div>
         <button type="submit" disabled={submitting || !validation.valid || password !== confirmation} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#1b1b1b] px-5 py-3 font-semibold text-white hover:bg-black disabled:opacity-50 dark:bg-white dark:text-[#1b1b1b]">
           {submitting && <Loader2 className="h-4 w-4 animate-spin" />}

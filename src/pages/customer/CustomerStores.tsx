@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { MapContainer, Marker, Popup } from "react-leaflet";
 import * as ReactDOMServer from "react-dom/server";
 import L from "leaflet";
 import { Store as StoreIcon, Search, MapPin } from "lucide-react";
 import { Link } from "react-router-dom";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { DirectionsButton } from "../../components/DirectionsButton";
+import { MapBaseLayers } from "../../components/MapBaseLayers";
 
 export default function CustomerStores() {
   const [stores, setStores] = useState<any[]>([]);
@@ -92,14 +93,11 @@ export default function CustomerStores() {
         <div className="rounded-[2rem] overflow-hidden border border-gray-200 dark:border-gray-800 shadow-sm h-[400px] lg:h-auto min-h-[400px] relative z-0 transition-colors">
             {mapLoaded && filteredStores.length > 0 ? (
               <MapContainer 
-                center={[filteredStores[0].lat || 7.4475, filteredStores[0].lng || 125.8093]} 
+                center={[filteredStores[0].lat || 7.4478, filteredStores[0].lng || 125.8078]} 
                 zoom={14} 
                 style={{ height: "100%", width: "100%" }}
               >
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                  url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-                />
+                <MapBaseLayers />
                 {filteredStores.map((store) => {
                   if (store.lat && store.lng) {
                     const iconHtml = ReactDOMServer.renderToString(

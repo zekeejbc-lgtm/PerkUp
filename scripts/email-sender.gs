@@ -2,8 +2,11 @@ var EMAIL_CONFIG = {
   systemName: "PerkUp",
   senderName: "PerkUp",
   websiteLink: "https://perk-up-navy.vercel.app",
-  facebookLink: "https://perk-up-navy.vercel.app",
-  logoUrl: "https://perk-up-navy.vercel.app/icons/perkup-logo-source.png"
+  logoUrl: "https://perk-up-navy.vercel.app/icons/perkup-wordmark-light-transparent.png?v=20260625-brand",
+  contactEmail: "perkup.shop@youthserviceph.org",
+  contactPhone: "0962 232 8290",
+  contactPhoneLink: "+639622328290",
+  contactAddress: "Tagum City, Davao del Norte, Philippines"
 };
 
 var EMAIL_OTP_TTL_SECONDS = 10 * 60;
@@ -129,10 +132,10 @@ function sendStoreCreatedEmail(recipientEmail, userName, store, loginLink, requi
     throw new Error("store.name is required.");
   }
 
-  var safeLoginLink = String(loginLink || EMAIL_CONFIG.websiteLink).trim();
+  var safeLoginLink = getStoreOwnerLoginLink_(loginLink);
   var passwordMessage = requirePasswordChange
-    ? "For security, you will be asked to create a private password immediately after your first login."
-    : "You can update your password at any time from your account security settings.";
+    ? "This secure button can be used once. After signing you in, PerkUp will require you to create a private password before opening the store portal."
+    : "This secure button can be used once to sign in. Afterward, use the regular store portal login with your account credentials.";
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
@@ -146,17 +149,42 @@ function sendStoreCreatedEmail(recipientEmail, userName, store, loginLink, requi
       location: String(store.location || "").trim(),
       subscriptionLevel: String(store.subscriptionLevel || "").trim(),
       paymentSchedule: String(store.paymentSchedule || "").trim(),
-      subscriptionStart: String(store.subscriptionStart || "").trim(),
-      subscriptionEnd: String(store.subscriptionEnd || "").trim(),
+      subscriptionStart: formatPhilippineDateTime_(store.subscriptionStart),
+      subscriptionEnd: formatPhilippineDateTime_(store.subscriptionEnd),
       logoUrl: String(store.logoUrl || "").trim()
     },
-    buttonText: "Log in to PerkUp",
+    buttonText: "Open Store Portal",
     buttonLink: safeLoginLink,
     showButton: true,
     plainText:
       storeName + " is ready on PerkUp.\n" +
       (store.location ? "Location: " + store.location + "\n" : "") +
       (store.subscriptionLevel ? "Subscription: " + store.subscriptionLevel + "\n" : "") +
+      passwordMessage + "\nLog in: " + safeLoginLink
+  });
+}
+
+function sendStaffCreatedEmail(recipientEmail, userName, storeName, loginLink, requirePasswordChange) {
+  validateEmailInput_(recipientEmail, userName);
+
+  var normalizedStoreName = String(storeName || "your store").trim();
+  var safeLoginLink = getStaffLoginLink_(loginLink);
+  var passwordMessage = requirePasswordChange
+    ? "This secure button can be used once. After signing you in, PerkUp will require you to create a private password before opening the staff portal."
+    : "This secure button can be used once to sign in. Afterward, use the regular staff portal login with your account credentials.";
+
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: "Your " + normalizedStoreName + " staff account is ready",
+    userName: userName,
+    heading: "Your staff account is ready, " + userName + "!",
+    introText: "You now have PerkUp staff access for " + normalizedStoreName + ".",
+    secondaryText: passwordMessage,
+    buttonText: "Open Staff Portal",
+    buttonLink: safeLoginLink,
+    showButton: true,
+    plainText:
+      "Your PerkUp staff account for " + normalizedStoreName + " is ready.\n" +
       passwordMessage + "\nLog in: " + safeLoginLink
   });
 }
@@ -198,8 +226,12 @@ function sendSystemEmail_(emailData) {
   template.userName = emailData.userName;
   template.systemName = EMAIL_CONFIG.systemName;
   template.websiteLink = EMAIL_CONFIG.websiteLink;
-  template.facebookLink = EMAIL_CONFIG.facebookLink;
   template.logoUrl = EMAIL_CONFIG.logoUrl;
+  template.contactEmail = EMAIL_CONFIG.contactEmail;
+  template.contactPhone = EMAIL_CONFIG.contactPhone;
+  template.contactPhoneLink = EMAIL_CONFIG.contactPhoneLink;
+  template.contactAddress = EMAIL_CONFIG.contactAddress;
+  template.currentYear = new Date().getFullYear();
   template.referenceId = referenceId;
   template.heading = emailData.heading;
   template.introText = emailData.introText;
@@ -259,4 +291,23 @@ function normalizeEmailOtpPurpose_(purpose) {
 
 function getEmailOtpCacheKey_(otpToken) {
   return "email-otp:" + String(otpToken || "").trim();
+}
+
+function getStoreOwnerLoginLink_(loginLink) {
+  var providedLink = String(loginLink || "").trim();
+  if (providedLink) return providedLink;
+  return EMAIL_CONFIG.websiteLink.replace(/\/+$/, "") + "/owner";
+}
+
+function getStaffLoginLink_(loginLink) {
+  var providedLink = String(loginLink || "").trim();
+  if (providedLink) return providedLink;
+  return EMAIL_CONFIG.websiteLink.replace(/\/+$/, "") + "/staff";
+}
+
+function formatPhilippineDateTime_(value) {
+  if (!value) return "";
+  var date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) return String(value).trim();
+  return Utilities.formatDate(date, "Asia/Manila", "MMM d, yyyy, h:mm a") + " PHT";
 }

@@ -5,6 +5,9 @@ import { invokeAdminBackend } from "../../lib/adminBackend";
 import { Activity, ArrowLeft, BadgeCheck, Calendar, Gift, Mail, Plus, Shield, Star, Trash2, TrendingUp, UserCircle, Users, X, Key } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
+import { TemporaryPasswordField } from "../../components/TemporaryPasswordField";
+import { formatPhilippineDate, formatPhilippineDateTime } from "../../lib/dateTime";
+import { validateStrongPassword } from "../../lib/passwordStrength";
 
 const toDate = (value: any) => {
   if (!value) return null;
@@ -16,13 +19,11 @@ const toDate = (value: any) => {
 };
 
 const formatDate = (value: any) => {
-  const date = toDate(value);
-  return date ? date.toLocaleDateString() : "Unknown";
+  return formatPhilippineDate(value);
 };
 
 const formatDateTime = (value: any) => {
-  const date = toDate(value);
-  return date ? date.toLocaleString() : "Unknown";
+  return formatPhilippineDateTime(value);
 };
 
 export default function StoreOwnerStaff({ store }: { store: any }) {
@@ -41,7 +42,8 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
-    password: ""
+    password: "",
+    requirePasswordChange: true,
   });
 
   useEffect(() => {
@@ -113,27 +115,40 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
   }, [selectedStaff?.id, store?.id]);
 
   const handleOpenModal = () => {
-    setFormData({ name: "", email: "", password: "" });
+    setFormData({ name: "", email: "", password: "", requirePasswordChange: true });
     setIsModalOpen(true);
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validateStrongPassword(formData.password, { name: formData.name, email: formData.email }).valid) {
+      alert("Use a strong password that meets every requirement.");
+      return;
+    }
     setSaving(true);
     try {
-      const result = await invokeAdminBackend<{ user: any }>({
+      const result = await invokeAdminBackend<{
+        user: any;
+        notification?: { sent: boolean; error?: string };
+      }>({
         action: "create_account",
         role: "staff",
         storeId: store.id,
         name: formData.name,
         email: formData.email,
         password: formData.password,
+        forcePasswordReset: formData.requirePasswordChange,
       });
       
       setStaff([...staff, { 
         ...result.user,
       }]);
       setIsModalOpen(false);
+      alert(
+        result.notification && !result.notification.sent
+          ? `Staff account created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`
+          : "Staff account created. The welcome email has been sent.",
+      );
     } catch (error) {
       alert("Failed to add staff member.");
     } finally {
@@ -395,13 +410,26 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
               
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Key className="w-4 h-4 text-gray-400" /> Temporary Password</label>
-                <input required type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] font-mono text-sm" placeholder="Randomly generated or custom" />
-                <p className="text-xs text-gray-500 mt-1">Provide this password to your staff member so they can login. They can change it later.</p>
+                <TemporaryPasswordField
+                  value={formData.password}
+                  onChange={(password) => setFormData({ ...formData, password })}
+                  name={formData.name}
+                  email={formData.email}
+                />
+                <p className="text-xs text-gray-500 mt-1">Generate a temporary password or enter a custom strong password.</p>
               </div>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
+                <input type="checkbox" checked={formData.requirePasswordChange} onChange={(event) => setFormData({ ...formData, requirePasswordChange: event.target.checked })} className="mt-0.5 h-4 w-4 rounded" />
+                <span>
+                  <span className="block text-xs font-semibold text-gray-900 dark:text-white">Require password change on first login</span>
+                  <span className="mt-0.5 block text-[11px] text-gray-500 dark:text-gray-400">The staff member must create a private password before opening their dashboard.</span>
+                </span>
+              </label>
 
               <div className="pt-4 flex justify-end gap-3 mt-4 border-t border-gray-100 dark:border-gray-800">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Cancel</button>
-                <button type="submit" disabled={saving} className="bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-6 py-2 rounded-xl text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-50">
+                <button type="submit" disabled={saving || !validateStrongPassword(formData.password, { name: formData.name, email: formData.email }).valid} className="bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-6 py-2 rounded-xl text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-50">
                   {saving ? 'Adding...' : 'Add Staff Access'}
                 </button>
               </div>

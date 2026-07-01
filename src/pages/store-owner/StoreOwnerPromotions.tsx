@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, deleteDoc, addDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Gift, Calendar, Plus, Edit2, Trash2, ArrowLeft, MapPin, ImagePlus, Users, Copy, Ticket } from "lucide-react";
-import { Circle, MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
+import { Gift, Calendar, Plus, Edit2, Trash2, ArrowLeft, MapPin, ImagePlus, Users, Copy, Ticket, Loader2 } from "lucide-react";
+import { Circle, MapContainer, Marker, useMapEvents } from "react-leaflet";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
-import { getStoreReferralCode } from "../../lib/secureQr";
+import { getStoreReferralCode, getStoreReferralStats } from "../../lib/secureQr";
+import { MapBaseLayers } from "../../components/MapBaseLayers";
+import { formatPhilippineDateTime } from "../../lib/dateTime";
 
 type PromotionFormData = {
   title: string;
@@ -24,7 +26,7 @@ type PromotionFormData = {
 };
 
 const DEFAULT_RADIUS_METERS = 500;
-const DEFAULT_CENTER = { lat: 14.5995, lng: 120.9842 };
+const DEFAULT_CENTER = { lat: 7.4478, lng: 125.8078 };
 
 const getStoreCenter = (store: any) => ({
   lat: Number(store?.lat) || DEFAULT_CENTER.lat,
@@ -56,7 +58,11 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [pendingBannerFile, setPendingBannerFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [availabilitySavingIds, setAvailabilitySavingIds] = useState<Set<string>>(new Set());
   const [referralCode, setReferralCode] = useState<string>(store?.referralCode || "");
+  const [referralCodeExpiresAt, setReferralCodeExpiresAt] = useState<string>("");
+  const [referralClock, setReferralClock] = useState(() => Date.now());
+  const [referralCount, setReferralCount] = useState<number | null>(null);
   const [loadingReferralCode, setLoadingReferralCode] = useState(false);
 
   const storeCenter = useMemo(() => getStoreCenter(store), [store]);
@@ -77,7 +83,19 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
 
   useEffect(() => {
     if (!store?.id) return;
+    const storedExpirySeconds = Number(store?.referralCodeExpiresAt?.seconds || 0);
+    const storedCreatedSeconds = Number(store?.referralCodeCreatedAt?.seconds || 0);
+    const expiryMillis = storedExpirySeconds
+      ? storedExpirySeconds * 1000
+      : storedCreatedSeconds
+        ? storedCreatedSeconds * 1000 + 30 * 24 * 60 * 60 * 1000
+        : 0;
     setReferralCode(store?.referralCode || "");
+    setReferralCodeExpiresAt(expiryMillis ? new Date(expiryMillis).toISOString() : "");
+    setReferralCount(null);
+    getStoreReferralStats(store.id)
+      .then((stats) => setReferralCount(stats.referralCount))
+      .catch((error) => console.error("Failed to load referral usage", error));
     const fetchPromotions = async () => {
       try {
         const q = query(collection(db, "promotions"), where("storeId", "==", store.id));
@@ -100,12 +118,19 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     fetchPromotions();
   }, [store]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setReferralClock(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const handleGetReferralCode = async () => {
     if (!store?.id || loadingReferralCode) return;
     setLoadingReferralCode(true);
     try {
       const result = await getStoreReferralCode(store.id);
       setReferralCode(result.referralCode);
+      setReferralCodeExpiresAt(result.expiresAt);
+      setReferralCount(result.referralCount);
     } catch (error) {
       alert((error as Error).message || "Failed to get referral code.");
     } finally {
@@ -232,7 +257,41 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     }
   };
 
+  const handleAvailabilityToggle = async (promo: any) => {
+    const nextActive = !(promo.active ?? true);
+
+    setAvailabilitySavingIds((current) => new Set(current).add(promo.id));
+    setPromotions((current) =>
+      current.map((item) => item.id === promo.id ? { ...item, active: nextActive } : item)
+    );
+
+    try {
+      await updateDoc(doc(db, "promotions", promo.id), {
+        active: nextActive,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error("Failed to update promotion availability", error);
+      setPromotions((current) =>
+        current.map((item) => item.id === promo.id ? { ...item, active: !nextActive } : item)
+      );
+      alert("Failed to update promotion availability. Please try again.");
+    } finally {
+      setAvailabilitySavingIds((current) => {
+        const next = new Set(current);
+        next.delete(promo.id);
+        return next;
+      });
+    }
+  };
+
   if (loading) return <PageSkeleton variant="promotions" />;
+
+  const referralCodeIsActive = Boolean(
+    referralCode
+    && referralCodeExpiresAt
+    && new Date(referralCodeExpiresAt).getTime() > referralClock
+  );
 
   const geofenceCenter = {
     lat: Number(formData.geofenceLat || storeCenter.lat),
@@ -342,9 +401,14 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
 
               <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 sm:p-6">
                 <div className="flex items-center justify-between gap-4">
-                  <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2">
-                    <ImagePlus className="w-4 h-4 text-gray-500" /> Promotion Banner
-                  </label>
+                  <div>
+                    <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2">
+                      <ImagePlus className="w-4 h-4 text-gray-500" /> Promotion Banner
+                    </label>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Recommended: 1600 × 700 px (16:7)
+                    </p>
+                  </div>
                   <label className="px-3 py-2 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-gray-900 text-xs font-bold cursor-pointer">
                     {uploadingBanner ? "Uploading..." : "Upload"}
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => handleBannerUpload(e.target.files?.[0] || null)} disabled={uploadingBanner} />
@@ -369,7 +433,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                 <div className={`space-y-3 ${formData.geofenceEnabled ? "" : "opacity-50 pointer-events-none"}`}>
                   <div className="h-[min(55vh,420px)] min-h-72 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
                     <MapContainer key={`${geofenceCenter.lat}-${geofenceCenter.lng}-${isModalOpen}`} center={[geofenceCenter.lat, geofenceCenter.lng]} zoom={16} scrollWheelZoom={false} className="h-full w-full">
-                      <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                      <MapBaseLayers />
                       <GeofenceClickHandler onPick={(lat, lng) => setFormData({ ...formData, geofenceLat: lat, geofenceLng: lng })} />
                       <Marker position={[geofenceCenter.lat, geofenceCenter.lng]} />
                       <Circle center={[geofenceCenter.lat, geofenceCenter.lng]} radius={Number(formData.geofenceRadiusMeters || DEFAULT_RADIUS_METERS)} pathOptions={{ color: "#1b1b1b", fillColor: "#fb923c", fillOpacity: 0.16 }} />
@@ -443,23 +507,35 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 Give this to new customers. If they sign up with it, they get 1 stamp from this store.
               </p>
+              <p className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">
+                {referralCount === null
+                  ? "Loading referral usage..."
+                  : `${referralCount} ${referralCount === 1 ? "person has" : "people have"} used your referral`}
+              </p>
             </div>
           </div>
 
           <div className="flex flex-col sm:items-end gap-2">
-            {referralCode && promotions.length > 0 ? (
-              <div className="flex items-center gap-2">
-                <code className="rounded-xl bg-gray-50 dark:bg-gray-800 px-4 py-2 text-sm font-bold tracking-widest text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700">
-                  {referralCode}
-                </code>
-                <button
-                  type="button"
-                  onClick={handleCopyReferralCode}
-                  className="p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
-                  title="Copy referral code"
-                >
-                  <Copy className="w-4 h-4" />
-                </button>
+            {referralCodeIsActive && promotions.length > 0 ? (
+              <div className="flex flex-col sm:items-end gap-1">
+                <div className="flex items-center gap-2">
+                  <code className="rounded-xl bg-gray-50 dark:bg-gray-800 px-4 py-2 text-sm font-bold tracking-widest text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700">
+                    {referralCode}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={handleCopyReferralCode}
+                    className="p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+                    title="Copy referral code"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+                {referralCodeExpiresAt && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Expires {new Date(referralCodeExpiresAt).toLocaleString()}
+                  </p>
+                )}
               </div>
             ) : (
               <button
@@ -469,7 +545,9 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
               >
                 <Ticket className="w-4 h-4" />
-                {loadingReferralCode ? "Checking..." : "Get Referral Code"}
+                {loadingReferralCode
+                  ? "Checking..."
+                  : referralCode ? "Get New Referral Code" : "Get Referral Code"}
               </button>
             )}
             {promotions.length < 1 && (
@@ -490,21 +568,21 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
           </div>
         ) : (
           promotions.map((promo) => (
-            <div key={promo.id} className={`bg-white dark:bg-gray-900 border rounded-2xl overflow-hidden ${promo.active ? "border-gray-300 dark:border-white/15 shadow-sm" : "border-gray-200 dark:border-gray-800 opacity-75"}`}>
+            <div key={promo.id} className={`bg-white dark:bg-gray-900 border rounded-2xl overflow-hidden ${(promo.active ?? true) ? "border-gray-300 dark:border-white/15 shadow-sm" : "border-gray-200 dark:border-gray-800 opacity-75"}`}>
               {promo.bannerImageUrl && (
                 <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className="h-36 w-full object-cover" />
               )}
               <div className="p-6">
                 <div className="flex justify-between items-start gap-4 mb-4">
                   <div className="flex gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${promo.active ? "bg-gray-100 dark:bg-white/15 text-[#1b1b1b] dark:text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${(promo.active ?? true) ? "bg-gray-100 dark:bg-white/15 text-[#1b1b1b] dark:text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
                       <Gift className="w-5 h-5" />
                     </div>
                     <div>
                       <h3 className="font-bold text-gray-900 dark:text-white">{promo.title}</h3>
                       <div className="flex flex-wrap items-center gap-2 mt-1">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${promo.active ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
-                          {promo.active ? "Active" : "Inactive"}
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${(promo.active ?? true) ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
+                          {(promo.active ?? true) ? "Active" : "Inactive"}
                         </span>
                         <span className="text-xs text-gray-500 font-semibold">{promo.requiredStamps} Stamps Required</span>
                       </div>
@@ -518,7 +596,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                   {(promo.startDate || promo.endDate) && (
                     <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 dark:bg-gray-800/50 p-2 rounded-lg">
                       <Calendar className="w-4 h-4 shrink-0" />
-                      <span>{promo.startDate ? new Date(promo.startDate).toLocaleString() : "Anytime"} - {promo.endDate ? new Date(promo.endDate).toLocaleString() : "No expiry"}</span>
+                      <span>{promo.startDate ? formatPhilippineDateTime(promo.startDate) : "Anytime"} - {promo.endDate ? formatPhilippineDateTime(promo.endDate) : "No expiry"}</span>
                     </div>
                   )}
                   <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 dark:bg-gray-800/50 p-2 rounded-lg">
@@ -533,13 +611,48 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                   )}
                 </div>
 
-                <div className="flex justify-end gap-2 pt-4 border-t border-gray-100 dark:border-gray-800">
-                  <button onClick={() => handleOpenModal(promo)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
+                <div className="flex items-center justify-between gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={promo.active ?? true}
+                    aria-label={`Mark ${promo.title} as ${(promo.active ?? true) ? "inactive" : "active"}`}
+                    disabled={availabilitySavingIds.has(promo.id)}
+                    onClick={() => handleAvailabilityToggle(promo)}
+                    className={`group/switch flex min-h-9 items-center gap-2.5 rounded-full border py-1.5 pl-2 pr-3 text-xs font-bold shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70 disabled:hover:translate-y-0 dark:focus-visible:ring-white ${
+                      (promo.active ?? true)
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800/70 dark:bg-emerald-950/50 dark:text-emerald-300 dark:hover:bg-emerald-950/80"
+                        : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                    }`}
+                  >
+                    <span className={`relative h-5 w-9 shrink-0 rounded-full shadow-inner transition-colors ${
+                      (promo.active ?? true) ? "bg-emerald-500" : "bg-gray-300 dark:bg-gray-600"
+                    }`}>
+                      <span className={`absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow transition-transform duration-200 ${
+                        (promo.active ?? true) ? "translate-x-4" : "translate-x-0"
+                      }`}>
+                        {availabilitySavingIds.has(promo.id) && (
+                          <Loader2 className="h-2.5 w-2.5 animate-spin text-gray-500" />
+                        )}
+                      </span>
+                    </span>
+                    <span className="min-w-[4.6rem] text-left">
+                      {availabilitySavingIds.has(promo.id)
+                        ? "Updating..."
+                        : (promo.active ?? true) ? "Active" : "Inactive"}
+                    </span>
+                    <span className="sr-only">
+                      {`Click to mark as ${(promo.active ?? true) ? "inactive" : "active"}`}
+                    </span>
+                  </button>
+                  <div className="flex gap-2">
+                  <button type="button" aria-label={`Edit ${promo.title}`} onClick={() => handleOpenModal(promo)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
                     <Edit2 className="w-4 h-4" />
                   </button>
-                  <button onClick={() => setPromotionToDelete(promo)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
+                  <button type="button" aria-label={`Delete ${promo.title}`} onClick={() => setPromotionToDelete(promo)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
                     <Trash2 className="w-4 h-4" />
                   </button>
+                  </div>
                 </div>
               </div>
             </div>

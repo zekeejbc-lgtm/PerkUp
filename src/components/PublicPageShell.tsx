@@ -43,14 +43,7 @@ export function PublicPageShell({ children }: { children: ReactNode }) {
         </Link>
         {children}
       </main>
-      <footer className="border-t border-black/10 dark:border-white/10">
-        <div className="mx-auto flex max-w-5xl flex-col gap-5 px-6 py-8 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-gray-500 dark:text-gray-400">© {new Date().getFullYear()} PerkUp. All rights reserved.</p>
-          <nav className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-gray-500 dark:text-gray-400" aria-label="Legal and support">
-            {links.map(([to, label]) => <Link key={to} to={to} className="hover:text-black dark:hover:text-white">{label}</Link>)}
-          </nav>
-        </div>
-      </footer>
+      <PublicSiteFooter />
     </div>
   );
 }

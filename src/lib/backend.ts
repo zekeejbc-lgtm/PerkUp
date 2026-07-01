@@ -1,4 +1,4 @@
-import { doc, getDocFromServer, db } from "./dataCompat";
+import { db } from "./dataCompat";
 import { auth, secondaryAuth, signInWithOAuth, signOut } from "./supabaseAuthCompat";
 
 export { auth, db, secondaryAuth };
@@ -31,17 +31,6 @@ export const logOut = async () => {
   }
 };
 
-export async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, "test", "connection"));
-    console.log("Supabase connection test completed.");
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("the client is offline")) {
-      console.error("Please check your Supabase configuration.");
-    }
-  }
-}
-
 // Error handling helper
 export enum OperationType {
   CREATE = "create",
@@ -70,8 +59,13 @@ export interface DataErrorInfo {
 }
 
 export function handleDataError(error: unknown, operationType: OperationType, path: string | null) {
+  const errorMessage = error instanceof Error
+    ? error.message
+    : error && typeof error === "object"
+      ? JSON.stringify(error)
+      : String(error);
   const errInfo: DataErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errorMessage,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,

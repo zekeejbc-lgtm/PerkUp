@@ -74,16 +74,26 @@ const createAuthCompat = (client: AuthClient): AuthCompat => {
     currentUser: null,
     onAuthStateChanged: (callback) => {
       let active = true;
+      let lastSessionKey: string | null | undefined;
 
       const emitSession = async (session: Session | null) => {
         if (!active) return;
+        const sessionKey = session
+          ? `${session.user.id}:${session.access_token}`
+          : null;
+        if (sessionKey === lastSessionKey) return;
+        lastSessionKey = sessionKey;
         compat.currentUser = toCompatUser(session?.user ?? null);
         await callback(compat.currentUser);
       };
 
-      client.getSession().then(({ data }) => emitSession(data.session));
       const { data } = client.onAuthStateChange((_event, session) => {
-        emitSession(session);
+        // Supabase emits INITIAL_SESSION, so a separate getSession() call would
+        // initialize the app twice. Deferring also keeps async application work
+        // outside the auth client's internal event callback.
+        setTimeout(() => {
+          void emitSession(session);
+        }, 0);
       });
 
       return () => {

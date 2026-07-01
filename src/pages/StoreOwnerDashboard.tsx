@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useState, useEffect } from "react";
-import { Routes, Route, Link, useLocation, useSearchParams } from 'react-router-dom';
-import { Store, ShoppingBag, Gift, Users, BadgeCheck, UserCircle, CreditCard, ChevronRight, Building, Menu, ArrowLeft, MessageSquare } from "lucide-react";
+import { Routes, Route, Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Store, ShoppingBag, Gift, Users, BadgeCheck, UserCircle, CreditCard, ChevronRight, Building, Menu, ArrowLeft, MessageSquare, Plus, Loader2 } from "lucide-react";
 import { DashboardShellSkeleton, PageSkeleton } from "../components/LoadingSkeleton";
 
 const StoreOwnerInfo = lazy(() => import("./store-owner/StoreOwnerInfo"));
@@ -12,29 +12,50 @@ const StoreOwnerStaff = lazy(() => import("./store-owner/StoreOwnerStaff"));
 const StoreOwnerAccount = lazy(() => import("./store-owner/StoreOwnerAccount"));
 const StoreOwnerSubscription = lazy(() => import("./store-owner/StoreOwnerSubscription"));
 import { useAuth } from "../contexts/AuthContext";
-import { query, where, getDocs, collection } from "@/src/lib/dataCompat";
+import { query, where, getDocs, collection, addDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../lib/backend";
+import { StoreLocationPicker } from "../components/StoreLocationPicker";
 
 export default function StoreOwnerDashboard() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const [stores, setStores] = useState<any[]>([]);
   const [selectedStore, setSelectedStore] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [branchRequests, setBranchRequests] = useState<any[]>([]);
+  const [showBranchRequest, setShowBranchRequest] = useState(false);
+  const [requestName, setRequestName] = useState("");
+  const [requestAddress, setRequestAddress] = useState("");
+  const [requestLatitude, setRequestLatitude] = useState(7.4478);
+  const [requestLongitude, setRequestLongitude] = useState(125.8078);
+  const [requestLocationSelected, setRequestLocationSelected] = useState(false);
+  const [requestBusy, setRequestBusy] = useState(false);
+  const [requestError, setRequestError] = useState("");
   const isAccountOnlyRoute = location.pathname === '/owner/account' || location.pathname === '/owner/subscription';
-  const activeStore = isAccountOnlyRoute ? null : selectedStore;
+  const activeStore = selectedStore;
   const requestedStoreId = searchParams.get("branch");
 
   useEffect(() => {
     async function fetchStores() {
       if (!user) return;
       try {
-        const q = query(collection(db, "stores"), where("ownerId", "==", user.id));
-        const snap = await getDocs(q);
-        const fetchedStores = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setStores(fetchedStores);
+        const [storesResult, requestsResult] = await Promise.allSettled([
+          getDocs(query(collection(db, "stores"), where("ownerId", "==", user.id))),
+          getDocs(query(collection(db, "branch_requests"), where("ownerId", "==", user.id))),
+        ]);
+
+        if (storesResult.status === "rejected") throw storesResult.reason;
+        setStores(storesResult.value.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        if (requestsResult.status === "fulfilled") {
+          setBranchRequests(requestsResult.value.docs.map(d => ({ id: d.id, ...d.data() })));
+        } else {
+          console.warn("Branch requests are unavailable until the database migration is deployed.", requestsResult.reason);
+          setBranchRequests([]);
+        }
       } catch (error) {
         handleDataError(error, OperationType.LIST, "stores");
       } finally {
@@ -45,12 +66,10 @@ export default function StoreOwnerDashboard() {
   }, [user]);
 
   useEffect(() => {
-    if (isAccountOnlyRoute) {
-      setSelectedStore(null);
-    } else if (requestedStoreId && stores.length > 0) {
+    if (requestedStoreId && stores.length > 0) {
       setSelectedStore(stores.find((store) => store.id === requestedStoreId) || null);
     }
-  }, [isAccountOnlyRoute, requestedStoreId, stores]);
+  }, [requestedStoreId, stores]);
 
   const selectStore = (store: any | null) => {
     setSelectedStore(store);
@@ -58,6 +77,48 @@ export default function StoreOwnerDashboard() {
     if (store) nextParams.set("branch", store.id);
     else nextParams.delete("branch");
     setSearchParams(nextParams);
+  };
+  const goToBranches = () => {
+    setSelectedStore(null);
+    navigate('/owner');
+  };
+  const branchLimit = Math.max(1, Number(user?.branchLimit || 1));
+  const remainingBranchSlots = Math.max(0, branchLimit - stores.length);
+  const pendingBranchRequest = branchRequests.find((request) => request.status === "pending");
+
+  const submitBranchRequest = async () => {
+    if (!user || !requestName.trim() || !requestAddress.trim() || !requestLocationSelected || remainingBranchSlots < 1 || pendingBranchRequest) return;
+    setRequestBusy(true);
+    setRequestError("");
+    try {
+      const requestRef = await addDoc(collection(db, "branch_requests"), {
+        ownerId: user.id,
+        ownerName: user.name,
+        ownerEmail: user.email,
+        branchName: requestName.trim(),
+        address: requestAddress.trim(),
+        lat: requestLatitude,
+        lng: requestLongitude,
+        status: "pending",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      setBranchRequests([...branchRequests, {
+        id: requestRef.id,
+        ownerId: user.id,
+        branchName: requestName.trim(),
+        address: requestAddress.trim(),
+        status: "pending",
+      }]);
+      setRequestName("");
+      setRequestAddress("");
+      setRequestLocationSelected(false);
+      setShowBranchRequest(false);
+    } catch (error) {
+      setRequestError((error as Error).message);
+    } finally {
+      setRequestBusy(false);
+    }
   };
 
   const navigation = [
@@ -83,13 +144,16 @@ export default function StoreOwnerDashboard() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">Your Branches</h2>
           <p className="text-gray-500 dark:text-gray-400 mt-2">Select a branch assigned by an admin to manage its information, products, promotions, and feedback.</p>
+          <p className="mt-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+            {stores.length} of {branchLimit} branches used · {remainingBranchSlots} available
+          </p>
         </div>
 
         {stores.length === 0 ? (
           <div className="bg-white dark:bg-gray-900 p-12 rounded-[2rem] border border-dashed border-gray-300 dark:border-gray-700 text-center flex flex-col items-center">
             <Store className="w-16 h-16 text-gray-400 mb-6" />
             <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">No branches assigned</h3>
-            <p className="text-gray-500 max-w-sm mb-8">Only admins can add branches. Ask an admin to assign one to your account.</p>
+            <p className="text-gray-500 max-w-sm mb-8">Request a branch below. An admin must confirm it before it is added to your account.</p>
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -112,6 +176,50 @@ export default function StoreOwnerDashboard() {
             ))}
           </div>
         )}
+        <div className="rounded-3xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="font-bold text-gray-900 dark:text-white">Request another branch</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                {pendingBranchRequest
+                  ? `Your request for ${pendingBranchRequest.branchName} is awaiting admin review.`
+                  : remainingBranchSlots > 0
+                    ? `You can request ${remainingBranchSlots} more ${remainingBranchSlots === 1 ? "branch" : "branches"}.`
+                    : "You have used all branch slots. Contact an admin to increase your limit."}
+              </p>
+            </div>
+            <button type="button" disabled={remainingBranchSlots < 1 || Boolean(pendingBranchRequest)} onClick={() => setShowBranchRequest(!showBranchRequest)} className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900">
+              <Plus className="h-4 w-4" /> Request a branch
+            </button>
+          </div>
+          {showBranchRequest && (
+            <div className="mt-6 space-y-4 border-t border-gray-200 pt-6 dark:border-gray-800">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="text-sm font-semibold text-gray-700 dark:text-gray-200">Branch label
+                  <input value={requestName} onChange={(event) => setRequestName(event.target.value)} placeholder="e.g. Tagum" className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 font-normal dark:border-gray-700 dark:bg-gray-800" />
+                </label>
+                <label className="text-sm font-semibold text-gray-700 dark:text-gray-200">Branch address
+                  <input value={requestAddress} onChange={(event) => setRequestAddress(event.target.value)} placeholder="Street, barangay, city" className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 font-normal dark:border-gray-700 dark:bg-gray-800" />
+                </label>
+              </div>
+              <div>
+                <p className="mb-2 text-sm text-gray-500">Click the map to set the exact branch location.</p>
+                <StoreLocationPicker latitude={requestLatitude} longitude={requestLongitude} onChange={(latitude, longitude) => {
+                  setRequestLatitude(latitude);
+                  setRequestLongitude(longitude);
+                  setRequestLocationSelected(true);
+                }} />
+              </div>
+              {requestError && <p className="text-sm text-red-600">{requestError}</p>}
+              <div className="flex justify-end gap-3">
+                <button type="button" disabled={requestBusy} onClick={() => setShowBranchRequest(false)} className="rounded-xl bg-gray-100 px-4 py-2.5 text-sm font-semibold dark:bg-gray-800">Cancel</button>
+                <button type="button" disabled={requestBusy || !requestName.trim() || !requestAddress.trim() || !requestLocationSelected} onClick={submitBranchRequest} className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                  {requestBusy && <Loader2 className="h-4 w-4 animate-spin" />} Submit request
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -133,24 +241,20 @@ export default function StoreOwnerDashboard() {
               <div className="w-full px-4 py-3 bg-gray-100 dark:bg-white/10 border-gray-300 dark:border-white/15 rounded-2xl border">
                 <p className="text-xs font-semibold text-[#1b1b1b] dark:text-white uppercase tracking-widest mb-1">Current Branch</p>
                 <p className="font-bold text-gray-900 dark:text-white truncate">{activeStore.name}</p>
-                {stores.length > 1 && (
-                  <button
+                <button
                     type="button"
-                    onClick={() => selectStore(null)}
+                    onClick={goToBranches}
                     className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-[#1b1b1b] dark:text-white hover:text-black dark:hover:text-white"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
                     Back to branches
                   </button>
-                )}
               </div>
             ) : (
               <button
-                onClick={() => {
-                  if (stores.length > 1) selectStore(null);
-                }}
+                onClick={goToBranches}
                 title={`Branch: ${activeStore.name}`}
-                className={`w-full flex items-center justify-center p-3 bg-gray-100 dark:bg-white/10 border-gray-300 dark:border-white/15 rounded-2xl border ${stores.length > 1 ? 'hover:bg-gray-100 dark:hover:bg-white/15 cursor-pointer' : 'cursor-default'}`}
+                className="w-full flex items-center justify-center p-3 bg-gray-100 dark:bg-white/10 border-gray-300 dark:border-white/15 rounded-2xl border hover:bg-gray-100 dark:hover:bg-white/15 cursor-pointer"
               >
                 <Building className="w-6 h-6 text-[#1b1b1b] dark:text-white" />
               </button>
@@ -164,7 +268,7 @@ export default function StoreOwnerDashboard() {
             return (
               <Link
                 key={item.name}
-                to={item.requiresBranch && activeStore ? `${item.href}?branch=${encodeURIComponent(activeStore.id)}` : item.href}
+                to={activeStore ? `${item.href}?branch=${encodeURIComponent(activeStore.id)}` : item.href}
                 title={!isSidebarOpen ? item.name : undefined}
                 className={`flex items-center ${isSidebarOpen ? 'gap-3 px-4' : 'justify-center'} py-3 rounded-2xl text-sm font-medium transition-all whitespace-nowrap overflow-hidden group ${
                   isActive
@@ -187,7 +291,7 @@ export default function StoreOwnerDashboard() {
           return (
             <Link
               key={item.name}
-              to={item.requiresBranch && activeStore ? `${item.href}?branch=${encodeURIComponent(activeStore.id)}` : item.href}
+              to={activeStore ? `${item.href}?branch=${encodeURIComponent(activeStore.id)}` : item.href}
               className={`flex flex-col items-center gap-1 min-w-[4rem] px-3 py-1.5 rounded-xl transition-all shrink-0 ${
                 isActive
                   ? 'text-[#1b1b1b] dark:text-white bg-gray-100 dark:bg-white/10'
@@ -203,11 +307,13 @@ export default function StoreOwnerDashboard() {
 
       {/* Main Content Area */}
       <div className="flex-1 min-w-0 bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-4 sm:p-6 md:p-8 shadow-sm">
-        {activeStore && stores.length > 1 && (
+        {(activeStore || isAccountOnlyRoute) && (
           <button
             type="button"
-            onClick={() => selectStore(null)}
-            className="mb-5 inline-flex md:hidden items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-800 px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+            onClick={goToBranches}
+            className={`mb-5 items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-800 px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 ${
+              isAccountOnlyRoute && !activeStore ? 'inline-flex' : 'inline-flex md:hidden'
+            }`}
           >
             <ArrowLeft className="w-4 h-4" />
             Back to branches

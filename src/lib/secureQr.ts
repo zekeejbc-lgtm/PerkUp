@@ -42,6 +42,12 @@ export type ScannerLocation = {
 export type StoreReferralCode = {
   referralCode: string;
   promotionCount: number;
+  referralCount: number;
+  expiresAt: string;
+};
+
+export type StoreReferralStats = {
+  referralCount: number;
 };
 
 export type RedeemedStoreReferral = {
@@ -58,6 +64,7 @@ export type ValidatedStoreReferral = {
   storeId: string;
   storeName: string;
   promotionCount: number;
+  expiresAt: string;
 };
 
 const getFunctionErrorMessage = async (error: unknown, fallback: string) => {
@@ -137,6 +144,18 @@ export async function getStoreReferralCode(storeId: string): Promise<StoreReferr
 
   if (error || !data?.referralCode) {
     throw new Error(await getFunctionErrorMessage(error, "Could not get referral code."));
+  }
+
+  return data;
+}
+
+export async function getStoreReferralStats(storeId: string): Promise<StoreReferralStats> {
+  const { data, error } = await supabase.functions.invoke<StoreReferralStats>("store-referrals", {
+    body: { action: "stats", storeId },
+  });
+
+  if (error || typeof data?.referralCount !== "number") {
+    throw new Error(await getFunctionErrorMessage(error, "Could not load referral usage."));
   }
 
   return data;

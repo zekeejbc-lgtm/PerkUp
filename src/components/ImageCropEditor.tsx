@@ -14,6 +14,7 @@ export function ImageCropEditor({ file, onCancel, onApply }: ImageCropEditorProp
   const [zoom, setZoom] = useState(1);
   const [offsetX, setOffsetX] = useState(0);
   const [offsetY, setOffsetY] = useState(0);
+  const [imageSize, setImageSize] = useState({ width: 1, height: 1 });
   const [saving, setSaving] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
@@ -97,25 +98,27 @@ export function ImageCropEditor({ file, onCancel, onApply }: ImageCropEditorProp
     if (!image) return;
     setSaving(true);
 
-    const cropSize = Math.min(image.naturalWidth, image.naturalHeight) / zoom;
-    const maxX = Math.max(0, (image.naturalWidth - cropSize) / 2);
-    const maxY = Math.max(0, (image.naturalHeight - cropSize) / 2);
-    const sourceX = (image.naturalWidth - cropSize) / 2 + (offsetX / 100) * maxX;
-    const sourceY = (image.naturalHeight - cropSize) / 2 + (offsetY / 100) * maxY;
     const canvas = document.createElement("canvas");
     canvas.width = OUTPUT_SIZE;
     canvas.height = OUTPUT_SIZE;
-    canvas.getContext("2d")?.drawImage(
-      image,
-      sourceX,
-      sourceY,
-      cropSize,
-      cropSize,
-      0,
-      0,
-      OUTPUT_SIZE,
-      OUTPUT_SIZE,
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setSaving(false);
+      return;
+    }
+
+    const fitScale = Math.min(
+      OUTPUT_SIZE / image.naturalWidth,
+      OUTPUT_SIZE / image.naturalHeight,
     );
+    const drawWidth = image.naturalWidth * fitScale * zoom;
+    const drawHeight = image.naturalHeight * fitScale * zoom;
+    const maxOffsetX = Math.max(0, (drawWidth - OUTPUT_SIZE) / 2);
+    const maxOffsetY = Math.max(0, (drawHeight - OUTPUT_SIZE) / 2);
+    const drawX = (OUTPUT_SIZE - drawWidth) / 2 - (offsetX / 100) * maxOffsetX;
+    const drawY = (OUTPUT_SIZE - drawHeight) / 2 - (offsetY / 100) * maxOffsetY;
+
+    context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
 
     canvas.toBlob((blob) => {
       if (!blob) {
@@ -132,11 +135,15 @@ export function ImageCropEditor({ file, onCancel, onApply }: ImageCropEditorProp
     }, "image/jpeg", 0.9);
   };
 
+  const fittedWidthRatio =
+    imageSize.width >= imageSize.height ? 1 : imageSize.width / imageSize.height;
+  const fittedHeightRatio =
+    imageSize.height >= imageSize.width ? 1 : imageSize.height / imageSize.width;
+  const overflowX = Math.max(0, (fittedWidthRatio * zoom - 1) / 2);
+  const overflowY = Math.max(0, (fittedHeightRatio * zoom - 1) / 2);
   const imageStyle: React.CSSProperties = {
-    width: `${zoom * 100}%`,
-    height: `${zoom * 100}%`,
-    objectFit: "cover",
-    transform: `translate(${-offsetX * (zoom - 1) / zoom}%, ${-offsetY * (zoom - 1) / zoom}%)`,
+    objectFit: "contain",
+    transform: `translate(${-offsetX * overflowX}%, ${-offsetY * overflowY}%) scale(${zoom})`,
   };
 
   return (
@@ -161,7 +168,22 @@ export function ImageCropEditor({ file, onCancel, onApply }: ImageCropEditorProp
           onPointerCancel={endGesture}
           onWheel={handleWheel}
         >
-          {sourceUrl && <img ref={imageRef} src={sourceUrl} alt="Crop preview" className="pointer-events-none h-full w-full select-none" style={imageStyle} draggable={false} />}
+          {sourceUrl && (
+            <img
+              ref={imageRef}
+              src={sourceUrl}
+              alt="Image preview"
+              className="pointer-events-none h-full w-full select-none"
+              style={imageStyle}
+              draggable={false}
+              onLoad={(event) =>
+                setImageSize({
+                  width: event.currentTarget.naturalWidth,
+                  height: event.currentTarget.naturalHeight,
+                })
+              }
+            />
+          )}
         </div>
 
         <div className="mt-5">

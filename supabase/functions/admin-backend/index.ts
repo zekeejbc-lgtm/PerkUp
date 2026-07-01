@@ -172,11 +172,24 @@ Deno.serve(async (req) => {
 
       let notification = { sent: false, error: "" };
       try {
+        const ownerPortalUrl =
+          `${(Deno.env.get("APP_URL") || DEFAULT_APP_URL).replace(/\/+$/, "")}/owner`;
+        const { data: loginLinkData, error: loginLinkError } =
+          await admin.auth.admin.generateLink({
+            type: "magiclink",
+            email,
+            options: { redirectTo: ownerPortalUrl },
+          });
+        if (loginLinkError || !loginLinkData.properties?.action_link) {
+          throw loginLinkError || new Error("One-time owner login link could not be generated.");
+        }
+
         await sendStoreCreatedEmail({
           recipientEmail: email,
           userName: name,
           store,
           requirePasswordChange: Boolean(body.forcePasswordReset),
+          loginLink: loginLinkData.properties.action_link,
         });
         notification = { sent: true, error: "" };
       } catch (emailError) {
@@ -198,8 +211,17 @@ Deno.serve(async (req) => {
         ? body.store as Record<string, unknown>
         : {};
       const branchName = cleanText(storeInput.branchName || storeInput.name, 80);
-      if (!ownerId || !branchName) {
-        return jsonResponse({ error: "An owner and branch label are required." }, 400);
+      const branchAddress = cleanText(storeInput.address || storeInput.location, 300);
+      const branchLatitude = Number(storeInput.lat);
+      const branchLongitude = Number(storeInput.lng);
+      const hasValidCoordinates = storeInput.lat !== null && storeInput.lat !== undefined &&
+        storeInput.lat !== "" && storeInput.lng !== null && storeInput.lng !== undefined &&
+        storeInput.lng !== "" && Number.isFinite(branchLatitude) &&
+        branchLatitude >= -90 && branchLatitude <= 90 &&
+        Number.isFinite(branchLongitude) &&
+        branchLongitude >= -180 && branchLongitude <= 180;
+      if (!ownerId || !branchName || !branchAddress || !hasValidCoordinates) {
+        return jsonResponse({ error: "An owner, branch label, address, and valid map location are required." }, 400);
       }
       const ownerProfile = await getUserProfile(admin, ownerId);
       if (!ownerProfile || ownerProfile.role !== "store_owner") {
@@ -231,6 +253,10 @@ Deno.serve(async (req) => {
         name: storeName,
         businessName,
         branchName,
+        address: branchAddress,
+        location: branchAddress,
+        lat: branchLatitude,
+        lng: branchLongitude,
         parentStoreId: cleanText(primaryStore.data?.parentStoreId, 100) || String(primaryStore.id),
         isPrimaryBranch: false,
         ownerId,
@@ -243,6 +269,150 @@ Deno.serve(async (req) => {
       const { error: storeError } = await admin.from("stores").insert({ id: storeId, data: store });
       if (storeError) throw storeError;
       return jsonResponse({ store: { id: storeId, ...store } });
+    }
+
+    if (action === "decide_branch_request") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const requestId = cleanText(body.requestId, 100);
+      const decision = cleanText(body.decision, 20);
+      if (!requestId || !["approved", "denied"].includes(decision)) {
+        return jsonResponse({ error: "A branch request and valid decision are required." }, 400);
+      }
+
+      const { data: requestRow, error: requestError } = await admin
+        .from("branch_requests")
+        .select("id,data")
+        .eq("id", requestId)
+        .maybeSingle();
+      if (requestError) throw requestError;
+      if (!requestRow) return jsonResponse({ error: "Branch request was not found." }, 404);
+
+      const request = (requestRow.data || {}) as Record<string, unknown>;
+      if (request.status !== "pending") {
+        return jsonResponse({ error: "This branch request has already been reviewed." }, 409);
+      }
+
+      const reviewedAt = timestamp();
+      if (decision === "denied") {
+        const deniedRequest = {
+          ...request,
+          status: "denied",
+          reviewedAt,
+          reviewedBy: authData.user.id,
+          updatedAt: reviewedAt,
+        };
+        const { data: deniedRows, error: denyError } = await admin
+          .from("branch_requests")
+          .update({ data: deniedRequest })
+          .eq("id", requestId)
+          .eq("data->>status", "pending")
+          .select("id");
+        if (denyError) throw denyError;
+        if (!deniedRows?.length) return jsonResponse({ error: "This branch request has already been reviewed." }, 409);
+        return jsonResponse({ request: { id: requestId, ...deniedRequest } });
+      }
+
+      const ownerId = cleanText(request.ownerId, 100);
+      const branchName = cleanText(request.branchName, 80);
+      const branchAddress = cleanText(request.address, 300);
+      const branchLatitude = Number(request.lat);
+      const branchLongitude = Number(request.lng);
+      if (!ownerId || !branchName || !branchAddress || !Number.isFinite(branchLatitude) ||
+        branchLatitude < -90 || branchLatitude > 90 || !Number.isFinite(branchLongitude) ||
+        branchLongitude < -180 || branchLongitude > 180) {
+        return jsonResponse({ error: "The branch request has incomplete or invalid location details." }, 400);
+      }
+
+      const ownerProfile = await getUserProfile(admin, ownerId);
+      if (!ownerProfile || ownerProfile.role !== "store_owner") {
+        return jsonResponse({ error: "Store owner was not found." }, 404);
+      }
+      const { count, error: countError } = await admin
+        .from("stores")
+        .select("id", { count: "exact", head: true })
+        .eq("data->>ownerId", ownerId);
+      if (countError) throw countError;
+      const branchLimit = Math.max(1, Math.min(100, Math.trunc(Number(ownerProfile.branchLimit || 1))));
+      if ((count || 0) >= branchLimit) {
+        return jsonResponse({ error: `This owner has reached the ${branchLimit}-branch limit.` }, 409);
+      }
+
+      const { data: primaryStore, error: primaryError } = await admin
+        .from("stores")
+        .select("id,data")
+        .eq("data->>ownerId", ownerId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (primaryError) throw primaryError;
+      if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
+
+      const primaryData = (primaryStore.data || {}) as Record<string, unknown>;
+      const businessName = cleanText(primaryData.businessName || primaryData.name, 120);
+      const storeId = crypto.randomUUID();
+      const processingRequest = {
+        ...request,
+        status: "processing",
+        updatedAt: reviewedAt,
+      };
+      const { data: claimedRows, error: claimError } = await admin
+        .from("branch_requests")
+        .update({ data: processingRequest })
+        .eq("id", requestId)
+        .eq("data->>status", "pending")
+        .select("id");
+      if (claimError) throw claimError;
+      if (!claimedRows?.length) {
+        return jsonResponse({ error: "This branch request has already been reviewed." }, 409);
+      }
+      const store = {
+        name: `${businessName} - ${branchName}`,
+        businessName,
+        branchName,
+        address: branchAddress,
+        location: branchAddress,
+        lat: branchLatitude,
+        lng: branchLongitude,
+        parentStoreId: cleanText(primaryData.parentStoreId, 100) || String(primaryStore.id),
+        isPrimaryBranch: false,
+        ownerId,
+        status: "active",
+        logoUrl: primaryData.logoUrl || "",
+        category: primaryData.category || "",
+        subscriptionLevel: primaryData.subscriptionLevel || "",
+        subscriptionStart: primaryData.subscriptionStart || null,
+        subscriptionEnd: primaryData.subscriptionEnd || null,
+        paymentSchedule: primaryData.paymentSchedule || "",
+        createdAt: reviewedAt,
+        updatedAt: reviewedAt,
+      };
+      const { error: storeError } = await admin.from("stores").insert({ id: storeId, data: store });
+      if (storeError) {
+        await admin.from("branch_requests").update({ data: request }).eq("id", requestId).eq("data->>status", "processing");
+        throw storeError;
+      }
+
+      const approvedRequest = {
+        ...request,
+        status: "approved",
+        storeId,
+        reviewedAt,
+        reviewedBy: authData.user.id,
+        updatedAt: reviewedAt,
+      };
+      const { error: approveError } = await admin
+        .from("branch_requests")
+        .update({ data: approvedRequest })
+        .eq("id", requestId)
+        .eq("data->>status", "processing");
+      if (approveError) {
+        await admin.from("stores").delete().eq("id", storeId);
+        throw approveError;
+      }
+      return jsonResponse({
+        request: { id: requestId, ...approvedRequest },
+        store: { id: storeId, ...store },
+      });
     }
 
     if (action === "set_branch_limit") {
@@ -311,8 +481,8 @@ Deno.serve(async (req) => {
       if (!canCreate || !allowedRole) {
         return jsonResponse({ error: "You are not allowed to create this account." }, 403);
       }
-      if (!email || password.length < 8 || !name) {
-        return jsonResponse({ error: "Name, valid email, and an 8-character password are required." }, 400);
+      if (!email || !name || !isStrongPassword(password, name, email)) {
+        return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, and no account name or email." }, 400);
       }
 
       const { data: created, error: createError } = await admin.auth.admin.createUser({
@@ -330,6 +500,7 @@ Deno.serve(async (req) => {
         name,
         role,
         ...(storeId ? { storeId } : {}),
+        forcePasswordReset: Boolean(body.forcePasswordReset),
         createdAt: timestamp(),
         updatedAt: timestamp(),
       };
@@ -342,7 +513,41 @@ Deno.serve(async (req) => {
         throw profileError;
       }
 
-      return jsonResponse({ user: { id: created.user.id, ...profile } });
+      let notification = { sent: false, error: "" };
+      if (role === "staff") {
+        try {
+          const staffPortalUrl =
+            `${(Deno.env.get("APP_URL") || DEFAULT_APP_URL).replace(/\/+$/, "")}/staff`;
+          const { data: loginLinkData, error: loginLinkError } =
+            await admin.auth.admin.generateLink({
+              type: "magiclink",
+              email,
+              options: { redirectTo: staffPortalUrl },
+            });
+          if (loginLinkError || !loginLinkData.properties?.action_link) {
+            throw loginLinkError || new Error("One-time staff login link could not be generated.");
+          }
+          const { data: storeRow, error: storeError } = await admin
+            .from("stores")
+            .select("data")
+            .eq("id", storeId)
+            .maybeSingle();
+          if (storeError) throw storeError;
+          await sendStaffCreatedEmail({
+            recipientEmail: email,
+            userName: name,
+            storeName: cleanText(storeRow?.data?.name, 120) || "your store",
+            requirePasswordChange: Boolean(body.forcePasswordReset),
+            loginLink: loginLinkData.properties.action_link,
+          });
+          notification = { sent: true, error: "" };
+        } catch (emailError) {
+          notification.error = emailError instanceof Error ? emailError.message : "Staff email could not be sent.";
+          console.error("Staff creation email failed", { userId: created.user.id, storeId, error: notification.error });
+        }
+      }
+
+      return jsonResponse({ user: { id: created.user.id, ...profile }, notification });
     }
 
     if (action === "reset_password") {
@@ -836,11 +1041,13 @@ const sendStoreCreatedEmail = async ({
   userName,
   store,
   requirePasswordChange,
+  loginLink,
 }: {
   recipientEmail: string;
   userName: string;
   store: Record<string, unknown>;
   requirePasswordChange: boolean;
+  loginLink: string;
 }) => {
   const url = Deno.env.get("GAS_EMAIL_URL") ||
     Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") ||
@@ -854,7 +1061,7 @@ const sendStoreCreatedEmail = async ({
       recipientEmail,
       userName,
       requirePasswordChange,
-      loginLink: Deno.env.get("APP_URL") || DEFAULT_APP_URL,
+      loginLink,
       store: {
         name: cleanText(store.name, 120),
         location: cleanText(store.location || store.address, 240),
@@ -869,5 +1076,40 @@ const sendStoreCreatedEmail = async ({
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.success || !data.email) {
     throw new Error(data.error || `Store email failed with HTTP ${response.status}.`);
+  }
+};
+
+const sendStaffCreatedEmail = async ({
+  recipientEmail,
+  userName,
+  storeName,
+  requirePasswordChange,
+  loginLink,
+}: {
+  recipientEmail: string;
+  userName: string;
+  storeName: string;
+  requirePasswordChange: boolean;
+  loginLink: string;
+}) => {
+  const url = Deno.env.get("GAS_EMAIL_URL") ||
+    Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") ||
+    DEFAULT_GAS_UPLOAD_URL;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({
+      action: "staff_created",
+      secret: requiredEnv("DRIVE_CRUD_SECRET"),
+      recipientEmail,
+      userName,
+      storeName,
+      requirePasswordChange,
+      loginLink,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success || !data.email) {
+    throw new Error(data.error || `Staff email failed with HTTP ${response.status}.`);
   }
 };

@@ -4,9 +4,10 @@ import { doc, getDoc } from '@/src/lib/dataCompat';
 import { db } from '../lib/backend';
 import 'leaflet/dist/leaflet.css';
 // @ts-ignore
-import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { submitPartnerApplication } from '../lib/partnerApplication';
+import { MapBaseLayers } from './MapBaseLayers';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -90,8 +91,8 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     }
     if (isOpen) {
       loadPlans();
-      // Default to rough US center, we can let user pick
-      setCoordinates([39.8283, -98.5795]);
+      // Default to Tagum City, while still allowing the applicant to pick an exact location.
+      setCoordinates([7.4478, 125.8078]);
     }
   }, [isOpen]);
 
@@ -371,11 +372,8 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                     <div className="space-y-1 text-left flex-1 h-[260px]">
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Pin Location on Map</label>
                       <div className="w-full h-full rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100">
-                        <MapContainer center={[39.8283, -98.5795]} zoom={3} style={{ height: '100%', width: '100%' }}>
-                          <TileLayer
-                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                          />
+                        <MapContainer center={[7.4478, 125.8078]} zoom={13} style={{ height: '100%', width: '100%' }}>
+                          <MapBaseLayers />
                           <MapViewport position={coordinates} />
                           <LocationMarker position={coordinates} setPosition={setCoordinates} />
                         </MapContainer>

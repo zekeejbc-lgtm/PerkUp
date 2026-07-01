@@ -3,12 +3,16 @@ import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "@/src/lib/dataCompat";
 import { db } from "../lib/backend";
-import { ArrowLeft, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send, Image as ImageIcon, Utensils } from "lucide-react";
+import { ArrowLeft, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send, Image as ImageIcon, Store as StoreIcon, Utensils } from "lucide-react";
+import { MapContainer, Marker, Popup } from "react-leaflet";
+import * as ReactDOMServer from "react-dom/server";
+import L from "leaflet";
 import { PageSkeleton } from "../components/LoadingSkeleton";
 import { useAuth } from "../contexts/AuthContext";
 import { DirectionsButton } from "../components/DirectionsButton";
 import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { MapBaseLayers } from "../components/MapBaseLayers";
 import { getDisplayImageUrl } from "../lib/imageStorage";
 import { PublicSiteFooter } from "../components/PublicPageShell";
 
@@ -28,6 +32,12 @@ interface StoreContent {
   logoUrl?: string;
   images?: string[];
   menuUrl?: string;
+  businessName?: string;
+  branchName?: string;
+  ownerId?: string;
+  parentStoreId?: string;
+  isPrimaryBranch?: boolean;
+  status?: string;
 }
 
 interface StoreProduct {
@@ -54,11 +64,49 @@ const reviewDate = (value?: string) => {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString();
 };
 
+const getCoordinates = (store: StoreContent): [number, number] | null => {
+  const lat = Number(store.lat ?? store.latitude);
+  const lng = Number(store.lng ?? store.longitude);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
+};
+
+const createBranchPin = (branch: StoreContent, selected: boolean) => {
+  const markerContent = branch.logoUrl
+    ? ReactDOMServer.renderToString(
+        <img
+          src={getDisplayImageUrl(branch.logoUrl)}
+          alt=""
+          style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover" }}
+        />,
+      )
+    : ReactDOMServer.renderToString(
+        <StoreIcon size={20} strokeWidth={2.5} color={selected ? "#ffffff" : "#1b1b1b"} />,
+      );
+  const background = selected ? "#1b1b1b" : "#ffffff";
+  const border = selected ? "#ffffff" : "#1b1b1b";
+
+  return L.divIcon({
+    className: "",
+    html: `
+      <div style="position:relative;width:44px;height:50px;">
+        <div style="box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:44px;height:44px;padding:3px;overflow:hidden;border:3px solid ${border};border-radius:50%;background:${background};box-shadow:0 6px 16px rgba(0,0,0,.28);">
+          ${markerContent}
+        </div>
+        <div style="position:absolute;bottom:0;left:50%;width:0;height:0;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid ${border};"></div>
+      </div>
+    `,
+    iconSize: [44, 50],
+    iconAnchor: [22, 50],
+    popupAnchor: [0, -46],
+  });
+};
+
 export default function StorePage() {
   const { storeId } = useParams();
   const { user } = useAuth();
   const [store, setStore] = useState<StoreContent | null>(null);
   const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [branches, setBranches] = useState<StoreContent[]>([]);
   const [reviews, setReviews] = useState<StoreReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [rating, setRating] = useState(5);
@@ -119,11 +167,15 @@ export default function StorePage() {
           return;
         }
 
-        setStore({ id: docSnap.id, ...docSnap.data() } as StoreContent);
+        const storeData = { id: docSnap.id, ...docSnap.data() } as StoreContent;
+        setStore(storeData);
 
-        const [productsResult, reviewsResult] = await Promise.allSettled([
+        const [productsResult, reviewsResult, branchesResult] = await Promise.allSettled([
           getDocs(query(collection(db, "products"), where("storeId", "==", storeId))),
           fetchReviews(),
+          storeData.ownerId
+            ? getDocs(query(collection(db, "stores"), where("ownerId", "==", storeData.ownerId)))
+            : Promise.resolve(null),
         ]);
 
         if (productsResult.status === "fulfilled") {
@@ -140,10 +192,27 @@ export default function StorePage() {
           console.error("Error fetching store reviews:", reviewsResult.reason);
           setReviews([]);
         }
+
+        if (branchesResult.status === "fulfilled" && branchesResult.value) {
+          const siblingBranches = branchesResult.value.docs
+            .map((branchDoc) => ({ id: branchDoc.id, ...branchDoc.data() } as StoreContent))
+            .filter((branch) => !branch.status || branch.status === "active")
+            .sort((a, b) => {
+              if (a.isPrimaryBranch !== b.isPrimaryBranch) return a.isPrimaryBranch ? -1 : 1;
+              return (a.branchName || a.name).localeCompare(b.branchName || b.name);
+            });
+          setBranches(siblingBranches.length ? siblingBranches : [storeData]);
+        } else {
+          if (branchesResult.status === "rejected") {
+            console.error("Error fetching store branches:", branchesResult.reason);
+          }
+          setBranches([storeData]);
+        }
       } catch (error) {
         console.error("Error fetching store:", error);
         setStore(null);
         setProducts([]);
+        setBranches([]);
       } finally {
         setLoading(false);
       }
@@ -198,6 +267,12 @@ export default function StorePage() {
     );
   }
 
+  const mappedBranches = branches
+    .map((branch) => ({ branch, coordinates: getCoordinates(branch) }))
+    .filter((entry): entry is { branch: StoreContent; coordinates: [number, number] } => Boolean(entry.coordinates));
+  const selectedCoordinates = getCoordinates(store);
+  const mapCenter = selectedCoordinates ?? mappedBranches[0]?.coordinates ?? null;
+
   return (
     <div className="flex min-h-screen flex-col bg-white selection:bg-[#1b1b1b] selection:text-white transition-colors dark:bg-[#1b1b1b] dark:selection:bg-white dark:selection:text-[#1b1b1b]">
       <header className="sticky top-0 z-50 border-b border-[#1b1b1b]/10 bg-white/85 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#1b1b1b]/85">
@@ -227,11 +302,14 @@ export default function StorePage() {
         </nav>
       </header>
 
-      <div className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-7xl px-4 pt-6 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between">
-          <Link to="/" className="inline-flex items-center gap-2 rounded-xl px-2 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white">
-            <ArrowLeft className="w-4 h-4" />
-            Back
+          <Link
+            to="/stores"
+            className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span>Back to stores</span>
           </Link>
           <div className="flex items-center gap-2">
             {shareStatus && <span className="text-xs font-medium text-gray-500 dark:text-gray-400" role="status">{shareStatus}</span>}
@@ -297,6 +375,107 @@ export default function StorePage() {
           </div>
           </div>
         </div>
+
+        <section className="mb-10" aria-labelledby="branches-heading">
+          <div className="mb-5 flex items-end justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-3">
+                <StoreIcon className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                <h2 id="branches-heading" className="text-2xl font-bold text-gray-900 dark:text-white">
+                  Branches
+                </h2>
+              </div>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {branches.length} active {branches.length === 1 ? "location" : "locations"}
+              </p>
+            </div>
+          </div>
+
+          {mapCenter ? (
+            <div className="relative z-0 mb-5 h-80 overflow-hidden rounded-[2rem] border border-gray-200 shadow-sm dark:border-gray-800 sm:h-96">
+              <MapContainer
+                key={`${store.id}-${mappedBranches.length}`}
+                center={mapCenter}
+                zoom={mappedBranches.length > 1 ? 12 : 15}
+                scrollWheelZoom
+                touchZoom
+                className="h-full w-full"
+              >
+                <MapBaseLayers />
+                {mappedBranches.map(({ branch, coordinates }) => (
+                  <Marker
+                    key={branch.id}
+                    position={coordinates}
+                    icon={createBranchPin(branch, branch.id === store.id)}
+                  >
+                    <Popup>
+                      <div className="min-w-48">
+                        <p className="font-bold text-gray-900">{branch.branchName || branch.name}</p>
+                        <p className="mt-1 text-sm text-gray-600">{branch.address || "Address unavailable"}</p>
+                        <div className="mt-3 flex gap-2">
+                          {branch.id !== store.id && (
+                            <Link to={`/store/${branch.id}`} className="text-sm font-semibold text-gray-900 underline">
+                              View branch
+                            </Link>
+                          )}
+                          <DirectionsButton
+                            destination={{ lat: coordinates[0], lng: coordinates[1], address: branch.address, name: branch.name }}
+                            className="text-sm font-semibold text-gray-900 underline"
+                          />
+                        </div>
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
+            </div>
+          ) : (
+            <div className="mb-5 rounded-3xl border border-dashed border-gray-300 px-6 py-10 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+              Map unavailable because no branch coordinates have been added.
+            </div>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {branches.map((branch) => (
+              <article
+                key={branch.id}
+                className={`rounded-3xl border p-5 shadow-sm ${
+                  branch.id === store.id
+                    ? "border-gray-900 bg-gray-50 dark:border-white dark:bg-white/10"
+                    : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-gray-900 dark:text-white">{branch.branchName || branch.name}</h3>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{branch.address || "Address unavailable"}</p>
+                  </div>
+                  {branch.id === store.id && (
+                    <span className="shrink-0 rounded-full bg-gray-900 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white dark:bg-white dark:text-gray-900">
+                      Viewing
+                    </span>
+                  )}
+                </div>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  {branch.id !== store.id && (
+                    <Link to={`/store/${branch.id}`} className="text-sm font-semibold text-gray-900 hover:underline dark:text-white">
+                      View branch
+                    </Link>
+                  )}
+                  <DirectionsButton
+                    destination={{
+                      lat: branch.lat ?? branch.latitude,
+                      lng: branch.lng ?? branch.longitude,
+                      address: branch.address,
+                      name: branch.name,
+                    }}
+                    className="text-sm font-semibold text-gray-900 hover:underline dark:text-white"
+                  />
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
 
         {Array.isArray(store.images) && store.images.length > 0 && (
           <section className="mb-10" aria-labelledby="gallery-heading">

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, Marker, useMap, useMapEvents } from "react-leaflet";
+import { MapBaseLayers } from "./MapBaseLayers";
 
 type Coordinates = [number, number];
 
@@ -41,17 +42,14 @@ export function StoreLocationPicker({
   className?: string;
 }) {
   const position: Coordinates = [
-    Number.isFinite(latitude) ? latitude : 14.5995,
-    Number.isFinite(longitude) ? longitude : 120.9842,
+    Number.isFinite(latitude) ? latitude : 7.4478,
+    Number.isFinite(longitude) ? longitude : 125.8078,
   ];
 
   return (
     <div className={`${className} relative z-0 overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-700`}>
       <MapContainer center={position} zoom={13} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+        <MapBaseLayers />
         <MapViewport position={position} />
         <LocationMarker position={position} onChange={([lat, lng]) => onChange(lat, lng)} />
       </MapContainer>

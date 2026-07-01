@@ -4,7 +4,7 @@ import { AUTH_REDIRECT_MESSAGE_KEY, db } from "../lib/backend";
 import { QrCode, Star, Coffee, ArrowRight, MapPin, Pizza, Scissors, BookOpen, Shirt, Dumbbell, Glasses, Anchor, Search, Store as StoreIcon, Mail, Phone, Clock3, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { MapContainer, Marker, Popup } from "react-leaflet";
 import * as ReactDOMServer from "react-dom/server";
 import L from "leaflet";
 import { BrandMark } from "../components/BrandMark";
@@ -13,6 +13,7 @@ import { PublicSiteHeader } from "../components/PublicSiteHeader";
 import { getDisplayImageUrl } from "../lib/imageStorage";
 import { PageSkeleton, SkeletonBlock } from "../components/LoadingSkeleton";
 import { DirectionsButton } from "../components/DirectionsButton";
+import { MapBaseLayers } from "../components/MapBaseLayers";
 import { DirectoryStore, getStoreCategories, isStoreOpenNow, storeMatchesFilters } from "../lib/storeDirectory";
 
 import { PartnerApplicationModal } from "../components/PartnerApplicationModal";
@@ -46,6 +47,7 @@ const createCustomPin = (store: DirectoryStore) => {
       <img
         src={getDisplayImageUrl(store.logoUrl)}
         alt=""
+        referrerPolicy="no-referrer"
         style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover" }}
       />
     )
@@ -186,6 +188,17 @@ export default function LandingPage() {
   );
   const categories = getStoreCategories(stores);
   const hasActiveFilters = selectedCategory !== "All" || openNowOnly || Boolean(normalizedQuery);
+  const trustedBusinesses = config.usePartnerStores && stores.length > 0
+    ? stores
+    : config.trustedBusinesses?.length > 0
+      ? config.trustedBusinesses
+      : LOGOS;
+  // Five 256px items fill the widest content area. Smaller sets are clearer
+  // when they remain centered instead of being duplicated into a marquee.
+  const shouldAnimateTrustedBusinesses = trustedBusinesses.length >= 5;
+  const displayedTrustedBusinesses = shouldAnimateTrustedBusinesses
+    ? [...trustedBusinesses, ...trustedBusinesses]
+    : trustedBusinesses;
 
   return (
     <div className="min-h-screen bg-white dark:bg-[#1b1b1b] selection:bg-[#1b1b1b] selection:text-white dark:selection:bg-white dark:selection:text-[#1b1b1b] flex flex-col">
@@ -289,40 +302,36 @@ export default function LandingPage() {
             Trusted by local businesses
           </p>
 
-          <div className="relative w-full overflow-hidden flex">
+          <div className={`relative w-full overflow-hidden flex ${shouldAnimateTrustedBusinesses ? "" : "justify-center"}`}>
             {/* gradient fades for the edges */}
-            <div className="absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-white dark:from-[#1b1b1b] to-transparent z-10 pointer-events-none transition-colors"></div>
-            <div className="absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-white dark:from-[#1b1b1b] to-transparent z-10 pointer-events-none transition-colors"></div>
+            {shouldAnimateTrustedBusinesses && (
+              <>
+                <div className="absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-white dark:from-[#1b1b1b] to-transparent z-10 pointer-events-none transition-colors"></div>
+                <div className="absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-white dark:from-[#1b1b1b] to-transparent z-10 pointer-events-none transition-colors"></div>
+              </>
+            )}
 
-            <div className="flex animate-scroll hover:opacity-100 transition-opacity duration-500 w-[200%]">
-              {config.usePartnerStores && stores.length > 0 ? (
-                 [...stores, ...stores, ...stores, ...stores].map((store, idx) => (
-                   <div key={`partner-${idx}`} className="flex flex-col items-center justify-center w-64 shrink-0 gap-4 opacity-40 hover:opacity-100 transition-opacity duration-300">
-                     <div className="w-16 h-16 bg-gray-50 dark:bg-gray-900 rounded-3xl flex items-center justify-center text-gray-400 dark:text-gray-500 border border-gray-100 dark:border-gray-800 shadow-sm transition-all hover:scale-105 hover:-rotate-3 duration-300 overflow-hidden">
-                       {store.logoUrl ? <img src={getDisplayImageUrl(store.logoUrl)} className="w-full h-full object-cover" alt={store.name} /> : <StoreIcon className="w-8 h-8" />}
-                     </div>
-                     <span className="font-semibold text-gray-400 dark:text-gray-500 tracking-tight">{store.name}</span>
-                   </div>
-                 ))
-              ) : config.trustedBusinesses && config.trustedBusinesses.length > 0 ? (
-                 [...config.trustedBusinesses, ...config.trustedBusinesses, ...config.trustedBusinesses, ...config.trustedBusinesses].map((logo: any, idx: number) => (
-                   <div key={`custom-${idx}`} className="flex flex-col items-center justify-center w-64 shrink-0 gap-4 opacity-40 hover:opacity-100 transition-opacity duration-300">
-                     <div className="w-16 h-16 bg-gray-50 dark:bg-gray-900 rounded-3xl flex items-center justify-center text-gray-400 dark:text-gray-500 border border-gray-100 dark:border-gray-800 shadow-sm transition-all hover:scale-105 hover:-rotate-3 duration-300 overflow-hidden">
-                       {logo.logoUrl ? <img src={getDisplayImageUrl(logo.logoUrl)} className="w-full h-full object-cover" alt={logo.name} /> : <StoreIcon className="w-8 h-8" />}
-                     </div>
-                     <span className="font-semibold text-gray-400 dark:text-gray-500 tracking-tight">{logo.name}</span>
-                   </div>
-                 ))
-              ) : (
-                [...LOGOS, ...LOGOS, ...LOGOS, ...LOGOS].map((logo, idx) => (
-                  <div key={`fallback-${idx}`} className="flex flex-col items-center justify-center w-64 shrink-0 gap-4 opacity-40 hover:opacity-100 transition-opacity duration-300">
-                    <div className="w-16 h-16 bg-gray-50 dark:bg-gray-900 rounded-3xl flex items-center justify-center text-gray-400 dark:text-gray-500 border border-gray-100 dark:border-gray-800 shadow-sm transition-all hover:scale-105 hover:-rotate-3 duration-300">
-                      <logo.icon className="w-8 h-8" />
+            <div className={`flex transition-opacity duration-500 ${shouldAnimateTrustedBusinesses ? "animate-scroll w-max" : "justify-center"}`}>
+              {displayedTrustedBusinesses.map((business: any, idx: number) => {
+                const FallbackIcon = business.icon || StoreIcon;
+                return (
+                  <div key={`${business.id || business.name}-${idx}`} className="flex flex-col items-center justify-center w-64 shrink-0 gap-4 opacity-60 hover:opacity-100 transition-opacity duration-300">
+                    <div className="w-16 h-16 bg-gray-50 dark:bg-gray-900 rounded-3xl flex items-center justify-center text-gray-400 dark:text-gray-500 border border-gray-100 dark:border-gray-800 shadow-sm transition-all hover:scale-105 hover:-rotate-3 duration-300 overflow-hidden">
+                      {business.logoUrl ? (
+                        <img
+                          src={getDisplayImageUrl(business.logoUrl)}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                          alt={`${business.name} logo`}
+                        />
+                      ) : (
+                        <FallbackIcon className="w-8 h-8" />
+                      )}
                     </div>
-                    <span className="font-semibold text-gray-400 dark:text-gray-500 tracking-tight">{logo.name}</span>
+                    <span className="font-semibold text-gray-400 dark:text-gray-500 tracking-tight">{business.name}</span>
                   </div>
-                ))
-              )}
+                );
+              })}
             </div>
           </div>
         </section>
@@ -412,10 +421,7 @@ export default function LandingPage() {
                    scrollWheelZoom={false}
                    style={{ height: "100%", width: "100%", zIndex: 1 }}
                  >
-                   <TileLayer
-                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                   />
+                   <MapBaseLayers />
                    {filteredStores.map(store => store.lat && store.lng ? (
                      <Marker key={store.id} position={[store.lat, store.lng]} icon={createCustomPin(store)}>
                        <Popup className="rounded-xl overflow-hidden shadow-md">
@@ -425,6 +431,7 @@ export default function LandingPage() {
                                <img
                                  src={getDisplayImageUrl(store.logoUrl)}
                                  alt={`${store.name} logo`}
+                                 referrerPolicy="no-referrer"
                                  className="h-full w-full object-cover"
                                />
                              </div>

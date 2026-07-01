@@ -10,6 +10,7 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { BrandMark } from "./components/BrandMark";
 import { findTrustedLoginDevice, getMfaPromptReason, trustCurrentDeviceForUser, TrustedLoginProfile } from "./lib/trustedDevice";
 import { FirstLoginPasswordChange } from "./components/FirstLoginPasswordChange";
+import { PublicSiteFooter } from "./components/PublicPageShell";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
@@ -308,22 +309,40 @@ function RoleRouter() {
 function Layout({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const accountPathByRole: Partial<Record<Role, string>> = {
     admin: "/admin/account",
+    assistant_admin: "/admin/account",
     auditor: "/admin/account",
     customer: "/customer/profile",
     staff: "/staff/account",
     store_owner: "/owner/account",
   };
+  const dashboardPathByRole: Partial<Record<Role, string>> = {
+    admin: "/admin",
+    assistant_admin: "/admin",
+    auditor: "/admin",
+    customer: "/customer",
+    staff: "/staff",
+    store_owner: "/owner",
+  };
 
   const handleAccountClick = () => {
     const accountPath = user?.role ? accountPathByRole[user.role] : undefined;
-    if (accountPath) navigate(accountPath);
+    const dashboardPath = user?.role ? dashboardPathByRole[user.role] : undefined;
+    if (!accountPath || !dashboardPath) return;
+
+    const ownerBranchQuery = user?.role === "store_owner" ? location.search : "";
+    navigate(
+      location.pathname === accountPath
+        ? `${dashboardPath}${ownerBranchQuery}`
+        : `${accountPath}${ownerBranchQuery}`,
+    );
   };
 
   return (
-    <div className="min-h-screen bg-white dark:bg-[#1b1b1b] transition-colors">
+    <div className="flex min-h-screen flex-col bg-white dark:bg-[#1b1b1b] transition-colors">
       <nav className="sticky top-0 z-40 bg-white/85 dark:bg-[#1b1b1b]/85 backdrop-blur-xl border-b border-[#1b1b1b]/10 dark:border-white/10">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 justify-between items-center">
@@ -338,6 +357,8 @@ function Layout({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 onClick={handleAccountClick}
+                aria-pressed={Boolean(user?.role && location.pathname === accountPathByRole[user.role])}
+                title={user?.role && location.pathname === accountPathByRole[user.role] ? "Back to dashboard" : "Open profile"}
                 className="flex items-center gap-3 sm:mr-4 rounded-2xl px-2 py-1.5 text-left transition-colors hover:bg-gray-100 dark:hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[#1b1b1b]/30 dark:focus:ring-white/40"
               >
                 <div className="h-8 w-8 min-w-8 shrink-0 aspect-square rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center overflow-hidden">
@@ -357,9 +378,10 @@ function Layout({ children }: { children: ReactNode }) {
           </div>
         </div>
       </nav>
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
         {children}
       </main>
+      <PublicSiteFooter />
     </div>
   );
 }

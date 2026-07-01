@@ -50,6 +50,7 @@ const tableNames = new Set([
   "promotions_scanned",
   "settings",
   "store_reviews",
+  "branch_requests",
   "stores",
   "test",
   "users",
@@ -132,6 +133,22 @@ export function query(collectionRef: CollectionRef, ...filters: FilterClause[]):
 
 const dataApi = (collectionName: string) => supabase.from(collectionName);
 
+const isStaleAuthError = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: string; status?: number; message?: string };
+  const message = candidate.message?.toLowerCase() ?? "";
+  return candidate.code === "PGRST301"
+    || candidate.status === 401
+    || message.includes("jwt expired")
+    || message.includes("invalid jwt");
+};
+
+const selectDocument = (ref: DocumentRef) =>
+  dataApi(ref.collectionName)
+    .select("id,data")
+    .eq("id", ref.id)
+    .maybeSingle();
+
 const getCachedValue = <T>(key: string): T | null => {
   const cached = readCache.get(key);
   if (!cached) return null;
@@ -174,10 +191,14 @@ const fetchDoc = async (ref: DocumentRef, useCache: boolean) => {
     if (cached !== null) return docSnapshot(ref.id, cached);
   }
 
-  const { data, error } = await dataApi(ref.collectionName)
-    .select("id,data")
-    .eq("id", ref.id)
-    .maybeSingle();
+  let { data, error } = await selectDocument(ref);
+
+  if (error && isStaleAuthError(error)) {
+    const { error: refreshError } = await supabase.auth.refreshSession();
+    if (!refreshError) {
+      ({ data, error } = await selectDocument(ref));
+    }
+  }
 
   if (error) throw error;
   const value = data?.data ?? null;
@@ -270,16 +291,33 @@ export async function setDoc(
   options?: { merge?: boolean },
 ) {
   const incoming = serializeValue(value) as Record<string, unknown>;
-  let data = incoming;
 
   if (options?.merge) {
     const existing = await getDoc(ref);
-    data = resolveUpdate(existing.data(), incoming);
+    if (existing.exists()) {
+      const data = resolveUpdate(existing.data(), incoming);
+      const { error } = await dataApi(ref.collectionName)
+        .update({ data })
+        .eq("id", ref.id);
+
+      if (error) throw error;
+      clearCollectionCache(ref.collectionName);
+      return;
+    }
+
+    const { error } = await dataApi(ref.collectionName).insert({
+      id: ref.id,
+      data: incoming,
+    });
+
+    if (error) throw error;
+    clearCollectionCache(ref.collectionName);
+    return;
   }
 
   const { error } = await dataApi(ref.collectionName).upsert({
     id: ref.id,
-    data,
+    data: incoming,
   });
 
   if (error) throw error;

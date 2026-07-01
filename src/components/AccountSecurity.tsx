@@ -11,6 +11,7 @@ import { useAuth } from "@/src/contexts/AuthContext";
 import { doc, serverTimestamp, setDoc } from "@/src/lib/dataCompat";
 import { getActiveTrustedDevices, updateTrustedDevicePreference } from "@/src/lib/trustedDevice";
 import { invokeAdminBackend } from "@/src/lib/adminBackend";
+import { formatPhilippineDateTime } from "@/src/lib/dateTime";
 
 type Message = {
   text: string;
@@ -35,17 +36,7 @@ const qrImageSrc = (qrCode: string) => {
 const formatEnrollmentDate = (dateValue?: string) => {
   if (!dateValue) return "Enrollment date unavailable";
 
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) return "Enrollment date unavailable";
-
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "long",
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
+  return formatPhilippineDateTime(dateValue, "Enrollment date unavailable");
 };
 
 export default function AccountSecurity() {

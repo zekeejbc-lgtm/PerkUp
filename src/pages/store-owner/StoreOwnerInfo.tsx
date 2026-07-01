@@ -2,10 +2,13 @@ import React, { useState, useEffect } from "react";
 import { doc, updateDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Save, MapPin, Clock, Image as ImageIcon, CheckCircle2, Upload, X, Store } from "lucide-react";
-import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
+import { MapContainer, Marker, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
+import { MapBaseLayers } from "../../components/MapBaseLayers";
+import { TimeInput } from "../../components/TimeInput";
+import { formatStoreHours } from "../../lib/dateTime";
 
 function LocationPicker({ setPosition }: { position: [number, number], setPosition: (p: [number, number]) => void }) {
   useMapEvents({
@@ -38,8 +41,8 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
 
   // Parse coords
-  const lat = parseFloat(formData.latitude) || 14.5995; // Default to Manila
-  const lng = parseFloat(formData.longitude) || 120.9842;
+  const lat = parseFloat(formData.latitude) || 7.4478; // Default to Tagum City
+  const lng = parseFloat(formData.longitude) || 125.8078;
   const [mapCenter, setMapCenter] = useState<[number, number]>([lat, lng]);
 
   useEffect(() => {
@@ -96,8 +99,8 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
         lat: Number(formData.latitude),
         lng: Number(formData.longitude),
         location: formData.address,
-        hours: `Mon-Sun: ${formData.openingTime} - ${formData.closingTime}`,
-        openingHours: `Mon-Sun: ${formData.openingTime} - ${formData.closingTime}`,
+        hours: formatStoreHours(formData.openingTime, formData.closingTime),
+        openingHours: formatStoreHours(formData.openingTime, formData.closingTime),
       };
       await updateDoc(doc(db, "stores", store.id), nextStoreData);
       const previousImages = [store.logoUrl, store.menuUrl, ...(store.images || [])].filter(Boolean);
@@ -221,8 +224,8 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
                  <Clock className="w-4 h-4 text-gray-400" /> Opening Hours
                </label>
               <div className="grid grid-cols-2 gap-4">
-                <input aria-label="Opening time" type="time" required value={formData.openingTime} onChange={e => setFormData({...formData, openingTime: e.target.value})} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                <input aria-label="Closing time" type="time" required value={formData.closingTime} onChange={e => setFormData({...formData, closingTime: e.target.value})} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+                <TimeInput aria-label="Opening time (Philippine time)" required value={formData.openingTime} onChange={openingTime => setFormData({...formData, openingTime})} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+                <TimeInput aria-label="Closing time (Philippine time)" required value={formData.closingTime} onChange={closingTime => setFormData({...formData, closingTime})} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
               </div>
             </div>
           </div>
@@ -248,10 +251,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
             <p className="text-xs text-gray-500 mb-2">Click on the map to set your exact store location.</p>
             <div className="h-[300px] w-full rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 z-0 relative">
                <MapContainer center={mapCenter} zoom={13} scrollWheelZoom={false} style={{ height: '100%', width: '100%', zIndex: 0 }}>
-                 <TileLayer
-                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                 />
+               <MapBaseLayers />
                  <LocationPicker
                     position={[lat, lng]}
                     setPosition={([newLat, newLng]) => {

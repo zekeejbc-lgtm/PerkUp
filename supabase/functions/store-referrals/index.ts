@@ -3,6 +3,7 @@ import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 
 const REFERRAL_POINTS = 1;
 const MAX_SIGNUP_REDEMPTION_AGE_MS = 60 * 60 * 1000;
+const REFERRAL_CODE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 const requiredEnv = (name: string) => {
@@ -11,10 +12,12 @@ const requiredEnv = (name: string) => {
   return value;
 };
 
-const nowTimestamp = () => ({
-  seconds: Math.floor(Date.now() / 1000),
+const timestampFromMillis = (millis: number) => ({
+  seconds: Math.floor(millis / 1000),
   nanoseconds: 0,
 });
+
+const nowTimestamp = () => timestampFromMillis(Date.now());
 
 const timestampMillis = (value: unknown) => {
   if (!value || typeof value !== "object") return 0;
@@ -40,11 +43,37 @@ const randomSegment = (length = 4) => {
 
 const generateReferralCode = (storeName: unknown) => `${codePrefix(storeName)}${randomSegment(6)}`;
 
+const referralCodeExpiresAtMillis = (storeData: Record<string, unknown>) => {
+  const explicitExpiry = timestampMillis(storeData.referralCodeExpiresAt);
+  if (explicitExpiry) return explicitExpiry;
+  const createdAt = timestampMillis(storeData.referralCodeCreatedAt);
+  return createdAt ? createdAt + REFERRAL_CODE_TTL_MS : 0;
+};
+
+const activeReferralCode = (storeData: Record<string, unknown>) => {
+  const code = normalizeCode(storeData.referralCode);
+  const expiresAtMillis = referralCodeExpiresAtMillis(storeData);
+  if (!code || !expiresAtMillis || expiresAtMillis <= Date.now()) return null;
+  return { code, expiresAtMillis };
+};
+
 const countStorePromotions = async (admin: ReturnType<typeof createClient>, storeId: string) => {
   const { count, error } = await admin
     .from("promotions")
     .select("id", { count: "exact", head: true })
     .eq("data->>storeId", storeId);
+  if (error) throw error;
+  return Number(count || 0);
+};
+
+const countStoreReferralRedemptions = async (
+  admin: ReturnType<typeof createClient>,
+  storeId: string,
+) => {
+  const { count, error } = await admin
+    .from("store_referral_redemptions")
+    .select("id", { count: "exact", head: true })
+    .eq("store_id", storeId);
   if (error) throw error;
   return Number(count || 0);
 };
@@ -63,18 +92,21 @@ const getOrCreateReferralCode = async (
   admin: ReturnType<typeof createClient>,
   storeRow: { id: string; data: Record<string, unknown> },
 ) => {
-  const existingCode = normalizeCode(storeRow.data.referralCode);
-  if (existingCode) return existingCode;
+  const existing = activeReferralCode(storeRow.data);
+  if (existing) return existing;
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const candidate = generateReferralCode(storeRow.data.name);
     const existingStore = await findStoreByReferralCode(admin, candidate);
     if (existingStore) continue;
 
+    const createdAtMillis = Date.now();
+    const expiresAtMillis = createdAtMillis + REFERRAL_CODE_TTL_MS;
     const nextData = {
       ...storeRow.data,
       referralCode: candidate,
-      referralCodeCreatedAt: nowTimestamp(),
+      referralCodeCreatedAt: timestampFromMillis(createdAtMillis),
+      referralCodeExpiresAt: timestampFromMillis(expiresAtMillis),
       updatedAt: nowTimestamp(),
     };
     const { error } = await admin
@@ -82,7 +114,7 @@ const getOrCreateReferralCode = async (
       .update({ data: nextData })
       .eq("id", storeRow.id);
     if (error) throw error;
-    return candidate;
+    return { code: candidate, expiresAtMillis };
   }
 
   throw new Error("Could not generate a unique referral code.");
@@ -115,6 +147,10 @@ Deno.serve(async (req) => {
       if (!referralCode) return jsonResponse({ error: "Referral code is required." }, 400);
       const store = await findStoreByReferralCode(admin, referralCode);
       if (!store) return jsonResponse({ error: "Referral code was not found." }, 404);
+      const activeCode = activeReferralCode(store.data);
+      if (!activeCode || activeCode.code !== referralCode) {
+        return jsonResponse({ error: "This referral code has expired." }, 410);
+      }
       if (store.data.status && store.data.status !== "active") {
         return jsonResponse({ error: "This store referral code is not active." }, 409);
       }
@@ -127,13 +163,14 @@ Deno.serve(async (req) => {
         storeId: store.id,
         storeName: String(store.data.name || "Store"),
         promotionCount,
+        expiresAt: new Date(activeCode.expiresAtMillis).toISOString(),
       });
     }
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) return jsonResponse({ error: "Authentication required." }, 401);
 
-    if (action === "get-code") {
+    if (action === "get-code" || action === "stats") {
       if (!storeId) return jsonResponse({ error: "Store is required." }, 400);
 
       const { data: ownerRow, error: ownerError } = await admin
@@ -158,13 +195,23 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Store is not available for this owner." }, 403);
       }
 
+      const referralCount = await countStoreReferralRedemptions(admin, storeId);
+      if (action === "stats") {
+        return jsonResponse({ referralCount });
+      }
+
       const promotionCount = await countStorePromotions(admin, storeId);
       if (promotionCount < 1) {
         return jsonResponse({ error: "Create at least one promotion before getting a referral code." }, 409);
       }
 
-      const code = await getOrCreateReferralCode(admin, store);
-      return jsonResponse({ referralCode: code, promotionCount });
+      const referral = await getOrCreateReferralCode(admin, store);
+      return jsonResponse({
+        referralCode: referral.code,
+        promotionCount,
+        referralCount,
+        expiresAt: new Date(referral.expiresAtMillis).toISOString(),
+      });
     }
 
     if (action === "redeem") {
@@ -197,6 +244,10 @@ Deno.serve(async (req) => {
 
       const store = await findStoreByReferralCode(admin, referralCode);
       if (!store) return jsonResponse({ error: "Referral code was not found." }, 404);
+      const activeCode = activeReferralCode(store.data);
+      if (!activeCode || activeCode.code !== referralCode) {
+        return jsonResponse({ error: "This referral code has expired." }, 410);
+      }
       if (store.data.status && store.data.status !== "active") {
         return jsonResponse({ error: "This store referral code is not active." }, 409);
       }
@@ -280,6 +331,7 @@ Deno.serve(async (req) => {
         points: REFERRAL_POINTS,
         existingStars,
         newStars: existingStars + REFERRAL_POINTS,
+        expiresAt: new Date(activeCode.expiresAtMillis).toISOString(),
       });
     }
 

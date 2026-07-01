@@ -4,30 +4,47 @@
   <meta charset="UTF-8">
   <style>
     body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
-    body { margin: 0; padding: 0; background-color: #f5f7f8; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; }
+    body { margin: 0; padding: 0; background-color: #f3f4f6; font-family: Inter, 'Segoe UI', Helvetica, Arial, sans-serif; }
 
-    .email-wrapper { width: 100%; background-color: #f5f7f8; padding: 30px 0; }
-    .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+    .email-wrapper { width: 100%; background-color: #f3f4f6; padding: 36px 12px; }
+    .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 24px; overflow: hidden; box-shadow: 0 12px 32px rgba(17,24,39,0.07); }
 
-    .header { padding: 30px 20px; text-align: center; border-bottom: 3px solid #DE922A; }
-    .header img { max-width: 120px; height: auto; }
+    .header { padding: 32px 32px 24px; text-align: left; border-bottom: 1px solid #eeeeee; }
+    .header img { display: block; width: 92px; max-width: 92px; height: auto; }
 
-    .content { padding: 40px 30px; color: #333333; line-height: 1.6; font-size: 16px; }
-    .content h2 { color: #1F4F5B; margin-top: 0; font-weight: 600; }
-    .otp-code { margin: 24px auto 8px auto; padding: 16px 20px; max-width: 260px; text-align: center; color: #1F4F5B; background-color: #f5f7f8; border: 1px solid #dbe4e7; border-radius: 6px; font-size: 30px; font-weight: 700; letter-spacing: 6px; }
-    .store-card { margin: 24px 0; padding: 22px; background-color: #f5f7f8; border: 1px solid #dbe4e7; border-radius: 8px; }
-    .store-logo { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-    .store-name { margin: 10px 0 16px; color: #1F4F5B; font-size: 20px; font-weight: 700; }
-    .store-detail { padding: 7px 0; border-top: 1px solid #dbe4e7; font-size: 14px; }
-    .store-label { color: #698f98; font-weight: 600; }
-    .action-button { display: inline-block; padding: 12px 28px; background-color: #DE922A; color: #ffffff; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 20px; }
+    .content { padding: 36px 32px 40px; color: #4b5563; line-height: 1.65; font-size: 16px; }
+    .content h2 { color: #111111; margin: 0 0 16px; font-size: 26px; line-height: 1.25; font-weight: 700; letter-spacing: -0.02em; }
+    .otp-code { margin: 26px auto 10px; padding: 18px 20px; max-width: 280px; text-align: center; color: #111111; background-color: #f7f7f7; border: 1px solid #e5e7eb; border-radius: 16px; font-size: 30px; font-weight: 700; letter-spacing: 7px; }
+    .store-card { margin: 26px 0; padding: 24px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 18px; }
+    .store-logo { width: 72px; height: 72px; border-radius: 16px; object-fit: cover; border: 1px solid #e5e7eb; box-shadow: 0 4px 12px rgba(17,24,39,0.08); }
+    .store-name { margin: 12px 0 18px; color: #111111; font-size: 20px; font-weight: 700; }
+    .store-detail { padding: 9px 0; border-top: 1px solid #e5e7eb; font-size: 14px; }
+    .store-label { color: #6b7280; font-weight: 600; }
+    .action-button { display: inline-block; padding: 13px 28px; background-color: #1b1b1b; color: #ffffff !important; text-decoration: none; border-radius: 12px; font-weight: 700; margin-top: 22px; }
 
-    .footer { background-color: #1F4F5B; color: #ffffff; padding: 30px 30px 20px 30px; text-align: center; font-size: 14px; }
-    .footer-system-name { font-size: 18px; font-weight: bold; margin-bottom: 15px; letter-spacing: 1px; }
-    .footer-links { margin-bottom: 20px; }
-    .footer-links a { color: #DE922A; text-decoration: none; margin: 0 10px; font-weight: 600; }
-    .disclaimer { font-size: 12px; color: #a1b8bd; line-height: 1.5; margin-bottom: 15px; border-top: 1px solid #2a6372; padding-top: 15px; }
-    .ref-id { font-size: 10px; color: #698f98; }
+    .footer { background-color: #111111; color: #ffffff; padding: 32px; font-size: 13px; }
+    .footer-system-name { font-size: 20px; font-weight: 700; margin-bottom: 10px; letter-spacing: -0.02em; }
+    .footer-description { max-width: 440px; margin: 0 0 20px; color: #9ca3af; line-height: 1.6; }
+    .footer-contact { margin-bottom: 24px; color: #d1d5db; line-height: 1.8; }
+    .footer-contact a { color: #d1d5db; text-decoration: none; }
+    .footer-nav { width: 100%; border-top: 1px solid #333333; border-bottom: 1px solid #333333; margin-bottom: 20px; padding: 20px 0; }
+    .footer-column { width: 50%; vertical-align: top; }
+    .footer-column-title { margin-bottom: 8px; color: #ffffff; font-size: 13px; font-weight: 700; }
+    .footer-link { display: block; padding: 4px 0; color: #9ca3af !important; text-decoration: none; }
+    .footer-link:hover { color: #ffffff !important; text-decoration: underline; }
+    .footer-meta { text-align: center; }
+    .copyright { margin-bottom: 12px; color: #9ca3af; font-size: 11px; }
+    .disclaimer { font-size: 11px; color: #9ca3af; line-height: 1.5; margin-bottom: 12px; }
+    .ref-id { font-size: 10px; color: #6b7280; }
+
+    @media only screen and (max-width: 620px) {
+      .email-wrapper { padding: 16px 8px !important; }
+      .email-container { border-radius: 18px !important; }
+      .header { padding: 26px 22px 20px !important; }
+      .content { padding: 30px 22px 34px !important; }
+      .content h2 { font-size: 23px !important; }
+      .footer { padding: 28px 22px 22px !important; }
+    }
   </style>
 </head>
 <body>
@@ -82,19 +99,41 @@
 
       <div class="footer">
         <div class="footer-system-name"><?= systemName ?></div>
+        <p class="footer-description">
+          The modern digital loyalty program for independent businesses. Reward your best customers without the paper cards.
+        </p>
 
-        <div class="footer-links">
-          <a href="<?= websiteLink ?>">Website</a> |
-          <a href="<?= facebookLink ?>">Facebook</a>
+        <div class="footer-contact">
+          <div>Email: <a href="mailto:<?= contactEmail ?>"><?= contactEmail ?></a></div>
+          <div>Phone: <a href="tel:<?= contactPhoneLink ?>"><?= contactPhone ?></a></div>
+          <div>Location: <?= contactAddress ?></div>
         </div>
 
-        <div class="disclaimer">
-          This is an automated message generated by our system.<br>
-          If you did not request this email or believe you received it by mistake, please safely ignore it.
-        </div>
+        <table class="footer-nav" role="presentation" cellpadding="0" cellspacing="0">
+          <tr>
+            <td class="footer-column">
+              <div class="footer-column-title">Product</div>
+              <a class="footer-link" href="<?= websiteLink ?>/product">The Product</a>
+              <a class="footer-link" href="<?= websiteLink ?>/customers">For Customers</a>
+              <a class="footer-link" href="<?= websiteLink ?>/businesses">For Businesses</a>
+              <a class="footer-link" href="<?= websiteLink ?>/pricing">Pricing</a>
+            </td>
+            <td class="footer-column">
+              <div class="footer-column-title">Company</div>
+              <a class="footer-link" href="<?= websiteLink ?>/privacy">Privacy Policy</a>
+              <a class="footer-link" href="<?= websiteLink ?>/data-deletion">Data Deletion</a>
+              <a class="footer-link" href="<?= websiteLink ?>/terms">Terms of Service</a>
+              <a class="footer-link" href="<?= websiteLink ?>/feedback">Feedback</a>
+            </td>
+          </tr>
+        </table>
 
-        <div class="ref-id">
-          Ref ID: <?= referenceId ?>
+        <div class="footer-meta">
+          <div class="copyright">&copy; <?= currentYear ?> PerkUp. All rights reserved.</div>
+          <div class="disclaimer">
+            This is an automated system message. If you did not request it, you can safely ignore it.
+          </div>
+          <div class="ref-id">Ref ID: <?= referenceId ?></div>
         </div>
       </div>
     </div>

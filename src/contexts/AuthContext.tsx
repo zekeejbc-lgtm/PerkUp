@@ -8,7 +8,6 @@ import {
   db,
   handleDataError,
   OperationType,
-  testConnection,
 } from "../lib/backend";
 import { signOut } from "@/src/lib/supabaseAuthCompat";
 import type { TrustedLoginDevice } from "@/src/lib/trustedDevice";
@@ -29,6 +28,7 @@ export interface AppUser {
   photoURL?: string;
   address?: string;
   storeId?: string;
+  branchLimit?: number;
   skipMfaOnTrustedDevice?: boolean;
   trustedLoginDevices?: TrustedLoginDevice[];
   forcePasswordReset?: boolean;
@@ -134,8 +134,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    testConnection();
-
     const unsubscribe = auth.onAuthStateChanged(async (sessionUser) => {
       setAuthUser(sessionUser);
       if (sessionUser) {

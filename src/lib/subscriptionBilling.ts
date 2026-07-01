@@ -138,7 +138,7 @@ export function dateInputToDate(value?: string) {
 
 export function formatBillingDate(value: any) {
   const date = toDate(value);
-  return date ? date.toLocaleDateString() : "N/A";
+  return date ? date.toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }) : "N/A";
 }
 
 function toDate(value: any) {
