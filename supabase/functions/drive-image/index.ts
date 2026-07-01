@@ -68,10 +68,11 @@ const extractDriveFileId = (value: unknown) => {
   return /^[a-zA-Z0-9_-]+$/.test(url) ? url : "";
 };
 
-const normalizeDriveImageUrl = (url: string) => {
-  const fileId = extractDriveFileId(url);
-  return fileId ? `https://drive.google.com/uc?export=view&id=${fileId}` : url;
-};
+export function normalizeDriveImageUrl(url: string): string {
+  const trimmedUrl = String(url || "").trim();
+  const fileId = extractDriveFileId(trimmedUrl);
+  return fileId ? `https://lh3.googleusercontent.com/d/$$${fileId}=w4000` : trimmedUrl;
+}
 
 const buildUploadFileName = (body: Record<string, unknown>, userId: string) => {
   const originalName = cleanText(body.fileName, 120);

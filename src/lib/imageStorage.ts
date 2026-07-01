@@ -40,8 +40,7 @@ export function extractDriveFileId(url: string): string | null {
 export function normalizeDriveImageUrl(url: string): string {
   const trimmedUrl = String(url || "").trim();
   const fileId = extractDriveFileId(trimmedUrl);
-
-  return fileId ? `https://drive.google.com/uc?export=view&id=${fileId}` : trimmedUrl;
+  return fileId ? `https://lh3.googleusercontent.com/d/$$${fileId}=w4000` : trimmedUrl;
 }
 
 export function getDisplayImageUrl(url: string): string {
