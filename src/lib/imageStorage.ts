@@ -4,6 +4,7 @@ const GOOGLE_DRIVE_FILE_ID_PATTERNS = [
   /\/file\/d\/([a-zA-Z0-9_-]+)/,
   /[?&]id=([a-zA-Z0-9_-]+)/,
   /[?&]fileId=([a-zA-Z0-9_-]+)/,
+  /\/d\/(?:\$\$)?([a-zA-Z0-9_-]+)/,
   /\/d\/([a-zA-Z0-9_-]+)/,
 ];
 
@@ -40,7 +41,7 @@ export function extractDriveFileId(url: string): string | null {
 export function normalizeDriveImageUrl(url: string): string {
   const trimmedUrl = String(url || "").trim();
   const fileId = extractDriveFileId(trimmedUrl);
-  return fileId ? `https://lh3.googleusercontent.com/d/$$${fileId}=w4000` : trimmedUrl;
+  return fileId ? `https://lh3.googleusercontent.com/d/${fileId}=w4000` : trimmedUrl;
 }
 
 export function getDisplayImageUrl(url: string): string {

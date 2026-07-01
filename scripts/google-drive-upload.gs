@@ -79,6 +79,10 @@ function doPost(e) {
       return createJsonResponse(uploadImage(data));
     }
 
+    if (action === "authorize" || action === "force_authorize" || action === "forceauthorize") {
+      return createJsonResponse(forceAuthorize());
+    }
+
     requireCrudSecret(data.secret);
 
     if (action === "delete") return createJsonResponse(deleteImage(data));
@@ -109,6 +113,10 @@ function doGet(e) {
     }));
   }
 
+  if (action === "authorize" || action === "force_authorize" || action === "forceauthorize") {
+    return createJsonResponse(forceAuthorize());
+  }
+
   try {
     if (action === "get" || action === "read") {
       requireCrudSecret(e && e.parameter ? e.parameter.secret : "");
@@ -137,8 +145,38 @@ function doGet(e) {
 function setupPermissions() {
   // Calling MailApp from the editor forces Google to request the send-mail
   // permission before an anonymous web-app request needs it.
+  return forceAuthorize();
+}
+
+function forceAuthorize() {
+  var touched = {
+    drive: false,
+    externalRequest: false,
+    mail: false,
+    storage: false
+  };
+
+  DriveApp.getRootFolder();
+  touched.drive = true;
+
+  UrlFetchApp.fetch("https://www.googleapis.com", {
+    method: "get",
+    muteHttpExceptions: true
+  });
+  touched.externalRequest = true;
+
   MailApp.getRemainingDailyQuota();
-  return checkConfiguration({ writeTest: true });
+  touched.mail = true;
+
+  PropertiesService.getScriptProperties().getProperties();
+  touched.storage = true;
+
+  return {
+    success: true,
+    action: "force_authorize",
+    touchedScopes: touched,
+    diagnostics: checkConfiguration({ writeTest: true })
+  };
 }
 
 function uploadImage(data) {
@@ -339,11 +377,32 @@ function isFileInUploadFolder(file) {
 }
 
 function makeFilePublic(file) {
+  var fileId = file.getId();
   try {
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     return "";
   } catch (sharingError) {
-    return sharingError.toString();
+    try {
+      var response = UrlFetchApp.fetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId) + "/permissions?supportsAllDrives=true", {
+        method: "post",
+        contentType: "application/json",
+        headers: {
+          Authorization: "Bearer " + ScriptApp.getOAuthToken()
+        },
+        payload: JSON.stringify({
+          role: "reader",
+          type: "anyone"
+        }),
+        muteHttpExceptions: true
+      });
+
+      var status = response.getResponseCode();
+      if (status >= 200 && status < 300) return "";
+
+      return sharingError.toString() + " | Drive API fallback failed (HTTP " + status + "): " + response.getContentText();
+    } catch (fallbackError) {
+      return sharingError.toString() + " | Drive API fallback failed: " + fallbackError.toString();
+    }
   }
 }
 
@@ -459,8 +518,11 @@ function checkConfiguration(options) {
 
     if (testFile) {
       try {
-        testFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-        summary.checks.publicSharingAllowed = true;
+        var publicSharingError = makeFilePublic(testFile);
+        summary.checks.publicSharingAllowed = !publicSharingError;
+        if (publicSharingError) {
+          summary.warnings.push("Public link sharing is blocked or not allowed: " + publicSharingError);
+        }
       } catch (error) {
         summary.warnings.push("Public link sharing is blocked or not allowed: " + error.toString());
       }

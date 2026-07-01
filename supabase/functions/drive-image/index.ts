@@ -16,6 +16,7 @@ const DRIVE_FILE_ID_PATTERNS = [
   /\/file\/d\/([a-zA-Z0-9_-]+)/,
   /[?&]id=([a-zA-Z0-9_-]+)/,
   /[?&]fileId=([a-zA-Z0-9_-]+)/,
+  /\/d\/(?:\$\$)?([a-zA-Z0-9_-]+)/,
   /\/d\/([a-zA-Z0-9_-]+)/,
 ];
 
@@ -71,7 +72,7 @@ const extractDriveFileId = (value: unknown) => {
 // Fixing the URL format here to the standard Google Drive direct-view embed format
 const normalizeDriveImageUrl = (url: string) => {
   const fileId = extractDriveFileId(url);
-  return fileId ? `https://drive.google.com/uc?export=view&id=${fileId}` : url;
+  return fileId ? `https://lh3.googleusercontent.com/d/${fileId}=w4000` : url;
 };
 
 const buildUploadFileName = (body: Record<string, unknown>, userId: string) => {
