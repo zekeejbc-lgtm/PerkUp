@@ -21,6 +21,19 @@ export type RedeemedCustomerScan = {
     cards?: CustomerScanCard[];
   };
   points: number;
+  ticket?: ScanTicket;
+};
+
+export type ScanTicket = {
+  id: string;
+  ticketNumber: string;
+  status: "issued";
+  storeId: string;
+  storeName: string;
+  promotionId: string | null;
+  promotionTitle: string | null;
+  points: number;
+  issuedAt: string;
 };
 
 export type CustomerScanCard = {
@@ -84,6 +97,9 @@ const getFunctionErrorMessage = async (error: unknown, fallback: string) => {
 export const isSecureCustomerQr = (value: string) =>
   value.trim().startsWith(SECURE_CUSTOMER_QR_PREFIX) ||
   value.trim().startsWith(LEGACY_CUSTOMER_QR_PREFIX);
+
+export const normalizeCustomerUsername = (value: string) =>
+  value.trim().replace(/^@+/, "").toLowerCase();
 
 export async function issueCustomerQr(input?: { rotate?: boolean }): Promise<IssuedCustomerQr> {
   const { data, error } = await supabase.functions.invoke<IssuedCustomerQr>("issue-customer-qr", {

@@ -40,6 +40,15 @@ async function postGasEmailAction<T>(body: Record<string, unknown>): Promise<T> 
 
   const data = (await response.json()) as GasResponse<T>;
   if (!data.success || !data.otp) {
+    if (
+      data.error?.includes("Specified permissions are not sufficient") ||
+      data.error?.includes("gmail.send")
+    ) {
+      throw new Error(
+        "Email verification is temporarily unavailable. An administrator must run setupPermissions() in Apps Script, approve email access, and redeploy the web app.",
+      );
+    }
+
     if (data.error?.includes("Unauthorized Drive CRUD action")) {
       throw new Error("The deployed GAS web app is not updated with the email OTP routes. Redeploy the same Apps Script project, then try again.");
     }

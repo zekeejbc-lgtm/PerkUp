@@ -135,6 +135,9 @@ function doGet(e) {
 }
 
 function setupPermissions() {
+  // Calling MailApp from the editor forces Google to request the send-mail
+  // permission before an anonymous web-app request needs it.
+  MailApp.getRemainingDailyQuota();
   return checkConfiguration({ writeTest: true });
 }
 
@@ -367,7 +370,7 @@ function fileToJson(file) {
     dateCreated: file.getDateCreated().toISOString(),
     lastUpdated: file.getLastUpdated().toISOString(),
     trashed: file.isTrashed(),
-    url: "https://lh3.googleusercontent.com/d/" + fileId + "=w4000",
+    url: "https://drive.usercontent.google.com/download?id=" + encodeURIComponent(fileId) + "&export=view",
     webViewLink: "https://drive.google.com/file/d/" + fileId + "/view?usp=sharing"
   };
 }
@@ -387,6 +390,7 @@ function checkConfiguration(options) {
       folderWritable: false,
       publicSharingAllowed: false,
       crudSecretConfigured: false,
+      emailSendingAuthorized: false,
       cleanupSucceeded: null
     },
     details: {
@@ -423,6 +427,13 @@ function checkConfiguration(options) {
     summary.checks.crudSecretConfigured = Boolean(PropertiesService.getScriptProperties().getProperty(DRIVE_CRUD_SECRET_PROPERTY));
   } catch (error) {
     summary.warnings.push("Could not read Script Properties: " + error.toString());
+  }
+
+  try {
+    summary.details.remainingEmailRecipientQuota = MailApp.getRemainingDailyQuota();
+    summary.checks.emailSendingAuthorized = true;
+  } catch (error) {
+    summary.errors.push("Email sending is not authorized: " + error.toString());
   }
 
   var folder = null;
@@ -467,6 +478,7 @@ function checkConfiguration(options) {
   }
 
   if (!summary.checks.driveAppAccessible) summary.nextSteps.push("Add the Drive OAuth scope in appsscript.json and reauthorize the deployment.");
+  if (!summary.checks.emailSendingAuthorized) summary.nextSteps.push("Run setupPermissions() from the Apps Script editor and approve the email sending permission, then redeploy the web app.");
   if (!summary.checks.folderReadable) summary.nextSteps.push("Verify UPLOAD_FOLDER_ID and make sure the deploying account can access the folder.");
   if (options.writeTest && !summary.checks.folderWritable) summary.nextSteps.push("Make sure the deploying account has Editor access to the upload folder.");
   if (options.writeTest && summary.checks.folderWritable && !summary.checks.publicSharingAllowed) {
@@ -476,6 +488,7 @@ function checkConfiguration(options) {
 
   summary.success =
     summary.checks.driveAppAccessible &&
+    summary.checks.emailSendingAuthorized &&
     summary.checks.folderReadable &&
     (!options.writeTest || summary.checks.folderWritable);
 

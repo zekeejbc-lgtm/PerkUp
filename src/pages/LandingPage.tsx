@@ -1,6 +1,6 @@
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { AUTH_REDIRECT_MESSAGE_KEY, db } from "../lib/backend";
+import { AUTH_REDIRECT_MESSAGE_KEY, GOOGLE_SIGNUP_PENDING_KEY, db } from "../lib/backend";
 import { QrCode, Star, Coffee, ArrowRight, MapPin, Pizza, Scissors, BookOpen, Shirt, Dumbbell, Glasses, Anchor, Search, Store as StoreIcon, Mail, Phone, Clock3, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
@@ -106,8 +106,10 @@ export default function LandingPage() {
 
   useEffect(() => {
     const redirectMessage = window.sessionStorage.getItem(AUTH_REDIRECT_MESSAGE_KEY);
-    if (!loading && !user && (redirectMessage || navigationState?.authRequired)) {
-      setAuthMode("signin");
+    const pendingSignup = window.sessionStorage.getItem(GOOGLE_SIGNUP_PENDING_KEY);
+    const pendingGoogleSignup = pendingSignup?.includes('"provider":"google"');
+    if (!loading && !user && (redirectMessage || pendingGoogleSignup || navigationState?.authRequired)) {
+      setAuthMode(pendingGoogleSignup ? "signup" : "signin");
       setShowAuthModal(true);
     }
   }, [loading, navigationState?.authRequired, user]);
@@ -298,7 +300,7 @@ export default function LandingPage() {
 
         {/* Logo Marquee Section */}
         <section className="py-12 sm:py-20 border-t border-[#1b1b1b]/10 dark:border-white/10 bg-white dark:bg-[#1b1b1b] overflow-hidden relative flex flex-col items-center transition-colors">
-          <p className="text-center text-xs sm:text-sm font-bold text-gray-400 dark:text-gray-500 mb-8 sm:mb-12 uppercase tracking-widest px-6">
+          <p className="text-center text-xs sm:text-sm font-bold text-gray-600 dark:text-gray-300 mb-8 sm:mb-12 uppercase tracking-widest px-6">
             Trusted by local businesses
           </p>
 
@@ -315,8 +317,8 @@ export default function LandingPage() {
               {displayedTrustedBusinesses.map((business: any, idx: number) => {
                 const FallbackIcon = business.icon || StoreIcon;
                 return (
-                  <div key={`${business.id || business.name}-${idx}`} className="flex flex-col items-center justify-center w-64 shrink-0 gap-4 opacity-60 hover:opacity-100 transition-opacity duration-300">
-                    <div className="w-16 h-16 bg-gray-50 dark:bg-gray-900 rounded-3xl flex items-center justify-center text-gray-400 dark:text-gray-500 border border-gray-100 dark:border-gray-800 shadow-sm transition-all hover:scale-105 hover:-rotate-3 duration-300 overflow-hidden">
+                  <div key={`${business.id || business.name}-${idx}`} className="flex w-64 shrink-0 flex-col items-center justify-center gap-4 opacity-90 transition-opacity duration-300 hover:opacity-100">
+                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-3xl border border-gray-200 bg-gray-100 text-gray-600 shadow-sm transition-all duration-300 hover:-rotate-3 hover:scale-105 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
                       {business.logoUrl ? (
                         <img
                           src={getDisplayImageUrl(business.logoUrl)}
@@ -328,7 +330,7 @@ export default function LandingPage() {
                         <FallbackIcon className="w-8 h-8" />
                       )}
                     </div>
-                    <span className="font-semibold text-gray-400 dark:text-gray-500 tracking-tight">{business.name}</span>
+                    <span className="font-semibold tracking-tight text-gray-600 dark:text-gray-300">{business.name}</span>
                   </div>
                 );
               })}

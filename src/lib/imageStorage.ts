@@ -41,10 +41,12 @@ export function normalizeDriveImageUrl(url: string): string {
   const trimmedUrl = String(url || "").trim();
   const fileId = extractDriveFileId(trimmedUrl);
 
-  // Use Drive's public image host directly. The drive.google.com/thumbnail
-  // endpoint redirects through a Google session-aware URL, which can render as
-  // a broken image depending on the visitor's Google cookies.
-  return fileId ? `https://lh3.googleusercontent.com/d/${fileId}=w4000` : trimmedUrl;
+  // The lh3 /d/ endpoint is not a stable embedding endpoint and can render as a
+  // broken image in Chrome depending on the visitor's Google session. Drive's
+  // user-content endpoint serves the public file directly without that redirect.
+  return fileId
+    ? `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=view`
+    : trimmedUrl;
 }
 
 export function getDisplayImageUrl(url: string): string {

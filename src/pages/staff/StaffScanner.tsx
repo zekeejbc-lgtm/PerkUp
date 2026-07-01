@@ -4,21 +4,24 @@ import { collection, getDocs, query, where } from "@/src/lib/dataCompat";
 import { db } from "@/src/lib/backend";
 import {
   AlertTriangle,
+  Activity,
   Camera,
   CameraOff,
   CheckCircle2,
   Gift,
   Loader2,
   MapPin,
+  Navigation,
   Minus,
   Plus,
   QrCode,
   Search,
   Star,
   Trash2,
+  RotateCcw,
   UserCircle,
 } from "lucide-react";
-import { CustomerScanCard, isSecureCustomerQr, redeemCustomerScan } from "@/src/lib/secureQr";
+import { CustomerScanCard, isSecureCustomerQr, normalizeCustomerUsername, redeemCustomerScan } from "@/src/lib/secureQr";
 import { getDisplayImageUrl } from "@/src/lib/imageStorage";
 import { CustomDropdown } from "@/src/components/CustomDropdown";
 
@@ -83,7 +86,7 @@ const distanceInMeters = (from: { lat: number; lng: number }, to: { lat: number;
   return earthRadiusMeters * c;
 };
 
-const getScannerGeofence = (promotion: Promotion | null, store: any) => {
+const getScannerGeofence = (promotion: Promotion | null) => {
   const promoLat = Number(promotion?.geofenceLat);
   const promoLng = Number(promotion?.geofenceLng);
   if (promotion?.geofenceEnabled && Number.isFinite(promoLat) && Number.isFinite(promoLng)) {
@@ -92,17 +95,6 @@ const getScannerGeofence = (promotion: Promotion | null, store: any) => {
       lng: promoLng,
       radiusMeters: Math.max(Number(promotion.geofenceRadiusMeters || 500), 25),
       label: "promotion",
-    };
-  }
-
-  const storeLat = Number(store?.lat);
-  const storeLng = Number(store?.lng);
-  if (Number.isFinite(storeLat) && Number.isFinite(storeLng)) {
-    return {
-      lat: storeLat,
-      lng: storeLng,
-      radiusMeters: 500,
-      label: "store",
     };
   }
 
@@ -134,6 +126,8 @@ export default function StaffScanner({ store }: { store: any }) {
   const [scannerLocation, setScannerLocation] = useState<ScannerLocation | null>(null);
   const [isWithinGeofence, setIsWithinGeofence] = useState(true);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [locationUpdatedAt, setLocationUpdatedAt] = useState<Date | null>(null);
+  const [locationPing, setLocationPing] = useState(0);
   const [isScannerActive, setIsScannerActive] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [pointsToAdd, setPointsToAdd] = useState(1);
@@ -149,7 +143,10 @@ export default function StaffScanner({ store }: { store: any }) {
   const duplicateScanRef = useRef<{ token: string; scannedAt: number; alertedAt: number } | null>(null);
 
   const selectedPromotion = promotions.find((promotion) => promotion.id === selectedPromotionId) || null;
-  const activeGeofence = getScannerGeofence(selectedPromotion, store);
+  const activeGeofence = getScannerGeofence(selectedPromotion);
+  const distanceFromGeofence = scannerLocation && activeGeofence
+    ? distanceInMeters(scannerLocation, activeGeofence)
+    : null;
 
   useEffect(() => {
     if (!store?.id) return;
@@ -188,14 +185,6 @@ export default function StaffScanner({ store }: { store: any }) {
   }, [selectedPromotionId]);
 
   useEffect(() => {
-    const geofence = getScannerGeofence(selectedPromotion, store);
-    if (!geofence) {
-      setScannerLocation(null);
-      setIsWithinGeofence(true);
-      setLocationError(null);
-      return;
-    }
-
     if (!navigator.geolocation) {
       setScannerLocation(null);
       setIsWithinGeofence(false);
@@ -203,30 +192,58 @@ export default function StaffScanner({ store }: { store: any }) {
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const location = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-        };
-        const distance = distanceInMeters(location, geofence);
-        setScannerLocation(location);
-        if (distance <= geofence.radiusMeters) {
-          setIsWithinGeofence(true);
-          setLocationError(null);
-        } else {
-          setIsWithinGeofence(false);
-          setLocationError(`You are too far from the ${geofence.label} geofence. Distance: ${Math.round(distance)}m (Max: ${geofence.radiusMeters}m).`);
-        }
-      },
-      () => {
-        setScannerLocation(null);
+    const geofence = getScannerGeofence(selectedPromotion);
+    const updateLocation = (position: GeolocationPosition) => {
+      const location = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+      };
+      setScannerLocation(location);
+      setLocationUpdatedAt(new Date(position.timestamp));
+      if (!geofence) {
+        setIsWithinGeofence(true);
+        setLocationError(null);
+        return;
+      }
+      const distance = distanceInMeters(location, geofence);
+      if (distance <= geofence.radiusMeters) {
+        setIsWithinGeofence(true);
+        setLocationError(null);
+      } else {
         setIsWithinGeofence(false);
-        setLocationError("Unable to retrieve your location for security check.");
-      },
+        setLocationError(`You are too far from the ${geofence.label} geofence. Distance: ${Math.round(distance)}m (Max: ${geofence.radiusMeters}m).`);
+      }
+    };
+    const handleLocationError = (error: GeolocationPositionError) => {
+      setIsWithinGeofence(!geofence);
+      setLocationError(
+        error.code === error.PERMISSION_DENIED
+          ? "Location permission is blocked. Allow location access in the browser, then press Reset."
+          : "Unable to retrieve your live location. Press Ping to try again.",
+      );
+    };
+    const options: PositionOptions = {
+      enableHighAccuracy: true,
+      maximumAge: 5000,
+      timeout: 15000,
+    };
+    const watchId = navigator.geolocation.watchPosition(updateLocation, handleLocationError, options);
+    navigator.geolocation.getCurrentPosition(
+      updateLocation,
+      handleLocationError,
+      options,
     );
-  }, [store, selectedPromotionId]);
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [selectedPromotionId, locationPing]);
+
+  const resetLocation = () => {
+    setScannerLocation(null);
+    setLocationUpdatedAt(null);
+    setLocationError(null);
+    setIsWithinGeofence(true);
+    setLocationPing((value) => value + 1);
+  };
 
   const previewCustomer = async (redemptionInput: RedemptionInput) => {
     const result = await redeemCustomerScan({
@@ -304,7 +321,7 @@ export default function StaffScanner({ store }: { store: any }) {
   };
 
   const handleManualLookup = async () => {
-    const username = manualUsername.trim().toLowerCase();
+    const username = normalizeCustomerUsername(manualUsername);
     if (!username || !store?.id || !isWithinGeofence || isProcessing || isBatchMode) return;
     if (!navigator.onLine) {
       setManualError("Manual username verification requires an internet connection.");
@@ -355,7 +372,10 @@ export default function StaffScanner({ store }: { store: any }) {
         cards: updatedCards.length > 0 ? updatedCards : result.customer.cards || [],
       });
       setManualUsername("");
-      setMessage({ type: "success", text: `Credited ${pointsToAdd} point${pointsToAdd === 1 ? "" : "s"} to @${scannedCustomer.username}.` });
+      setMessage({
+        type: "success",
+        text: `Scan successful. Ticket ${result.ticket?.ticketNumber || "issued"} — credited ${pointsToAdd} point${pointsToAdd === 1 ? "" : "s"} to @${scannedCustomer.username}.`,
+      });
     } catch (error) {
       console.error(error);
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Failed to credit card." });
@@ -374,17 +394,22 @@ export default function StaffScanner({ store }: { store: any }) {
     setIsProcessing(true);
     setMessage(null);
     try {
+      const ticketNumbers: string[] = [];
       for (const item of batchQueue) {
-        await redeemCustomerScan({
+        const result = await redeemCustomerScan({
           scanToken: item.id,
           storeId: store.id,
           promotionId: selectedPromotionId || undefined,
           points: item.points,
           scannerLocation,
         });
+        if (result.ticket?.ticketNumber) ticketNumbers.push(result.ticket.ticketNumber);
       }
 
-      setMessage({ type: "success", text: `Successfully processed ${batchQueue.length} batch scans.` });
+      setMessage({
+        type: "success",
+        text: `Successfully issued ${batchQueue.length} tickets${ticketNumbers.length ? `: ${ticketNumbers.join(", ")}` : "."}`,
+      });
       setBatchQueue([]);
       setShowBatchModal(false);
     } catch (error) {
@@ -489,8 +514,39 @@ export default function StaffScanner({ store }: { store: any }) {
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {selectedPromotion
                   ? "Selected promotion dates, redemption limits, and geofence are enforced by the scan function."
-                  : "Store geofence is enforced when this shop has coordinates."}
+                  : "No geofence is enforced for a regular store visit."}
               </p>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-xs dark:border-gray-700 dark:bg-gray-800/60">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="flex items-center gap-2 font-bold text-gray-900 dark:text-white">
+                  <Activity className="h-4 w-4" />
+                  Live location diagnostics
+                </p>
+                <span className={`rounded-full px-2 py-1 font-bold ${scannerLocation ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300"}`}>
+                  {scannerLocation ? "Tracking" : "Waiting"}
+                </span>
+              </div>
+              {scannerLocation ? (
+                <div className="space-y-1 font-mono text-gray-600 dark:text-gray-300">
+                  <p>Lat: {scannerLocation.lat.toFixed(6)}</p>
+                  <p>Lng: {scannerLocation.lng.toFixed(6)}</p>
+                  <p>Accuracy: ±{Math.round(scannerLocation.accuracy || 0)}m</p>
+                  {distanceFromGeofence !== null && <p>Fence distance: {Math.round(distanceFromGeofence)}m / {activeGeofence?.radiusMeters}m</p>}
+                  <p>Updated: {locationUpdatedAt?.toLocaleTimeString() || "—"}</p>
+                </div>
+              ) : (
+                <p className="text-gray-500 dark:text-gray-400">Waiting for a GPS reading. Location tracking requires browser permission and HTTPS.</p>
+              )}
+              <div className="mt-3 flex gap-2">
+                <button type="button" onClick={() => setLocationPing((value) => value + 1)} className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-2 font-bold text-white dark:bg-white dark:text-gray-900">
+                  <Navigation className="h-3.5 w-3.5" /> Ping
+                </button>
+                <button type="button" onClick={resetLocation} className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 font-bold text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">
+                  <RotateCcw className="h-3.5 w-3.5" /> Reset
+                </button>
+              </div>
             </div>
 
             <div className="flex gap-2 rounded-xl bg-gray-100 p-1 dark:bg-gray-800">

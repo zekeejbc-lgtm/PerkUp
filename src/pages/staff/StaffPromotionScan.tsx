@@ -4,7 +4,7 @@ import { doc, getDoc, collection, query, where, getDocs } from "@/src/lib/dataCo
 import { db } from "../../lib/backend";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2, Search, Cake } from "lucide-react";
-import { isSecureCustomerQr, redeemCustomerScan } from "@/src/lib/secureQr";
+import { isSecureCustomerQr, normalizeCustomerUsername, redeemCustomerScan } from "@/src/lib/secureQr";
 import { getBirthdayStatus } from "@/src/lib/birthday";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 
@@ -361,7 +361,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
     } catch (err) {
       console.error(err);
-      alert("Failed to process scanned QR code.");
+      alert(err instanceof Error ? err.message : "Failed to process scanned QR code.");
       setIsScannerActive(true);
     } finally {
       setIsProcessing(false);
@@ -378,7 +378,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     }
 
     const safePoints = normalizePoints(points);
-    await redeemCustomerScan({
+    return redeemCustomerScan({
       ...redemptionInput,
       storeId: store.id,
       promotionId: id,
@@ -388,11 +388,11 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   };
 
   const processPointsForCustomer = async (scannedId: string, points: number) => {
-    await processPointsForCustomerInput({ scanToken: scannedId }, points);
+    return processPointsForCustomerInput({ scanToken: scannedId }, points);
   };
 
   const handleManualLookup = async () => {
-    const username = manualUsername.trim().toLowerCase();
+    const username = normalizeCustomerUsername(manualUsername);
     if (!username || !store?.id || !isWithinGeofence || isProcessing) return;
     if (!navigator.onLine) {
       setManualError("Manual username verification requires an internet connection.");
@@ -425,7 +425,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       setShowConfirmModal(true);
     } catch (error) {
       console.error(error);
-      setManualError("Customer username could not be verified.");
+      setManualError(error instanceof Error ? error.message : "Customer username could not be verified.");
     } finally {
       setIsProcessing(false);
     }
@@ -442,9 +442,9 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     setIsProcessing(true);
 
     try {
-      await processPointsForCustomerInput(scannedCustomer.redemptionInput, pointsToAdd);
+      const result = await processPointsForCustomerInput(scannedCustomer.redemptionInput, pointsToAdd);
 
-      alert(`Successfully credited ${pointsToAdd} points to @${scannedCustomer.username}.`);
+      alert(`Scan successful. Ticket ${result.ticket?.ticketNumber || "issued"} — credited ${pointsToAdd} points to @${scannedCustomer.username}.`);
       
       setShowConfirmModal(false);
       setScannedCustomer(null);
@@ -474,11 +474,13 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
     setIsProcessing(true);
     try {
+        const ticketNumbers: string[] = [];
         for (const item of batchQueue) {
-            await processPointsForCustomer(item.id, item.points);
+            const result = await processPointsForCustomer(item.id, item.points);
+            if (result.ticket?.ticketNumber) ticketNumbers.push(result.ticket.ticketNumber);
         }
         
-        alert(`Successfully processed ${batchQueue.length} scans!`);
+        alert(`Successfully issued ${batchQueue.length} tickets${ticketNumbers.length ? `: ${ticketNumbers.join(", ")}` : "."}`);
         setBatchQueue([]);
         setShowBatchModal(false);
         

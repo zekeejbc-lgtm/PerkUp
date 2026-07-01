@@ -245,7 +245,8 @@ function sendSystemEmail_(emailData) {
   var htmlBody = template.evaluate().getContent();
   var plainText = emailData.plainText || "Please use an HTML-compatible email client to view this message.";
 
-  MailApp.sendEmail(emailData.recipientEmail, emailData.subject, plainText, {
+  // UPDATED: Swapped MailApp for GmailApp to bypass external spam filters
+  GmailApp.sendEmail(emailData.recipientEmail, emailData.subject, plainText, {
     htmlBody: htmlBody,
     name: EMAIL_CONFIG.senderName
   });

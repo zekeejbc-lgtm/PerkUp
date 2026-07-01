@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "@/src/lib/dataCompat";
 import { db } from "../lib/backend";
-import { ArrowLeft, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send, Image as ImageIcon, Store as StoreIcon, Utensils } from "lucide-react";
+import { ArrowLeft, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send, Image as ImageIcon, Store as StoreIcon, Utensils, Gift, CalendarDays, X } from "lucide-react";
 import { MapContainer, Marker, Popup } from "react-leaflet";
 import * as ReactDOMServer from "react-dom/server";
 import L from "leaflet";
@@ -49,6 +49,17 @@ interface StoreProduct {
   available?: boolean;
 }
 
+interface StorePromotion {
+  id: string;
+  title?: string;
+  description?: string;
+  bannerImageUrl?: string;
+  requiredStamps?: number | string;
+  startDate?: string;
+  endDate?: string;
+  active?: boolean;
+}
+
 interface StoreReview {
   id: string;
   customerName?: string;
@@ -62,6 +73,22 @@ const reviewDate = (value?: string) => {
   if (!value) return "";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString();
+};
+
+const promotionDate = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+};
+
+const isPromotionRunning = (promotion: StorePromotion) => {
+  if (promotion.active === false) return false;
+  const now = Date.now();
+  const startsAt = promotion.startDate ? new Date(promotion.startDate).getTime() : Number.NaN;
+  const endsAt = promotion.endDate ? new Date(promotion.endDate).getTime() : Number.NaN;
+  return (!Number.isFinite(startsAt) || startsAt <= now) && (!Number.isFinite(endsAt) || endsAt > now);
 };
 
 const getCoordinates = (store: StoreContent): [number, number] | null => {
@@ -106,6 +133,8 @@ export default function StorePage() {
   const { user } = useAuth();
   const [store, setStore] = useState<StoreContent | null>(null);
   const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [promotions, setPromotions] = useState<StorePromotion[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<StoreProduct | null>(null);
   const [branches, setBranches] = useState<StoreContent[]>([]);
   const [reviews, setReviews] = useState<StoreReview[]>([]);
   const [loading, setLoading] = useState(true);
@@ -170,8 +199,9 @@ export default function StorePage() {
         const storeData = { id: docSnap.id, ...docSnap.data() } as StoreContent;
         setStore(storeData);
 
-        const [productsResult, reviewsResult, branchesResult] = await Promise.allSettled([
+        const [productsResult, promotionsResult, reviewsResult, branchesResult] = await Promise.allSettled([
           getDocs(query(collection(db, "products"), where("storeId", "==", storeId))),
+          getDocs(query(collection(db, "promotions"), where("storeId", "==", storeId))),
           fetchReviews(),
           storeData.ownerId
             ? getDocs(query(collection(db, "stores"), where("ownerId", "==", storeData.ownerId)))
@@ -186,6 +216,22 @@ export default function StorePage() {
         } else {
           console.error("Error fetching store products:", productsResult.reason);
           setProducts([]);
+        }
+
+        if (promotionsResult.status === "fulfilled") {
+          setPromotions(
+            promotionsResult.value.docs
+              .map((promotionDoc) => ({ id: promotionDoc.id, ...promotionDoc.data() } as StorePromotion))
+              .filter(isPromotionRunning)
+              .sort((a, b) => {
+                const aEnd = a.endDate ? new Date(a.endDate).getTime() : Number.POSITIVE_INFINITY;
+                const bEnd = b.endDate ? new Date(b.endDate).getTime() : Number.POSITIVE_INFINITY;
+                return aEnd - bEnd;
+              }),
+          );
+        } else {
+          console.error("Error fetching store promotions:", promotionsResult.reason);
+          setPromotions([]);
         }
 
         if (reviewsResult.status === "rejected") {
@@ -212,6 +258,7 @@ export default function StorePage() {
         console.error("Error fetching store:", error);
         setStore(null);
         setProducts([]);
+        setPromotions([]);
         setBranches([]);
       } finally {
         setLoading(false);
@@ -219,6 +266,21 @@ export default function StorePage() {
     }
     fetchStore();
   }, [fetchReviews, storeId]);
+
+  useEffect(() => {
+    if (!selectedProduct) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedProduct(null);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedProduct]);
 
   const handleFeedbackSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -337,10 +399,16 @@ export default function StorePage() {
                 <Star className="h-10 w-10 text-gray-300 dark:text-gray-700" />
               )}
             </div>
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900 transition-colors dark:text-white sm:text-5xl">{store.name}</h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-gray-500 transition-colors dark:text-gray-400 sm:text-lg">
-              {store.description || "A participating partner in our digital rewards program."}
-            </p>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">Shop name</p>
+              <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-900 transition-colors dark:text-white sm:text-5xl">{store.name}</h1>
+            </div>
+            <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">Description</p>
+              <p className="mt-2 max-w-2xl text-base leading-7 text-gray-500 transition-colors dark:text-gray-400 sm:text-lg">
+                {store.description || "A participating partner in our digital rewards program."}
+              </p>
+            </div>
           </section>
 
           {/* Essential information */}
@@ -509,6 +577,45 @@ export default function StorePage() {
           </section>
         )}
 
+        {promotions.length > 0 && (
+          <section className="mb-10" aria-labelledby="promotions-heading">
+            <div className="mb-4 flex items-center gap-3">
+              <Gift className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+              <div>
+                <h2 id="promotions-heading" className="text-xl font-bold text-gray-900 dark:text-white">Current Promotions</h2>
+                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Offers available at this shop right now.</p>
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {promotions.map((promotion) => (
+                <article key={promotion.id} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                  {promotion.bannerImageUrl && (
+                    <img
+                      src={getDisplayImageUrl(promotion.bannerImageUrl)}
+                      alt=""
+                      className="h-40 w-full object-cover"
+                      loading="lazy"
+                    />
+                  )}
+                  <div className="p-5">
+                    <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">Running now</span>
+                    <h3 className="mt-3 text-lg font-bold text-gray-900 dark:text-white">{promotion.title || "Special promotion"}</h3>
+                    {promotion.description && <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">{promotion.description}</p>}
+                    {(promotion.startDate || promotion.endDate) && (
+                      <p className="mt-4 flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
+                        <CalendarDays className="h-4 w-4" />
+                        {promotion.startDate ? promotionDate(promotion.startDate) : "Available now"}
+                        {" – "}
+                        {promotion.endDate ? promotionDate(promotion.endDate) : "No end date"}
+                      </p>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
         {products.length > 0 && (
           <section className="mb-10" aria-labelledby="products-heading">
             <div className="mb-4 flex items-center gap-3">
@@ -519,7 +626,13 @@ export default function StorePage() {
               {products.map((product) => {
                 const numericPrice = Number(product.price);
                 return (
-                  <article key={product.id} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => setSelectedProduct(product)}
+                    className="overflow-hidden rounded-3xl border border-gray-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 dark:border-gray-800 dark:bg-gray-900 dark:focus-visible:ring-white"
+                    aria-label={`View details for ${product.name}`}
+                  >
                     {product.imageUrl && (
                       <div className="relative h-48 bg-gray-100 dark:bg-gray-800">
                         <img src={getDisplayImageUrl(product.imageUrl)} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
@@ -538,11 +651,83 @@ export default function StorePage() {
                       {product.ingredients && <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{product.ingredients}</p>}
                       {product.available === false && !product.imageUrl && <p className="mt-2 text-xs font-bold uppercase tracking-wide text-gray-400">Unavailable</p>}
                     </div>
-                  </article>
+                    <span className="sr-only">Open product details</span>
+                  </button>
                 );
               })}
             </div>
           </section>
+        )}
+
+        {selectedProduct && (
+          <div
+            className="fixed inset-0 z-[100] flex items-end justify-center bg-gray-950/65 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setSelectedProduct(null);
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="product-dialog-title"
+              className="relative max-h-[92dvh] w-full overflow-y-auto rounded-t-[2rem] border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900 sm:max-w-2xl sm:rounded-[2rem]"
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedProduct(null)}
+                className="absolute right-4 top-4 z-10 rounded-full bg-white/90 p-2 text-gray-700 shadow-sm backdrop-blur transition hover:bg-white dark:bg-gray-900/90 dark:text-gray-200"
+                aria-label="Close product details"
+                autoFocus
+              >
+                <X className="h-5 w-5" />
+              </button>
+              {selectedProduct.imageUrl && (
+                <div className="relative h-64 bg-gray-100 dark:bg-gray-800 sm:h-80">
+                  <img src={getDisplayImageUrl(selectedProduct.imageUrl)} alt={selectedProduct.name} className="h-full w-full object-cover" />
+                  {selectedProduct.available === false && (
+                    <span className="absolute bottom-4 left-5 rounded-full bg-gray-950/90 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white">Unavailable</span>
+                  )}
+                </div>
+              )}
+              <div className="p-6 sm:p-8">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">Shop name</p>
+                <p className="mt-1 font-semibold text-gray-600 dark:text-gray-300">{store.name}</p>
+                <div className="mt-5 flex items-start justify-between gap-5">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">Product</p>
+                    <h2 id="product-dialog-title" className="mt-2 text-3xl font-bold tracking-tight text-gray-900 dark:text-white">{selectedProduct.name}</h2>
+                  </div>
+                  {Number.isFinite(Number(selectedProduct.price)) && (
+                    <p className="shrink-0 text-xl font-black text-gray-900 dark:text-white">₱{Number(selectedProduct.price).toFixed(2)}</p>
+                  )}
+                </div>
+                <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">Description</p>
+                  <p className="mt-2 leading-7 text-gray-600 dark:text-gray-300">
+                    {selectedProduct.ingredients || "No additional product details have been provided."}
+                  </p>
+                </div>
+                {promotions.length > 0 && (
+                  <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
+                    <div className="flex items-center gap-2">
+                      <Gift className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                      <h3 className="font-bold text-gray-900 dark:text-white">Current promotions</h3>
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      {promotions.map((promotion) => (
+                        <div key={promotion.id} className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/70">
+                          <p className="font-bold text-gray-900 dark:text-white">{promotion.title || "Special promotion"}</p>
+                          {promotion.description && <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">{promotion.description}</p>}
+                          {promotion.endDate && <p className="mt-2 text-xs font-medium text-gray-500 dark:text-gray-400">Ends {promotionDate(promotion.endDate)}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
         )}
 
         <section className="mb-10" aria-labelledby="reviews-heading">

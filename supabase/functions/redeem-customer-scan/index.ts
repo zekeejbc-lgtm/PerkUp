@@ -16,7 +16,7 @@ const normalizePoints = (points: unknown) =>
   Math.min(Math.max(Math.trunc(Number(points) || 1), 1), MAX_POINTS_PER_SCAN);
 
 const normalizeUsername = (value: unknown) =>
-  String(value || "").trim().toLowerCase();
+  String(value || "").trim().replace(/^@+/, "").toLowerCase();
 
 const isValidUsername = (username: string) =>
   USERNAME_PATTERN.test(username) &&
@@ -181,6 +181,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (storeError) throw storeError;
     const store = storeRow?.data as { name?: string; lat?: number | string; lng?: number | string } | null;
+    let promotionTitle: string | null = null;
 
     if (promotionId) {
       const { data: promotionRow, error: promotionError } = await admin
@@ -196,6 +197,7 @@ Deno.serve(async (req) => {
         startDate?: string;
         endDate?: string;
         maxRedemptions?: number | null;
+        title?: string;
         geofenceEnabled?: boolean;
         geofenceLat?: number | string | null;
         geofenceLng?: number | string | null;
@@ -205,6 +207,7 @@ Deno.serve(async (req) => {
       if (!promotion || String(promotion.storeId || "") !== storeId) {
         return jsonResponse({ error: "Promotion is not available for this store." }, 403);
       }
+      promotionTitle = String(promotion.title || "Promotion");
       if (promotion.active === false) {
         return jsonResponse({ error: "Promotion is not active." }, 409);
       }
@@ -215,15 +218,13 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Promotion has already ended." }, 410);
       }
 
-      const geofenceLat = promotion.geofenceEnabled ? Number(promotion.geofenceLat) : Number(store?.lat);
-      const geofenceLng = promotion.geofenceEnabled ? Number(promotion.geofenceLng) : Number(store?.lng);
-      const geofenceRadiusMeters = promotion.geofenceEnabled
-        ? Math.max(Number(promotion.geofenceRadiusMeters || 500), 25)
-        : 500;
+      const geofenceLat = Number(promotion.geofenceLat);
+      const geofenceLng = Number(promotion.geofenceLng);
+      const geofenceRadiusMeters = Math.max(Number(promotion.geofenceRadiusMeters || 500), 25);
       if (promotion.geofenceEnabled && (!Number.isFinite(geofenceLat) || !Number.isFinite(geofenceLng))) {
         return jsonResponse({ error: "Promotion geofence is not configured correctly." }, 409);
       }
-      if (Number.isFinite(geofenceLat) && Number.isFinite(geofenceLng)) {
+      if (promotion.geofenceEnabled && Number.isFinite(geofenceLat) && Number.isFinite(geofenceLng)) {
         if (!scannerLocation) {
           return jsonResponse({ error: "Scanner location is required for this scan." }, 400);
         }
@@ -246,20 +247,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (!promotionId) {
-      const storeLat = Number(store?.lat);
-      const storeLng = Number(store?.lng);
-      if (Number.isFinite(storeLat) && Number.isFinite(storeLng)) {
-        if (!scannerLocation) {
-          return jsonResponse({ error: "Scanner location is required for this scan." }, 400);
-        }
-        const distance = distanceInMeters(scannerLocation, { lat: storeLat, lng: storeLng });
-        if (distance > 500) {
-          return jsonResponse({ error: `Scanner is outside the allowed store geofence (${Math.round(distance)}m away).` }, 403);
-        }
-      }
-    }
-
     let customerId = "";
     let tokenHash = "";
 
@@ -270,10 +257,33 @@ Deno.serve(async (req) => {
         .eq("username", manualUsername)
         .maybeSingle();
       if (usernameError) throw usernameError;
-      if (!usernameRow?.customer_id) {
-        return jsonResponse({ error: "Customer username could not be verified." }, 404);
+
+      customerId = String(usernameRow?.customer_id || "");
+
+      // Older customer records can predate the username registry. Search the
+      // canonical profile data and repair the registry when there is one match.
+      if (!customerId) {
+        const { data: matchingUsers, error: matchingUsersError } = await admin
+          .from("users")
+          .select("id")
+          .eq("data->>role", "customer")
+          .ilike("data->>username", manualUsername)
+          .limit(2);
+        if (matchingUsersError) throw matchingUsersError;
+
+        if ((matchingUsers || []).length === 1) {
+          customerId = String(matchingUsers![0].id);
+          const { error: registryError } = await admin
+            .from("customer_usernames")
+            .upsert(
+              { username: manualUsername, customer_id: customerId },
+              { onConflict: "username" },
+            );
+          if (registryError) console.warn("Could not repair customer username registry", registryError);
+        }
       }
-      customerId = usernameRow.customer_id as string;
+
+      if (!customerId) return jsonResponse({ error: "Customer username could not be verified." }, 404);
     } else if (isSignedToken) {
       const verifiedToken = await verifySignedCustomerToken(scanToken, serviceKey);
       if (!verifiedToken) return jsonResponse({ error: "QR code signature could not be verified." }, 400);
@@ -388,21 +398,29 @@ Deno.serve(async (req) => {
         if (totalError) throw totalError;
       }
 
+      const ticketId = crypto.randomUUID();
+      const ticketNumber = `PK-${Date.now().toString(36).toUpperCase()}-${ticketId.slice(0, 4).toUpperCase()}`;
+      const issuedAt = new Date().toISOString();
       const scanLog = {
+        ticketNumber,
+        status: "issued",
         customerId,
         staffId: authData.user.id,
         storeId,
+        storeName: String(store?.name || "Store"),
         promotionId: promotionId || null,
+        promotionTitle,
         type: "points",
         points,
         scannerLocation,
+        issuedAt,
         timestamp: {
           seconds: Math.floor(Date.now() / 1000),
           nanoseconds: 0,
         },
       };
       const { error: logError } = await admin.from("promotions_scanned").insert({
-        id: crypto.randomUUID(),
+        id: ticketId,
         data: scanLog,
       });
       if (logError) throw logError;
@@ -414,6 +432,31 @@ Deno.serve(async (req) => {
           .eq("token_hash", tokenHash);
         if (consumeError) throw consumeError;
       }
+
+      return jsonResponse({
+        customer: {
+          id: customerId,
+          username: customerUsername,
+          maskedName: maskName(customer?.name || customerUsername || "Customer"),
+          birthday: customer?.birthday || null,
+          profilePic: customer?.profilePic || customer?.avatarUrl || customer?.photoURL || null,
+          existingStars,
+          newStars: existingStars + points,
+          cards: activeCards.map(({ data: _data, ...card }) => card),
+        },
+        points,
+        ticket: {
+          id: ticketId,
+          ticketNumber,
+          status: "issued",
+          storeId,
+          storeName: String(store?.name || "Store"),
+          promotionId: promotionId || null,
+          promotionTitle,
+          points,
+          issuedAt,
+        },
+      });
     }
 
     return jsonResponse({

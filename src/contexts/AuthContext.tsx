@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { User as AuthUser } from "@/src/lib/supabaseAuthCompat";
-import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
+import { doc, getDocFromServer, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import {
   AUTH_REDIRECT_MESSAGE_KEY,
   GOOGLE_AUTH_INTENT_KEY,
+  GOOGLE_SIGNUP_PENDING_KEY,
   auth,
   db,
   handleDataError,
@@ -11,6 +12,7 @@ import {
 } from "../lib/backend";
 import { signOut } from "@/src/lib/supabaseAuthCompat";
 import type { TrustedLoginDevice } from "@/src/lib/trustedDevice";
+import { supabase } from "@/src/lib/supabase";
 
 export type Role = "customer" | "staff" | "store_owner" | "admin" | "assistant_admin" | "auditor";
 
@@ -61,6 +63,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signOut();
   };
 
+  const removeUnregisteredGoogleUser = async () => {
+    const { error } = await supabase.functions.invoke("discard-unregistered-auth-user");
+    if (error) {
+      console.error("Could not discard unregistered Google auth user:", error);
+    }
+  };
+
   const getAuthProfile = (sessionUser: AuthUser) => ({
     email: sessionUser.email || "",
     name: sessionUser.displayName || "User",
@@ -70,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loadUserProfile = async (sessionUser: AuthUser) => {
     const userDocRef = doc(db, "users", sessionUser.uid);
-    const userDoc = await getDoc(userDocRef);
+    const userDoc = await getDocFromServer(userDocRef);
     const googleAuthIntent = window.sessionStorage.getItem(GOOGLE_AUTH_INTENT_KEY);
 
     if (userDoc.exists()) {
@@ -98,30 +107,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (googleAuthIntent === "signin") {
+      await removeUnregisteredGoogleUser();
       await rejectGoogleRedirect("No account was found, try registering.");
       return;
     }
 
-    window.sessionStorage.removeItem(GOOGLE_AUTH_INTENT_KEY);
-    const authProfile = getAuthProfile(sessionUser);
-    const newUser = {
-      ...authProfile,
-      role: "customer" as Role,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
-    await setDoc(userDocRef, newUser);
-
-    setUser({ id: sessionUser.uid, ...newUser, role: "customer" });
-
-    const custRef = doc(db, "customers", sessionUser.uid);
-    const custDoc = await getDoc(custRef);
-    if (!custDoc.exists()) {
-      await setDoc(custRef, {
-        lifetimeStars: 0,
-        updatedAt: serverTimestamp(),
-      });
+    if (googleAuthIntent === "signup") {
+      window.sessionStorage.removeItem(GOOGLE_AUTH_INTENT_KEY);
+      const authProfile = getAuthProfile(sessionUser);
+      window.sessionStorage.setItem(GOOGLE_SIGNUP_PENDING_KEY, JSON.stringify({
+        ...authProfile,
+        provider: "google",
+      }));
+      setUser(null);
+      return;
     }
+
+    if (window.sessionStorage.getItem(GOOGLE_SIGNUP_PENDING_KEY)) {
+      setUser(null);
+      return;
+    }
+
+    await removeUnregisteredGoogleUser();
+    await rejectGoogleRedirect("No account was found, try registering.");
   };
 
   const refreshUser = async () => {

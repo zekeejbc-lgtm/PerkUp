@@ -1,12 +1,12 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { AlertTriangle, AtSign, Calendar, Eye, EyeOff, Lock, Mail, Phone, ShieldCheck, Ticket, User, X } from 'lucide-react';
-import { AUTH_REDIRECT_MESSAGE_KEY, signInWithGoogle, auth, db } from '../lib/backend';
+import { AUTH_REDIRECT_MESSAGE_KEY, GOOGLE_SIGNUP_PENDING_KEY, signInWithGoogle, auth, db } from '../lib/backend';
 import { 
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail
 } from '@/src/lib/supabaseAuthCompat';
-import { getPasswordStrength } from '@/src/lib/passwordStrength';
+import { getPasswordStrength, validateStrongPassword } from '@/src/lib/passwordStrength';
 import { requestEmailOtp, verifyEmailOtp } from '@/src/lib/emailOtp';
 import { redeemStoreReferralCode, updateCustomerProfile, validateStoreReferralCode } from '@/src/lib/secureQr';
 import { useToast } from './ToastProvider';
@@ -75,15 +75,28 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(initialMode);
   const [hasAgreedToPrivacy, setHasAgreedToPrivacy] = useState(initialMode !== 'signup');
   const [signupStep, setSignupStep] = useState(1);
+  const [isGoogleSignup, setIsGoogleSignup] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      setMode(initialMode);
-      setHasAgreedToPrivacy(initialMode !== 'signup');
-      setSignupStep(1);
-      setUsername('');
+      const pendingGoogleSignup = window.sessionStorage.getItem(GOOGLE_SIGNUP_PENDING_KEY);
+      let googleProfile: { email?: string; name?: string; provider?: string } | null = null;
+      try {
+        googleProfile = pendingGoogleSignup ? JSON.parse(pendingGoogleSignup) : null;
+      } catch {
+        window.sessionStorage.removeItem(GOOGLE_SIGNUP_PENDING_KEY);
+      }
+      const continuingGoogleSignup = googleProfile?.provider === 'google' && Boolean(googleProfile.email);
+      setMode(continuingGoogleSignup ? 'signup' : initialMode);
+      setHasAgreedToPrivacy(continuingGoogleSignup || initialMode !== 'signup');
+      setSignupStep(continuingGoogleSignup ? 2 : 1);
+      setIsGoogleSignup(continuingGoogleSignup);
+      setUsername(googleProfile?.email || '');
       setPassword('');
-      setSignupProfile(emptySignupProfile);
+      setSignupProfile({
+        ...emptySignupProfile,
+        name: googleProfile?.name || '',
+      });
       setOtpCode('');
       setOtpToken('');
       setOtpEmail('');
@@ -116,6 +129,13 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
   const [mfaCode, setMfaCode] = useState('');
   const [trustDevice, setTrustDevice] = useState(false);
   const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
+  const signupPasswordValidation = useMemo(() => validateStrongPassword(password, {
+    name: signupProfile.name,
+    email: username,
+    username: signupProfile.accountUsername,
+    phone: signupProfile.phone,
+    birthday: signupProfile.birthday,
+  }), [password, signupProfile, username]);
 
   useEffect(() => {
     if (!otpExpiresAt) {
@@ -141,9 +161,11 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
   };
 
   const requestSignupOtp = async (targetEmail: string) => {
-    const availability = await checkSignupAvailability({ email: targetEmail });
-    if (!availability.emailAvailable) {
-      throw new Error('An account is already associated with this email. Please sign in instead.');
+    if (!isGoogleSignup) {
+      const availability = await checkSignupAvailability({ email: targetEmail });
+      if (!availability.emailAvailable) {
+        throw new Error('An account is already associated with this email. Please sign in instead.');
+      }
     }
     const otp = await requestEmailOtp(targetEmail, targetEmail, 'signup');
     setOtpToken(otp.otpToken);
@@ -288,9 +310,16 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
           return;
         }
         if (signupStep === 2) {
-          const availability = await checkSignupAvailability({ username: normalizedAccountUsername });
+          const availability = await checkSignupAvailability({
+            username: normalizedAccountUsername,
+            phone: signupProfile.phone,
+          });
           if (!availability.usernameAvailable) {
             showInlineError('This username is already taken. Choose another one.');
+            return;
+          }
+          if (!availability.phoneAvailable) {
+            showInlineError('This phone number is already associated with an account.');
             return;
           }
           setSignupStep(3);
@@ -298,6 +327,12 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
         }
         if (password.length < 8) {
           showInlineError('Use a password with at least 8 characters.');
+          return;
+        }
+        if (!signupPasswordValidation.requirements.find(
+          (requirement) => requirement.label === 'Does not contain personal information',
+        )?.met) {
+          showInlineError('Your password cannot contain your name, username, phone number, email, or birthday.');
           return;
         }
         if (signupStep === 3) {
@@ -326,10 +361,11 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
         }
 
         const finalAvailability = await checkSignupAvailability({
-          email: targetEmail,
+          ...(!isGoogleSignup ? { email: targetEmail } : {}),
           username: normalizedAccountUsername,
+          phone: signupProfile.phone,
         });
-        if (!finalAvailability.emailAvailable) {
+        if (!isGoogleSignup && !finalAvailability.emailAvailable) {
           showInlineError('An account is already associated with this email. Please sign in instead.');
           return;
         }
@@ -337,13 +373,24 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
           showInlineError('This username was just taken. Go back and choose another one.');
           return;
         }
+        if (!finalAvailability.phoneAvailable) {
+          showInlineError('This phone number was just registered. Go back and use another number.');
+          return;
+        }
         await verifyEmailOtp(otpToken, otpCode, targetEmail, 'signup');
-        await createUserWithEmailAndPassword(auth, targetEmail, password, {
-          name: signupProfile.name,
-          username: normalizedAccountUsername,
-          phone: signupProfile.phone,
-          birthday: signupProfile.birthday,
-        });
+        if (!isGoogleSignup) {
+          window.sessionStorage.setItem(GOOGLE_SIGNUP_PENDING_KEY, JSON.stringify({
+            email: targetEmail,
+            name: signupProfile.name,
+            provider: 'email',
+          }));
+          await createUserWithEmailAndPassword(auth, targetEmail, password, {
+            name: signupProfile.name,
+            username: normalizedAccountUsername,
+            phone: signupProfile.phone,
+            birthday: signupProfile.birthday,
+          });
+        }
         await updateCustomerProfile({
           name: signupProfile.name,
           username: normalizedAccountUsername,
@@ -352,6 +399,12 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
           birthday: signupProfile.birthday,
           avatarUrl: '',
         });
+        if (isGoogleSignup) {
+          const { error: passwordError } = await supabase.auth.updateUser({ password });
+          if (passwordError) throw passwordError;
+          setIsGoogleSignup(false);
+        }
+        window.sessionStorage.removeItem(GOOGLE_SIGNUP_PENDING_KEY);
         if (referralCode) {
           const referral = await redeemStoreReferralCode(referralCode);
           toast.success(`Account created. You received ${referral.points} stamp from ${referral.storeName}.`);
@@ -444,6 +497,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     setMode(newMode);
     setHasAgreedToPrivacy(newMode !== 'signup');
     setSignupStep(1);
+    setIsGoogleSignup(false);
     setError('');
     setMessage('');
     setPassword('');
@@ -748,7 +802,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                     />
                   </div>
                   <p className={`text-xs font-medium ${getSignupUsernameError(signupProfile.accountUsername) ? 'text-[#1b1b1b] dark:text-white' : 'text-green-600 dark:text-green-400'}`}>
-                    {getSignupUsernameError(signupProfile.accountUsername) || 'Strong format. Uniqueness is verified when your account is created.'}
+                    {getSignupUsernameError(signupProfile.accountUsername) || 'Valid format. Availability is checked when you continue.'}
                   </p>
                 </div>
 
@@ -837,6 +891,13 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                         </span>
                       ))}
                     </div>
+                    {!signupPasswordValidation.requirements.find(
+                      (requirement) => requirement.label === 'Does not contain personal information',
+                    )?.met && (
+                      <p className="text-xs font-medium text-red-600 dark:text-red-400">
+                        Do not use your name, username, phone number, email, or birthday in your password.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -858,7 +919,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                   />
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Enter a store referral code for 1 stamp, or leave this blank to continue.
+                  Enter a valid store referral code for 1 stamp, or leave this blank. The next step verifies your email.
                 </p>
               </div>
             )}
@@ -866,7 +927,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
             {mode === 'signup' && signupStep === 5 && otpToken && (
               <div className="space-y-1 text-left">
                 <div className="flex items-center justify-between gap-3">
-                  <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Email OTP</label>
+                  <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Verify email</label>
                   <span className={`text-xs font-semibold ${otpSecondsRemaining > 0 ? 'text-gray-500 dark:text-gray-400' : 'text-[#1b1b1b] dark:text-white'}`}>
                     {otpSecondsRemaining > 0 ? `Expires in ${formatOtpCountdown(otpSecondsRemaining)}` : 'Expired'}
                   </span>
@@ -945,7 +1006,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                     ? 'Sign in'
                     : mode === 'signup'
                       ? signupStep === 4
-                        ? 'Send verification code'
+                        ? 'Continue to email verification'
                         : signupStep === 5
                           ? 'Verify & create account'
                           : 'Continue'

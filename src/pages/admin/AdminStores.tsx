@@ -22,6 +22,7 @@ import { StoreLocationPicker } from "../../components/StoreLocationPicker";
 import { getAvailableStoreCategories, normalizeStoreCategory, splitStoreCategories } from "../../lib/storeDirectory";
 import { TimeInput } from "../../components/TimeInput";
 import { formatStoreHours } from "../../lib/dateTime";
+import { CategoryInput } from "../../components/CategoryInput";
 
 export default function AdminStores() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -437,7 +438,14 @@ export default function AdminStores() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Category</label>
-                    <input required value={storeCategory} onChange={e => setStoreCategory(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-800" placeholder="Coffee, Bakery, Retail..." />
+                    <CategoryInput
+                      required
+                      value={storeCategory}
+                      onChange={setStoreCategory}
+                      suggestions={categories.filter((category) => category !== "All")}
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    />
+                    <p className="text-xs text-gray-500">Choose an existing category or type a new one. Separate multiple categories with commas.</p>
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Contact Number</label>

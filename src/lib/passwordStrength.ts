@@ -63,21 +63,25 @@ export function generateStrongPassword(length = 16): string {
 
 export function validateStrongPassword(
   password: string,
-  identity: { name?: string; email?: string } = {},
+  identity: { name?: string; email?: string; username?: string; phone?: string; birthday?: string } = {},
 ) {
   const normalizedPassword = password.toLowerCase();
-  const personalTerms = [
+  const personalTerms = new Set([
     ...(identity.name || "").toLowerCase().split(/[^a-z0-9]+/),
     (identity.email || "").toLowerCase().split("@")[0],
-  ].filter((term) => term.length >= 3);
+    (identity.name || "").toLowerCase().replace(/[^a-z0-9]/g, ""),
+    (identity.username || "").toLowerCase().replace(/[^a-z0-9]/g, ""),
+    (identity.phone || "").replace(/\D/g, ""),
+    ...getBirthdayPasswordTerms(identity.birthday),
+  ].map((term) => term.replace(/[^a-z0-9]/g, "")).filter((term) => term.length >= 4));
   const requirements = [
     { label: "12+ characters", met: password.length >= 12 },
     { label: "Upper and lowercase", met: /[a-z]/.test(password) && /[A-Z]/.test(password) },
     { label: "At least one number", met: /\d/.test(password) },
     { label: "At least one symbol", met: /[^A-Za-z0-9]/.test(password) },
     {
-      label: "Does not contain name or email",
-      met: personalTerms.every((term) => !normalizedPassword.includes(term)),
+      label: "Does not contain personal information",
+      met: [...personalTerms].every((term) => !normalizedPassword.replace(/[^a-z0-9]/g, "").includes(term)),
     },
   ];
   return {
@@ -85,4 +89,25 @@ export function validateStrongPassword(
     requirements,
     strength: getPasswordStrength(password),
   };
+}
+
+const MONTH_NAMES = [
+  ["january", "jan"], ["february", "feb"], ["march", "mar"], ["april", "apr"],
+  ["may", "may"], ["june", "jun"], ["july", "jul"], ["august", "aug"],
+  ["september", "sep"], ["october", "oct"], ["november", "nov"], ["december", "dec"],
+];
+
+function getBirthdayPasswordTerms(birthday?: string): string[] {
+  const match = String(birthday || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return [];
+  const [, year, month, day] = match;
+  const shortDay = String(Number(day));
+  const shortMonth = String(Number(month));
+  const [monthName, shortMonthName] = MONTH_NAMES[Number(month) - 1] || [];
+  return [
+    `${year}${month}${day}`, `${month}${day}${year}`, `${day}${month}${year}`,
+    `${year}${shortMonth}${shortDay}`, `${shortMonth}${shortDay}${year}`, `${shortDay}${shortMonth}${year}`,
+    `${monthName}${shortDay}${year}`, `${shortMonthName}${shortDay}${year}`,
+    `${monthName}${day}${year}`, `${shortMonthName}${day}${year}`,
+  ].filter(Boolean);
 }

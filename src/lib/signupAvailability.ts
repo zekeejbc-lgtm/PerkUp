@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 type SignupAvailability = {
   emailAvailable?: boolean;
   usernameAvailable?: boolean;
+  phoneAvailable?: boolean;
 };
 
 const getFunctionErrorMessage = async (error: unknown) => {
@@ -22,6 +23,7 @@ const getFunctionErrorMessage = async (error: unknown) => {
 export async function checkSignupAvailability(input: {
   email?: string;
   username?: string;
+  phone?: string;
 }): Promise<SignupAvailability> {
   const { data, error } = await supabase.functions.invoke<SignupAvailability>("check-signup-availability", {
     body: input,

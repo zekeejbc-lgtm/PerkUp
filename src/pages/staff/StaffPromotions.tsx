@@ -55,7 +55,7 @@ export default function StaffPromotions({ store }: { store: any }) {
       </div>
 
       {loading ? (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
           {[1, 2, 3].map(i => (
             <SkeletonBlock key={i} className="h-[420px] rounded-[2rem]" />
           ))}
@@ -72,36 +72,36 @@ export default function StaffPromotions({ store }: { store: any }) {
             <Link
               key={promo.id}
               to={`/staff/promotions/${promo.id}`}
-              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] text-left hover:border-[#1b1b1b] dark:hover:border-[#1b1b1b] hover:shadow-lg transition-all group relative overflow-hidden flex flex-col"
+              className="group relative flex min-h-[430px] flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-gray-400 hover:shadow-xl dark:border-gray-800 dark:bg-gray-900 dark:hover:border-gray-600"
             >
               {promo.bannerImageUrl ? (
-                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className="h-32 w-full object-cover" />
+                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className="aspect-[16/7] w-full object-cover" />
               ) : (
-                <div className="h-24 bg-gray-100 dark:bg-white/5" />
+                <div className="aspect-[16/7] w-full bg-gray-100 dark:bg-white/5" />
               )}
 
-              <div className="p-6 flex flex-col flex-1">
-                <div className="w-14 h-14 bg-gray-100 dark:bg-white/10 rounded-2xl flex items-center justify-center mb-6 -mt-12 border-4 border-white dark:border-gray-900">
-                  <Gift className="w-7 h-7 text-[#1b1b1b] dark:text-white" />
+              <div className="flex flex-1 flex-col p-6 pt-0">
+                <div className="-mt-7 mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border-4 border-white bg-gray-100 shadow-sm dark:border-gray-900 dark:bg-gray-800">
+                  <Gift className="h-6 w-6 text-[#1b1b1b] dark:text-white" />
                 </div>
 
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2 line-clamp-1">{promo.title || "Untitled Promo"}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mb-6 flex-1">
+                <h3 className="mb-2 line-clamp-2 text-lg font-bold leading-snug text-gray-900 dark:text-white">{promo.title || "Untitled Promo"}</h3>
+                <p className="mb-6 line-clamp-2 min-h-10 text-sm text-gray-500 dark:text-gray-400">
                   {promo.description || "No description provided."}
                 </p>
 
-                <div className="grid grid-cols-3 gap-3 text-xs font-semibold text-gray-700 dark:text-gray-300 mb-6 bg-gray-50 dark:bg-gray-800 p-3 rounded-xl">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-gray-500 flex items-center gap-1"><Star className="w-3.5 h-3.5" /> Needed</span>
-                    <span>{promo.requiredStamps || 0}</span>
+                <div className="mb-6 mt-auto grid grid-cols-3 divide-x divide-gray-200 rounded-2xl bg-gray-50 px-2 py-3 text-xs font-semibold text-gray-700 dark:divide-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                  <div className="flex min-w-0 flex-col gap-1 px-2">
+                    <span className="flex items-center gap-1 text-gray-500"><Star className="h-3.5 w-3.5" /> Needed</span>
+                    <span className="truncate">{promo.requiredStamps || 0}</span>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-gray-500 flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> Ends</span>
-                    <span>{promo.endDate ? new Date(promo.endDate).toLocaleDateString() : 'None'}</span>
+                  <div className="flex min-w-0 flex-col gap-1 px-2">
+                    <span className="flex items-center gap-1 text-gray-500"><Calendar className="h-3.5 w-3.5" /> Ends</span>
+                    <span className="truncate">{promo.endDate ? new Date(promo.endDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "None"}</span>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-gray-500 flex items-center gap-1"><Users className="w-3.5 h-3.5" /> Left</span>
-                    <span>{getRemainingClaims(promo)}</span>
+                  <div className="flex min-w-0 flex-col gap-1 px-2">
+                    <span className="flex items-center gap-1 text-gray-500"><Users className="h-3.5 w-3.5" /> Left</span>
+                    <span className="truncate">{getRemainingClaims(promo)}</span>
                   </div>
                 </div>
 

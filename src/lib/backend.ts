@@ -7,6 +7,7 @@ export type GoogleAuthIntent = "signin" | "signup";
 
 export const GOOGLE_AUTH_INTENT_KEY = "perkup:google-auth-intent";
 export const AUTH_REDIRECT_MESSAGE_KEY = "perkup:auth-redirect-message";
+export const GOOGLE_SIGNUP_PENDING_KEY = "perkup:google-signup-pending";
 
 export const signInWithGoogle = async (intent: GoogleAuthIntent = "signin") => {
   try {

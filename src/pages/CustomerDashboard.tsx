@@ -1,6 +1,6 @@
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useState } from "react";
-import { QrCode, Map, CreditCard, Gift, User as UserIcon, Menu } from "lucide-react";
+import { QrCode, Map, CreditCard, Gift, User as UserIcon, Menu, Ticket } from "lucide-react";
 import { PageSkeleton } from "../components/LoadingSkeleton";
 
 const CustomerOverview = lazy(() => import("./customer/CustomerOverview"));
@@ -8,6 +8,7 @@ const CustomerProfile = lazy(() => import("./customer/CustomerProfile"));
 const CustomerStores = lazy(() => import("./customer/CustomerStores"));
 const CustomerCards = lazy(() => import("./customer/CustomerCards"));
 const CustomerPromotions = lazy(() => import("./customer/CustomerPromotions"));
+const CustomerTickets = lazy(() => import("./customer/CustomerTickets"));
 
 export default function CustomerDashboard() {
   const location = useLocation();
@@ -18,6 +19,7 @@ export default function CustomerDashboard() {
     { name: 'My Cards', href: '/customer/cards', icon: CreditCard },
     { name: 'Stores & Maps', href: '/customer/stores', icon: Map },
     { name: 'Promotions', href: '/customer/promotions', icon: Gift },
+    { name: 'My Tickets', href: '/customer/tickets', icon: Ticket },
     { name: 'Profile', href: '/customer/profile', icon: UserIcon },
   ];
 
@@ -88,6 +90,7 @@ export default function CustomerDashboard() {
             <Route path="/cards" element={<CustomerCards />} />
             <Route path="/stores" element={<CustomerStores />} />
             <Route path="/promotions" element={<CustomerPromotions />} />
+            <Route path="/tickets" element={<CustomerTickets />} />
             <Route path="/profile" element={<CustomerProfile />} />
           </Routes>
         </Suspense>

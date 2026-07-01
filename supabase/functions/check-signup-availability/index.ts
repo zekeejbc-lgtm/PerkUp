@@ -22,6 +22,12 @@ const requiredEnv = (name: string) => {
 
 const normalizeEmail = (value: unknown) => String(value || "").trim().toLowerCase();
 const normalizeUsername = (value: unknown) => String(value || "").trim().toLowerCase();
+const normalizePhone = (value: unknown) => {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("09")) return `63${digits.slice(1)}`;
+  if (digits.length === 10 && digits.startsWith("9")) return `63${digits}`;
+  return digits;
+};
 
 const validateUsername = (username: string) => {
   if (!username) return "Username is required.";
@@ -45,9 +51,10 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const email = normalizeEmail(body.email);
     const username = normalizeUsername(body.username);
+    const phone = normalizePhone(body.phone);
 
-    if (!email && !username) {
-      return jsonResponse({ error: "Provide an email address or username." }, 400);
+    if (!email && !username && !phone) {
+      return jsonResponse({ error: "Provide an email address, username, or phone number." }, 400);
     }
     if (email && !EMAIL_PATTERN.test(email)) {
       return jsonResponse({ error: "Enter a valid email address." }, 400);
@@ -55,6 +62,9 @@ Deno.serve(async (req) => {
 
     const usernameError = username ? validateUsername(username) : "";
     if (usernameError) return jsonResponse({ error: usernameError }, 400);
+    if (phone && (phone.length < 10 || phone.length > 15)) {
+      return jsonResponse({ error: "Enter a valid phone number." }, 400);
+    }
 
     const admin = createClient(
       requiredEnv("SUPABASE_URL"),
@@ -79,18 +89,37 @@ Deno.serve(async (req) => {
 
     let usernameAvailable: boolean | undefined;
     if (username) {
-      const { data, error } = await admin
+      const { data: registryRows, error } = await admin
         .from("customer_usernames")
         .select("username")
         .eq("username", username)
         .limit(1);
       if (error) throw error;
-      usernameAvailable = !data?.length;
+      const { data: legacyRows, error: legacyError } = await admin
+        .from("users")
+        .select("id")
+        .eq("data->>role", "customer")
+        .ilike("data->>username", username)
+        .limit(1);
+      if (legacyError) throw legacyError;
+      usernameAvailable = !registryRows?.length && !legacyRows?.length;
+    }
+
+    let phoneAvailable: boolean | undefined;
+    if (phone) {
+      const { data, error } = await admin
+        .from("customer_phones")
+        .select("phone")
+        .eq("phone", phone)
+        .limit(1);
+      if (error) throw error;
+      phoneAvailable = !data?.length;
     }
 
     return jsonResponse({
       ...(email ? { emailAvailable } : {}),
       ...(username ? { usernameAvailable } : {}),
+      ...(phone ? { phoneAvailable } : {}),
     });
   } catch (error) {
     console.error("check-signup-availability failed", error);

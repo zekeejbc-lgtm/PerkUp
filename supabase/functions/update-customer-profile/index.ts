@@ -21,6 +21,12 @@ const requiredEnv = (name: string) => {
 
 const normalizeUsername = (value: unknown) =>
   String(value || "").trim().toLowerCase();
+const normalizePhone = (value: unknown) => {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("09")) return `63${digits.slice(1)}`;
+  if (digits.length === 10 && digits.startsWith("9")) return `63${digits}`;
+  return digits;
+};
 
 const validateUsername = (username: string) => {
   if (!username) return "Username is required.";
@@ -51,8 +57,12 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const username = normalizeUsername(body.username);
+    const phone = normalizePhone(body.phone);
     const usernameError = validateUsername(username);
     if (usernameError) return jsonResponse({ error: usernameError }, 400);
+    if (phone.length < 10 || phone.length > 15) {
+      return jsonResponse({ error: "Enter a valid phone number." }, 400);
+    }
 
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authorization } },
@@ -86,6 +96,16 @@ Deno.serve(async (req) => {
     const ownerId = ownerRows?.[0]?.customer_id as string | undefined;
     if (ownerId && ownerId !== authData.user.id) {
       return jsonResponse({ error: "Username is already taken." }, 409);
+    }
+    const { data: phoneRows, error: phoneOwnerError } = await admin
+      .from("customer_phones")
+      .select("customer_id")
+      .eq("phone", phone)
+      .limit(1);
+    if (phoneOwnerError) throw phoneOwnerError;
+    const phoneOwnerId = phoneRows?.[0]?.customer_id as string | undefined;
+    if (phoneOwnerId && phoneOwnerId !== authData.user.id) {
+      return jsonResponse({ error: "Phone number is already associated with an account." }, 409);
     }
 
     const payload = {
@@ -155,6 +175,30 @@ Deno.serve(async (req) => {
           return jsonResponse({ error: "Username is already taken." }, 409);
         }
         throw usernameInsertError;
+      }
+    }
+
+    const { data: phoneRegistryRow, error: phoneUpdateError } = await admin
+      .from("customer_phones")
+      .update({ phone })
+      .eq("customer_id", authData.user.id)
+      .select("phone")
+      .maybeSingle();
+    if (phoneUpdateError) {
+      if (phoneUpdateError.code === "23505") {
+        return jsonResponse({ error: "Phone number is already associated with an account." }, 409);
+      }
+      throw phoneUpdateError;
+    }
+    if (!phoneRegistryRow) {
+      const { error: phoneInsertError } = await admin
+        .from("customer_phones")
+        .insert({ phone, customer_id: authData.user.id });
+      if (phoneInsertError) {
+        if (phoneInsertError.code === "23505") {
+          return jsonResponse({ error: "Phone number is already associated with an account." }, 409);
+        }
+        throw phoneInsertError;
       }
     }
 
