@@ -41,12 +41,7 @@ export function normalizeDriveImageUrl(url: string): string {
   const trimmedUrl = String(url || "").trim();
   const fileId = extractDriveFileId(trimmedUrl);
 
-  // The lh3 /d/ endpoint is not a stable embedding endpoint and can render as a
-  // broken image in Chrome depending on the visitor's Google session. Drive's
-  // user-content endpoint serves the public file directly without that redirect.
-  return fileId
-    ? `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=view`
-    : trimmedUrl;
+  return fileId ? `https://drive.google.com/uc?export=view&id=${fileId}` : trimmedUrl;
 }
 
 export function getDisplayImageUrl(url: string): string {
