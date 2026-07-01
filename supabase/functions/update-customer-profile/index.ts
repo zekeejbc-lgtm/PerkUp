@@ -141,6 +141,23 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (customerReadError) throw customerReadError;
 
+    const mergedCustomer = {
+      ...((customerRow?.data || {}) as Record<string, unknown>),
+      ...payload,
+      userId: authData.user.id,
+      lifetimeStars: (customerRow?.data as Record<string, unknown> | undefined)?.lifetimeStars || 0,
+    };
+
+    const { error: userUpdateError } = await admin
+      .from("users")
+      .upsert({ id: authData.user.id, data: mergedUser });
+    if (userUpdateError) throw userUpdateError;
+
+    const { error: customerUpdateError } = await admin
+      .from("customers")
+      .upsert({ id: authData.user.id, data: mergedCustomer });
+    if (customerUpdateError) throw customerUpdateError;
+
     const previousUsername = normalizeUsername(existingUser.username);
     if (previousUsername && previousUsername !== username) {
       const { data: updatedUsernameRow, error: usernameUpdateError } = await admin
@@ -201,23 +218,6 @@ Deno.serve(async (req) => {
         throw phoneInsertError;
       }
     }
-
-    const { error: userUpdateError } = await admin
-      .from("users")
-      .upsert({ id: authData.user.id, data: mergedUser });
-    if (userUpdateError) throw userUpdateError;
-
-    const mergedCustomer = {
-      ...((customerRow?.data || {}) as Record<string, unknown>),
-      ...payload,
-      userId: authData.user.id,
-      lifetimeStars: (customerRow?.data as Record<string, unknown> | undefined)?.lifetimeStars || 0,
-    };
-
-    const { error: customerUpdateError } = await admin
-      .from("customers")
-      .upsert({ id: authData.user.id, data: mergedCustomer });
-    if (customerUpdateError) throw customerUpdateError;
 
     return jsonResponse({ profile: mergedUser });
   } catch (error) {
