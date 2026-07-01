@@ -327,10 +327,11 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "QR code has been replaced. Ask the customer for their latest QR." }, 410);
       }
     }
-    const customerUsername = normalizeUsername(customer?.username || manualUsername);
-    if (!customer || customerUsername !== (manualUsername || customerUsername)) {
-      return jsonResponse({ error: "Customer username could not be verified." }, 404);
+    if (!customer) {
+      return jsonResponse({ error: "Customer profile could not be loaded." }, 404);
     }
+
+    const customerUsername = normalizeUsername(customer?.username || manualUsername);
     const { data: cardRows, error: cardQueryError } = await admin
       .from("cards")
       .select("id,data")
