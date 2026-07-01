@@ -57,7 +57,7 @@ const extractDriveFileId = (value: unknown) => {
     const queryId = parsedUrl.searchParams.get("id") || parsedUrl.searchParams.get("fileId");
     if (queryId && /^[a-zA-Z0-9_-]+$/.test(queryId)) return queryId;
   } catch {
-    // Fall through to regex extraction.
+    // Fall through
   }
 
   for (const pattern of DRIVE_FILE_ID_PATTERNS) {
@@ -68,11 +68,11 @@ const extractDriveFileId = (value: unknown) => {
   return /^[a-zA-Z0-9_-]+$/.test(url) ? url : "";
 };
 
-export function normalizeDriveImageUrl(url: string): string {
-  const trimmedUrl = String(url || "").trim();
-  const fileId = extractDriveFileId(trimmedUrl);
-  return fileId ? `https://lh3.googleusercontent.com/d/$$${fileId}=w4000` : trimmedUrl;
-}
+// Fixing the URL format here to the standard Google Drive direct-view embed format
+const normalizeDriveImageUrl = (url: string) => {
+  const fileId = extractDriveFileId(url);
+  return fileId ? `https://drive.google.com/uc?export=view&id=${fileId}` : url;
+};
 
 const buildUploadFileName = (body: Record<string, unknown>, userId: string) => {
   const originalName = cleanText(body.fileName, 120);
@@ -81,6 +81,7 @@ const buildUploadFileName = (body: Record<string, unknown>, userId: string) => {
 };
 
 const callDriveScript = async (payload: Record<string, unknown>) => {
+  console.log(`[GAS Call] Sending payload to Google Apps Script... Action: ${payload.action}`);
   const response = await fetch(Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") || DEFAULT_GAS_UPLOAD_URL, {
     method: "POST",
     headers: {
@@ -90,11 +91,15 @@ const callDriveScript = async (payload: Record<string, unknown>) => {
   });
 
   if (!response.ok) {
+    console.error(`[GAS Error] HTTP Status: ${response.status}`);
     throw new Error(`Google Drive action failed with HTTP ${response.status}.`);
   }
 
   const data = (await response.json()) as GasImageResponse;
+  console.log(`[GAS Response] Received data from Google:`, JSON.stringify(data));
+  
   if (!data.success) {
+    console.error(`[GAS Error] Google Script returned success: false. Error: ${data.error}`);
     throw new Error(data.error || "Google Drive action failed.");
   }
 
@@ -102,14 +107,19 @@ const callDriveScript = async (payload: Record<string, unknown>) => {
 };
 
 Deno.serve(async (req) => {
+  console.log(`\n--- NEW REQUEST STARTED ---`);
+  console.log(`[Req] Method: ${req.method}, URL: ${req.url}`);
+
   if (req.method === "OPTIONS") return corsPreflightResponse();
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
 
   try {
+    console.log(`[Auth] Checking Supabase credentials and authenticating user...`);
     const supabaseUrl = requiredEnv("SUPABASE_URL");
     const anonKey = requiredEnv("SUPABASE_ANON_KEY");
     const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
     const authorization = req.headers.get("Authorization") || "";
+    
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authorization } },
       auth: { persistSession: false },
@@ -119,45 +129,71 @@ Deno.serve(async (req) => {
     });
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
-    if (authError || !authData.user) return jsonResponse({ error: "Authentication required." }, 401);
+    if (authError || !authData.user) {
+      console.error(`[Auth Error] User authentication failed.`, authError);
+      return jsonResponse({ error: "Authentication required." }, 401);
+    }
+    console.log(`[Auth] Authenticated user ID: ${authData.user.id}`);
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const action = cleanText(body.action || "upload", 20).toLowerCase();
+    console.log(`[Action] Requested Action: '${action}'`);
 
     if (action === "upload") {
       const mimeType = cleanText(body.mimeType, 80).toLowerCase();
-      const base64 = String(body.base64 || "");
+      console.log(`[Validation] Checking image type: ${mimeType}`);
       if (!ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) return jsonResponse({ error: "Unsupported image type." }, 400);
+      
+      const base64 = String(body.base64 || "");
       if (!base64.startsWith("data:image/")) return jsonResponse({ error: "Missing image data." }, 400);
+      
       const estimatedBytes = Math.ceil((base64.length - (base64.indexOf(",") + 1)) * 0.75);
+      console.log(`[Validation] Estimated file size: ${(estimatedBytes / 1024 / 1024).toFixed(2)} MB`);
       if (estimatedBytes > MAX_IMAGE_BYTES) return jsonResponse({ error: "Image must be 6 MB or smaller." }, 413);
+
+      const fileName = buildUploadFileName(body, authData.user.id);
+      console.log(`[Upload] Uploading file as: ${fileName}`);
 
       const uploaded = await callDriveScript({
         action: "upload",
-        fileName: buildUploadFileName(body, authData.user.id),
+        fileName,
         mimeType,
         base64,
       });
+
       const uploadedUrl = uploaded.url || uploaded.webViewLink || "";
       const fileId = uploaded.fileId || extractDriveFileId(uploadedUrl);
-      if (!fileId) return jsonResponse({ error: "Drive did not return a valid file ID." }, 502);
+      console.log(`[Process] Extracted File ID: '${fileId}' from URL: '${uploadedUrl}'`);
+
+      if (!fileId) {
+        console.error(`[Process Error] Could not extract a valid fileId from Google Drive.`);
+        return jsonResponse({ error: "Drive did not return a valid file ID." }, 502);
+      }
+
       const normalizedUrl = normalizeDriveImageUrl(uploadedUrl);
+      console.log(`[Process] Translated to permanent Image URL: ${normalizedUrl}`);
+
+      console.log(`[Database] Attempting to save new record into Supabase 'drive_files' table...`);
       const { error: registryError } = await admin.from("drive_files").upsert({
         file_id: fileId,
         owner_id: authData.user.id,
         purpose: cleanText(body.purpose || "image", 80),
         url: normalizedUrl,
       });
+
       if (registryError) {
-        console.error("Could not register uploaded Drive file", registryError);
+        console.error("[Database Error] Supabase upsert failed!", registryError);
         const secret = Deno.env.get("DRIVE_CRUD_SECRET");
         if (secret) {
+          console.log(`[Rollback] Attempting to delete stranded file from Google Drive...`);
           await callDriveScript({ action: "delete", secret, fileId }).catch((cleanupError) => {
-            console.error("Could not roll back unregistered Drive file", cleanupError);
+            console.error("[Rollback Error] Could not roll back unregistered Drive file", cleanupError);
           });
         }
         return jsonResponse({ error: "Uploaded image could not be registered." }, 500);
       }
+
+      console.log(`[Success] Image successfully uploaded and registered! Request complete.\n`);
       return jsonResponse({
         fileId,
         url: normalizedUrl,
@@ -165,39 +201,34 @@ Deno.serve(async (req) => {
     }
 
     if (action === "delete") {
+      console.log(`[Delete] Initiating delete protocol for file...`);
+      // Delete logic remains the same...
+      // (Truncating logs here to keep it concise, upload is our main focus right now)
       const secret = requiredEnv("DRIVE_CRUD_SECRET");
       const fileId = extractDriveFileId(body.fileId || body.url);
       if (!fileId) return jsonResponse({ error: "Missing Drive file ID." }, 400);
 
-      const { data: actorRow, error: actorError } = await admin
-        .from("users")
-        .select("data")
-        .eq("id", authData.user.id)
-        .maybeSingle();
+      const { data: actorRow, error: actorError } = await admin.from("users").select("data").eq("id", authData.user.id).maybeSingle();
       if (actorError) throw actorError;
+      
       const isAdmin = ["admin", "assistant_admin"].includes(String(actorRow?.data?.role || ""));
-      const { data: fileRow, error: fileError } = await admin
-        .from("drive_files")
-        .select("owner_id")
-        .eq("file_id", fileId)
-        .maybeSingle();
+      const { data: fileRow, error: fileError } = await admin.from("drive_files").select("owner_id").eq("file_id", fileId).maybeSingle();
       if (fileError) throw fileError;
+      
       if (!isAdmin && fileRow?.owner_id !== authData.user.id) {
+        console.error(`[Delete Error] Unauthorized deletion attempt by user ${authData.user.id}`);
         return jsonResponse({ error: "You are not allowed to delete this image." }, 403);
       }
 
-      await callDriveScript({
-        action: "delete",
-        secret,
-        fileId,
-      });
+      await callDriveScript({ action: "delete", secret, fileId });
       await admin.from("drive_files").delete().eq("file_id", fileId);
+      console.log(`[Delete Success] File ${fileId} removed from Drive and database.`);
       return jsonResponse({ deleted: true, fileId });
     }
 
     return jsonResponse({ error: "Unsupported Drive action." }, 400);
   } catch (error) {
-    console.error("drive-image failed", error);
+    console.error("[Fatal Error] Uncaught exception in drive-image function:", error);
     return jsonResponse({ error: error instanceof Error ? error.message : "Drive image action failed." }, 500);
   }
 });
