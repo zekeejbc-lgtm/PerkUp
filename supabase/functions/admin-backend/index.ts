@@ -717,6 +717,8 @@ Deno.serve(async (req) => {
 
       const { error: customerError } = await admin.from("customers").delete().eq("id", userId);
       if (customerError) throw customerError;
+      const { error: phoneError } = await admin.from("customer_phones").delete().eq("customer_id", userId);
+      if (phoneError) throw phoneError;
       const { error: profileError } = await admin.from("users").delete().eq("id", userId);
       if (profileError) throw profileError;
 

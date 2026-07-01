@@ -29,40 +29,6 @@ const normalizePhone = (value: unknown) => {
   return digits;
 };
 
-const hasLivePhoneOwner = async (
-  admin: ReturnType<typeof createClient>,
-  phone: string,
-) => {
-  const { data: phoneRows, error: phoneError } = await admin
-    .from("customer_phones")
-    .select("customer_id")
-    .eq("phone", phone)
-    .limit(1);
-  if (phoneError) throw phoneError;
-
-  const customerId = phoneRows?.[0]?.customer_id as string | undefined;
-  if (!customerId) return false;
-
-  const { data: userRow, error: userError } = await admin
-    .from("users")
-    .select("id")
-    .eq("id", customerId)
-    .maybeSingle();
-  if (userError) throw userError;
-
-  if (!userRow) {
-    const { error: cleanupError } = await admin
-      .from("customer_phones")
-      .delete()
-      .eq("phone", phone)
-      .eq("customer_id", customerId);
-    if (cleanupError) throw cleanupError;
-    return false;
-  }
-
-  return true;
-};
-
 const validateUsername = (username: string) => {
   if (!username) return "Username is required.";
   if (username.length < 4) return "Username must be at least 4 characters.";
@@ -141,7 +107,13 @@ Deno.serve(async (req) => {
 
     let phoneAvailable: boolean | undefined;
     if (phone) {
-      phoneAvailable = !(await hasLivePhoneOwner(admin, phone));
+      const { data, error } = await admin
+        .from("customer_phones")
+        .select("phone")
+        .eq("phone", phone)
+        .limit(1);
+      if (error) throw error;
+      phoneAvailable = !data?.length;
     }
 
     return jsonResponse({
