@@ -147,7 +147,7 @@ export function ImageCropEditor({ file, onCancel, onApply }: ImageCropEditorProp
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center overflow-hidden bg-black/70 p-4 sm:p-6" role="dialog" aria-modal="true" aria-label="Edit image">
+    <div className="fixed inset-0 z-[3000] flex items-center justify-center overflow-hidden bg-black/70 p-4 sm:p-6" role="dialog" aria-modal="true" aria-label="Edit image">
       <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900 sm:max-h-[calc(100dvh-3rem)]">
         <header className="flex shrink-0 items-center justify-between border-b border-gray-200 p-5 dark:border-gray-800">
           <div>

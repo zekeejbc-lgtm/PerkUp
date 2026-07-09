@@ -9,6 +9,7 @@ import L from 'leaflet';
 import { submitPartnerApplication } from '../lib/partnerApplication';
 import { MapBaseLayers } from './MapBaseLayers';
 import { ImageCropEditor } from './ImageCropEditor';
+import { formatApplicationTrackingCode } from '../lib/applicationTracking';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -228,7 +229,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
         coordinates,
         subscriptionLevel: selectedPlanId,
       }, logoFile);
-      setTrackingNumber(result.applicationId || '');
+      setTrackingNumber(result.trackingNumber || formatApplicationTrackingCode(result.applicationId, businessName));
       setIsSuccess(true);
     } catch (error) {
       alert("Failed to submit application");
@@ -270,7 +271,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
             <p className="text-gray-500 dark:text-gray-400">We'll review your details and contact you shortly to complete the setup process.</p>
             {trackingNumber && (
               <div className="mx-auto mt-6 max-w-md rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left dark:border-gray-700 dark:bg-gray-800">
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Tracking number</p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Application code</p>
                 <div className="mt-2 flex items-center gap-2">
                   <code className="min-w-0 flex-1 break-all rounded-xl bg-white px-3 py-2 text-sm font-semibold text-gray-900 dark:bg-gray-900 dark:text-white">
                     {trackingNumber}
@@ -279,12 +280,12 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                     type="button"
                     onClick={() => navigator.clipboard?.writeText(trackingNumber)}
                     className="shrink-0 rounded-xl border border-gray-200 bg-white p-2 text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-700"
-                    aria-label="Copy tracking number"
+                    aria-label="Copy application code"
                   >
                     <Copy className="h-4 w-4" />
                   </button>
                 </div>
-                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">This number is also sent to your email. Use it to track your application status.</p>
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">This code is also sent to your email. Use it to track your application status.</p>
               </div>
             )}
             <button
@@ -430,8 +431,8 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                     
                     <div className="space-y-1 text-left flex-1 h-[260px]">
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Pin Location on Map</label>
-                      <div className="w-full h-full rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100">
-                        <MapContainer center={[7.4478, 125.8078]} zoom={13} style={{ height: '100%', width: '100%' }}>
+                      <div className="relative z-0 w-full h-full rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100">
+                        <MapContainer center={[7.4478, 125.8078]} zoom={13} style={{ height: '100%', width: '100%', zIndex: 0 }}>
                           <MapBaseLayers />
                           <MapViewport position={coordinates} />
                           <LocationMarker position={coordinates} setPosition={setCoordinates} />
@@ -445,27 +446,36 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
               {step === 2 && (
                 <div className="animate-in fade-in slide-in-from-right-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                    {plans.map((plan) => (
-                      <div 
-                        key={plan.id} 
+                    {plans.map((plan) => {
+                      const isSelected = selectedPlanId === plan.name;
+                      return (
+                      <button
+                        key={plan.id}
+                        type="button"
                         onClick={() => setSelectedPlanId(plan.name)}
-                        className={`cursor-pointer rounded-2xl p-5 border-2 transition-all ${selectedPlanId === plan.name ? 'border-[#1b1b1b] bg-gray-100/50 dark:bg-white/5' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 hover:border-gray-400'}`}
+                        className={`relative cursor-pointer rounded-2xl p-5 border-2 text-left transition-all focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-gray-900 ${isSelected ? 'border-green-500 bg-green-50 text-green-950 shadow-sm ring-1 ring-green-500/40 dark:border-green-400 dark:bg-green-500/15 dark:text-green-50' : 'border-gray-200 bg-white text-gray-900 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-800/50 dark:text-white dark:hover:border-gray-500'}`}
+                        aria-pressed={isSelected}
                       >
-                         <h4 className="font-bold text-gray-900 dark:text-white">{plan.name}</h4>
+                         {isSelected && (
+                           <span className="absolute right-4 top-4 inline-flex h-6 w-6 items-center justify-center rounded-full bg-green-500 text-white">
+                             <Check className="h-4 w-4" />
+                           </span>
+                         )}
+                         <h4 className={`pr-8 font-bold ${isSelected ? 'text-green-950 dark:text-green-50' : 'text-gray-900 dark:text-white'}`}>{plan.name}</h4>
                          <div className="mt-2 mb-4">
-                           <span className="text-2xl font-bold text-gray-900 dark:text-white">₱{plan.price}</span>
-                           <span className="text-gray-500 text-sm">/{plan.interval}</span>
+                           <span className={`text-2xl font-bold ${isSelected ? 'text-green-900 dark:text-green-100' : 'text-gray-900 dark:text-white'}`}>₱{plan.price}</span>
+                           <span className={`text-sm ${isSelected ? 'text-green-700 dark:text-green-200' : 'text-gray-500'}`}>/{plan.interval}</span>
                          </div>
-                         <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
+                         <ul className={`space-y-2 text-sm ${isSelected ? 'text-green-900 dark:text-green-100' : 'text-gray-600 dark:text-gray-300'}`}>
                            {plan.features.map((f: string, i: number) => (
                              <li key={i} className="flex gap-2">
-                               <Check className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                               <Check className={`w-4 h-4 shrink-0 mt-0.5 ${isSelected ? 'text-green-600 dark:text-green-300' : 'text-green-500'}`} />
                                <span>{f}</span>
                              </li>
                            ))}
                          </ul>
-                      </div>
-                    ))}
+                      </button>
+                    )})}
                     {plans.length === 0 && (
                       <div className="col-span-full text-center py-8 text-gray-500">No plans configured by admin yet. Proceed to submit.</div>
                     )}

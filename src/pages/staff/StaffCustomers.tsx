@@ -6,6 +6,7 @@ import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { getBirthdayStatus } from "@/src/lib/birthday";
 import { Pagination } from "../../components/Pagination";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
+import { formatCustomerCode } from "../../lib/customerId";
 
 const CUSTOMERS_PER_PAGE = 10;
 
@@ -20,7 +21,7 @@ const getCustomerSubtext = (card: any) => {
   const profile = card.customerProfile || {};
   if (profile.username) return `@${profile.username}`;
   if (profile.email) return profile.email;
-  return card.customerId || "No customer ID";
+  return card.customerId ? formatCustomerCode(card.customerId) : "No customer ID";
 };
 
 const getCardAppName = (card: any, store: any) =>
@@ -132,7 +133,9 @@ export default function StaffCustomers({ store }: { store: any }) {
                             <p className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[120px] sm:max-w-xs">{customerName}</p>
                             <p className="text-xs text-gray-500 truncate max-w-[120px] sm:max-w-xs">{customerSubtext}</p>
                             {!c.accountDeleted && c.customerId && (
-                              <p className="mt-0.5 font-mono text-[11px] text-gray-400 truncate max-w-[120px] sm:max-w-xs">{c.customerId}</p>
+                              <p className="mt-0.5 font-mono text-[11px] text-gray-400 truncate max-w-[120px] sm:max-w-xs" title={c.customerId}>
+                                {formatCustomerCode(c.customerId)}
+                              </p>
                             )}
                           </div>
                         </div>

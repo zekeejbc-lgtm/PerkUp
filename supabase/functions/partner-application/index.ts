@@ -17,6 +17,31 @@ const requiredEnv = (name: string) => {
 const cleanText = (value: unknown, maxLength: number) =>
   String(value || "").trim().slice(0, maxLength);
 
+const getBusinessSlug = (businessName: string) => {
+  const words = businessName
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .split(" ")
+    .filter(Boolean);
+
+  if (words.length === 0) return "SHOP";
+
+  const compact = words.join("");
+  return compact.padEnd(4, "X").slice(0, 6);
+};
+
+const formatApplicationTrackingCode = (applicationId: string, businessName: string) => {
+  const compactId = applicationId.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  if (!compactId) return `PKUP-${getBusinessSlug(businessName)}-PENDING`;
+  return `PKUP-${getBusinessSlug(businessName)}-${compactId.slice(0, 4)}-${compactId.slice(-4)}`;
+};
+
+const parseApplicationTrackingCode = (trackingCode: string) => {
+  const match = trackingCode.toUpperCase().match(/^PKUP-[A-Z0-9]{4,6}-([A-Z0-9]{4})-([A-Z0-9]{4})$/);
+  return match ? { firstGroup: match[1], lastGroup: match[2] } : null;
+};
+
 const sha256 = async (value: string) => {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -70,24 +95,55 @@ Deno.serve(async (req) => {
 
     if (action === "track") {
       const trackingNumber = cleanText(body.trackingNumber, 120);
-      if (!trackingNumber) return jsonResponse({ error: "Tracking number is required." }, 400);
+      if (!trackingNumber) return jsonResponse({ error: "Application code is required." }, 400);
 
-      const { data: applicationRow, error: applicationError } = await admin
+      let { data: applicationRow, error: applicationError } = await admin
         .from("applications")
         .select("id,data")
         .eq("id", trackingNumber)
         .maybeSingle();
       if (applicationError) throw applicationError;
+      if (!applicationRow) {
+        const result = await admin
+          .from("applications")
+          .select("id,data")
+          .eq("data->>trackingCode", trackingNumber.toUpperCase())
+          .maybeSingle();
+        if (result.error) throw result.error;
+        applicationRow = result.data;
+      }
+      if (!applicationRow) {
+        const parsedCode = parseApplicationTrackingCode(trackingNumber);
+        if (parsedCode) {
+          const result = await admin
+            .from("applications")
+            .select("id,data")
+            .ilike("id", `${parsedCode.firstGroup}%${parsedCode.lastGroup}`)
+            .limit(10);
+          if (result.error) throw result.error;
+          applicationRow = (result.data || []).find((row) => {
+            const businessName = cleanText(row.data?.businessName, 120);
+            return formatApplicationTrackingCode(row.id, businessName) === trackingNumber.toUpperCase();
+          }) || null;
+        }
+      }
       if (!applicationRow) return jsonResponse({ found: false }, 404);
 
       const applicationData = applicationRow.data || {};
+      const businessName = cleanText(applicationData.businessName, 120);
+      const trackingCode = cleanText(
+        applicationData.trackingCode || formatApplicationTrackingCode(applicationRow.id, businessName),
+        120,
+      );
       return jsonResponse({
         found: true,
         application: {
-          trackingNumber: applicationRow.id,
-          businessName: cleanText(applicationData.businessName, 120),
+          trackingNumber: trackingCode,
+          applicationId: applicationRow.id,
+          businessName,
           subscriptionLevel: cleanText(applicationData.subscriptionLevel, 80),
           status: cleanText(applicationData.status || "pending", 40),
+          logoUrl: cleanText(applicationData.logoUrl, 1000),
           createdAt: applicationData.createdAt || null,
           updatedAt: applicationData.updatedAt || null,
           approvedStoreId: cleanText(applicationData.approvedStoreId, 120),
@@ -162,6 +218,7 @@ Deno.serve(async (req) => {
     }
 
     const applicationId = crypto.randomUUID();
+    const trackingCode = formatApplicationTrackingCode(applicationId, businessName);
     const applicationData = {
       businessName,
       applicantName,
@@ -174,6 +231,7 @@ Deno.serve(async (req) => {
       lat: coordinates[0],
       lng: coordinates[1],
       subscriptionLevel,
+      trackingCode,
       status: "pending",
       createdAt: timestamp(),
       updatedAt: timestamp(),
@@ -201,7 +259,7 @@ Deno.serve(async (req) => {
         recipientEmail: email,
         userName: applicantName,
         application: {
-          trackingNumber: applicationId,
+          trackingNumber: trackingCode,
           businessName,
           subscriptionLevel,
         },
@@ -211,7 +269,7 @@ Deno.serve(async (req) => {
       emailNotification.error = emailError instanceof Error ? emailError.message : "Application email could not be sent.";
       console.error("Application tracking email failed", { applicationId, error: emailNotification.error });
     }
-    return jsonResponse({ applicationId, submitted: true, notification: emailNotification });
+    return jsonResponse({ applicationId, trackingNumber: trackingCode, submitted: true, notification: emailNotification });
   } catch (error) {
     if (uploadedFileId) {
       const secret = Deno.env.get("DRIVE_CRUD_SECRET");

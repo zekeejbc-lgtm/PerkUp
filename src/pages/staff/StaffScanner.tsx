@@ -20,12 +20,15 @@ import {
   Trash2,
   RotateCcw,
   UserCircle,
+  X,
 } from "lucide-react";
 import { CustomerScanCard, isSecureCustomerQr, normalizeCustomerUsername, redeemCustomerScan } from "@/src/lib/secureQr";
+import { readCustomerScanCache, writeCustomerScanCache } from "@/src/lib/customerScanCache";
 import { getDisplayImageUrl } from "@/src/lib/imageStorage";
 import { CustomDropdown } from "@/src/components/CustomDropdown";
 import { normalizeStampStyle, StoreStamp } from "@/src/components/StoreStamp";
 import { getPhilippineDateTimeMillis } from "@/src/lib/dateTime";
+import { formatCustomerCode } from "@/src/lib/customerId";
 
 type ScannerLocation = {
   lat: number;
@@ -60,6 +63,8 @@ type ScannedCustomer = {
   existingStars: number;
   cards: CustomerScanCard[];
   redemptionInput: RedemptionInput;
+  cachedAt?: number;
+  isCachedPreview?: boolean;
 };
 
 type BatchItem = {
@@ -248,6 +253,16 @@ export default function StaffScanner({ store }: { store: any }) {
   };
 
   const previewCustomer = async (redemptionInput: RedemptionInput) => {
+    const cachedScan = await readCustomerScanCache(store.id, redemptionInput);
+    if (cachedScan) {
+      setScannedCustomer({
+        ...cachedScan.customer,
+        redemptionInput,
+        cachedAt: cachedScan.cachedAt,
+        isCachedPreview: true,
+      });
+    }
+
     const result = await redeemCustomerScan({
       ...redemptionInput,
       storeId: store.id,
@@ -257,6 +272,7 @@ export default function StaffScanner({ store }: { store: any }) {
       previewOnly: true,
     });
 
+    await writeCustomerScanCache(store.id, redemptionInput, result);
     setScannedCustomer({
       id: result.customer.id,
       username: result.customer.username,
@@ -265,6 +281,7 @@ export default function StaffScanner({ store }: { store: any }) {
       existingStars: result.customer.existingStars,
       cards: result.customer.cards || [],
       redemptionInput,
+      isCachedPreview: false,
     });
   };
 
@@ -302,17 +319,28 @@ export default function StaffScanner({ store }: { store: any }) {
       return;
     }
 
-    if (!navigator.onLine) {
-      setMessage({ type: "error", text: "Secure QR scans require an internet connection." });
-      return;
-    }
-
     setIsProcessing(true);
     setIsScannerActive(false);
     setMessage(null);
 
     try {
-      await previewCustomer({ scanToken });
+      if (!navigator.onLine) {
+        const cachedScan = await readCustomerScanCache(store.id, { scanToken });
+        if (!cachedScan) {
+          setMessage({ type: "error", text: "No saved customer info on this device. Connect to the internet once to verify this customer." });
+          setIsScannerActive(true);
+          return;
+        }
+        setScannedCustomer({
+          ...cachedScan.customer,
+          redemptionInput: { scanToken },
+          cachedAt: cachedScan.cachedAt,
+          isCachedPreview: true,
+        });
+        setMessage({ type: "success", text: "Loaded saved customer info. Connect to the internet before crediting the card." });
+      } else {
+        await previewCustomer({ scanToken });
+      }
     } catch (error) {
       console.error(error);
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Failed to verify customer QR." });
@@ -325,10 +353,6 @@ export default function StaffScanner({ store }: { store: any }) {
   const handleManualLookup = async () => {
     const username = normalizeCustomerUsername(manualUsername);
     if (!username || !store?.id || !isWithinGeofence || isProcessing || isBatchMode) return;
-    if (!navigator.onLine) {
-      setManualError("Manual username verification requires an internet connection.");
-      return;
-    }
 
     setIsProcessing(true);
     setManualError("");
@@ -336,7 +360,22 @@ export default function StaffScanner({ store }: { store: any }) {
     setIsScannerActive(false);
 
     try {
-      await previewCustomer({ manualUsername: username });
+      if (!navigator.onLine) {
+        const cachedScan = await readCustomerScanCache(store.id, { manualUsername: username });
+        if (!cachedScan) {
+          setManualError("No saved customer info on this device. Connect to verify this username.");
+          return;
+        }
+        setScannedCustomer({
+          ...cachedScan.customer,
+          redemptionInput: { manualUsername: username },
+          cachedAt: cachedScan.cachedAt,
+          isCachedPreview: true,
+        });
+        setMessage({ type: "success", text: "Loaded saved customer info. Connect to the internet before crediting the card." });
+      } else {
+        await previewCustomer({ manualUsername: username });
+      }
     } catch (error) {
       console.error(error);
       setManualError(error instanceof Error ? error.message : "Customer username could not be verified.");
@@ -347,6 +386,10 @@ export default function StaffScanner({ store }: { store: any }) {
 
   const handleCredit = async () => {
     if (!scannedCustomer || !store?.id || isProcessing) return;
+    if (!navigator.onLine) {
+      setMessage({ type: "error", text: "Customer info can be viewed from cache offline, but crediting a card requires internet confirmation." });
+      return;
+    }
     if (scannedCustomer.cards.length > 0 && !selectedCardId) {
       setMessage({ type: "error", text: "Choose an active card before adding credit." });
       return;
@@ -380,7 +423,9 @@ export default function StaffScanner({ store }: { store: any }) {
         ...scannedCustomer,
         existingStars: result.customer.newStars,
         cards: updatedCards.length > 0 ? updatedCards : result.customer.cards || [],
+        isCachedPreview: false,
       });
+      await writeCustomerScanCache(store.id, scannedCustomer.redemptionInput, result);
       setManualUsername("");
       setMessage({
         type: "success",
@@ -456,7 +501,7 @@ export default function StaffScanner({ store }: { store: any }) {
   const scannerDisabled = isProcessing || Boolean(scannedCustomer) || !isWithinGeofence;
 
   return (
-    <div className="max-w-5xl space-y-8">
+    <div className="w-full max-w-5xl space-y-8">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">QR Scanner</h2>
@@ -668,19 +713,66 @@ export default function StaffScanner({ store }: { store: any }) {
               </div>
             </div>
 
-            {isBatchMode && batchQueue.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowBatchModal(true)}
-                className="w-full rounded-xl bg-gray-100 py-3 font-bold text-[#1b1b1b] transition-colors hover:bg-gray-200 dark:bg-white/10 dark:text-white"
-              >
-                Review {batchQueue.length} Scans
-              </button>
+            {isBatchMode && (
+              <div className="w-full overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/60">
+                <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-3 py-3 dark:border-gray-700">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-gray-900 dark:text-white">Batch Queue</p>
+                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{batchQueue.length} pending scan{batchQueue.length === 1 ? "" : "s"}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleConfirmBatch}
+                    disabled={isProcessing || batchQueue.length === 0}
+                    className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-[#1b1b1b] px-3 py-2 text-xs font-bold text-white transition hover:bg-black disabled:opacity-50"
+                  >
+                    {isProcessing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    Confirm
+                  </button>
+                </div>
+
+                {batchQueue.length === 0 ? (
+                  <div className="p-4 text-center text-sm font-medium text-gray-500 dark:text-gray-400">
+                    Scanned customers will appear here.
+                  </div>
+                ) : (
+                  <div className="max-h-64 space-y-2 overflow-y-auto p-3">
+                    {batchQueue.map((item, index) => (
+                      <div key={`${item.id}-${index}`} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-gray-900 dark:text-white">Customer Scan</p>
+                          <p className="truncate font-mono text-[11px] text-gray-500">{item.id.slice(0, 18)}</p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <div className="flex items-center rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-700 dark:bg-gray-800">
+                            <button type="button" onClick={() => updateBatchItemPoints(index, -1)} className="flex h-7 w-7 items-center justify-center rounded-md text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700">
+                              <Minus className="h-3 w-3" />
+                            </button>
+                            <span className="w-6 text-center text-sm font-bold text-gray-900 dark:text-white">{item.points}</span>
+                            <button type="button" onClick={() => updateBatchItemPoints(index, 1)} className="flex h-7 w-7 items-center justify-center rounded-md text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700">
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          </div>
+                          <button type="button" onClick={() => removeBatchItem(index)} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </section>
 
-        <section className="rounded-[2rem] border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <section
+          className={
+            scannedCustomer
+              ? "fixed inset-0 z-50 flex items-center justify-center bg-gray-900/45 p-3 backdrop-blur-sm dark:bg-black/65 sm:p-6"
+              : "rounded-[2rem] border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900"
+          }
+        >
           {!scannedCustomer ? (
             <div className="flex min-h-[28rem] flex-col items-center justify-center text-center">
               <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-gray-50 dark:bg-gray-800">
@@ -697,28 +789,55 @@ export default function StaffScanner({ store }: { store: any }) {
               )}
             </div>
           ) : (
-            <div className="space-y-6">
-              <div className="flex items-start gap-4 rounded-3xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/50">
-                {scannedCustomer.profilePic ? (
-                  <img
-                    src={getDisplayImageUrl(scannedCustomer.profilePic)}
-                    alt=""
-                    className="h-16 w-16 shrink-0 rounded-full border-4 border-white object-cover shadow-sm dark:border-gray-900"
-                  />
-                ) : (
-                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-4 border-white bg-gray-100 shadow-sm dark:border-gray-900 dark:bg-white/10">
-                    <UserCircle className="h-9 w-9 text-[#1b1b1b]" />
+            <div className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-[1.5rem] border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900 sm:max-h-[min(760px,calc(100dvh-3rem))]">
+              <div className="flex items-start gap-4 border-b border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/5 sm:p-5">
+                <div className="min-w-0 flex flex-1 items-start gap-3">
+                  {scannedCustomer.profilePic ? (
+                    <img
+                      src={getDisplayImageUrl(scannedCustomer.profilePic)}
+                      alt=""
+                      className="h-14 w-14 shrink-0 rounded-full border-4 border-white object-cover shadow-sm dark:border-gray-900"
+                    />
+                  ) : (
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-4 border-white bg-gray-100 shadow-sm dark:border-gray-900 dark:bg-white/10">
+                      <UserCircle className="h-8 w-8 text-[#1b1b1b]" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Customer</p>
+                      {scannedCustomer.isCachedPreview && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold uppercase text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                          Cached
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="truncate text-lg font-bold text-gray-900 dark:text-white">{scannedCustomer.maskedName}</h3>
+                    <p className="mt-0.5 truncate font-mono text-sm text-[#1b1b1b] dark:text-white">@{scannedCustomer.username}</p>
+                    <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400" title={scannedCustomer.id}>
+                      Customer ID: {formatCustomerCode(scannedCustomer.id)}
+                    </p>
                   </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Customer</p>
-                  <h3 className="truncate text-xl font-bold text-gray-900 dark:text-white">{scannedCustomer.maskedName}</h3>
-                  <p className="mt-0.5 truncate font-mono text-sm text-[#1b1b1b] dark:text-white">@{scannedCustomer.username}</p>
-                  <p className="mt-2 truncate text-xs text-gray-500 dark:text-gray-400">Customer ID: {scannedCustomer.id}</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={resetScan}
+                  disabled={isProcessing}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-gray-500 shadow-sm ring-1 ring-gray-200 transition hover:text-gray-900 disabled:opacity-50 dark:bg-gray-900 dark:text-gray-300 dark:ring-gray-700 dark:hover:text-white"
+                  title="Close customer panel"
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
 
-              <div>
+              <div className="flex-1 space-y-5 overflow-y-auto p-4 sm:p-5">
+                {scannedCustomer.isCachedPreview && (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                    Showing saved customer info. Card crediting will refresh and verify the customer online before issuing a ticket.
+                  </div>
+                )}
+
+                <div>
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-lg font-bold text-gray-900 dark:text-white">Active Cards</h3>
                   <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
@@ -768,7 +887,7 @@ export default function StaffScanner({ store }: { store: any }) {
                 )}
               </div>
 
-              <div className="rounded-3xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/50">
+                <div className="rounded-3xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/50">
                 <div className="grid grid-cols-3 items-center text-center">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Current</p>
@@ -784,8 +903,9 @@ export default function StaffScanner({ store }: { store: any }) {
                   </div>
                 </div>
               </div>
+              </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="flex shrink-0 flex-col gap-3 border-t border-gray-100 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 sm:flex-row sm:p-5">
                 <button
                   type="button"
                   onClick={resetScan}

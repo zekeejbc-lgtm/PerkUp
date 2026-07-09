@@ -6,8 +6,10 @@ import { Search, User, Star, ArrowLeft, Minus, Plus, Users, Clock, MessageSquare
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { Pagination } from "../../components/Pagination";
+import { formatCustomerCode } from "../../lib/customerId";
 
 const CUSTOMERS_PER_PAGE = 12;
+const SCROLL_PANEL_CLASS = "overflow-y-auto pr-1";
 
 const toDate = (value: any) => {
   if (!value) return null;
@@ -216,7 +218,13 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
     }
   };
 
-  const filtered = customers.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || c.customerId.includes(search));
+  const filtered = customers.filter(c => {
+    const normalizedSearch = search.toLowerCase();
+    const customerCode = formatCustomerCode(c.customerId).toLowerCase();
+    return c.name.toLowerCase().includes(normalizedSearch)
+      || String(c.customerId || "").toLowerCase().includes(normalizedSearch)
+      || customerCode.includes(normalizedSearch);
+  });
   const totalPages = Math.max(1, Math.ceil(filtered.length / CUSTOMERS_PER_PAGE));
   const paginatedCustomers = filtered.slice((currentPage - 1) * CUSTOMERS_PER_PAGE, currentPage * CUSTOMERS_PER_PAGE);
 
@@ -252,7 +260,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
             <div className="flex-1 text-center sm:text-left">
                <h2 className="text-3xl font-black tracking-tight text-gray-900 dark:text-white">{selectedCustomer.name}</h2>
                <p className="text-gray-500 font-mono text-sm tracking-widest mt-1 uppercase mb-3 text-[#1b1b1b] dark:text-white">
-                 {selectedCustomer.accountDeleted ? "Customer identifier removed" : (selectedCustomer.username ? `@${selectedCustomer.username}` : selectedCustomer.customerId)}
+                 {selectedCustomer.accountDeleted ? "Customer identifier removed" : (selectedCustomer.username ? `@${selectedCustomer.username}` : formatCustomerCode(selectedCustomer.customerId))}
                </p>
                
                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
@@ -294,7 +302,9 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                   <div className="space-y-4">
                     <div>
                       <p className="text-xs text-gray-500 mb-0.5">Customer ID</p>
-                      <p className="font-mono text-xs font-semibold text-gray-900 dark:text-white break-all">{selectedCustomer.customerId}</p>
+                      <p className="font-mono text-xs font-semibold text-gray-900 dark:text-white break-all" title={selectedCustomer.customerId}>
+                        {formatCustomerCode(selectedCustomer.customerId)}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500 mb-0.5">Email Address</p>
@@ -320,13 +330,13 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
             <div className="lg:col-span-2 space-y-6">
                
                {/* Active Promos Showcase */}
-               <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm">
+               <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm flex flex-col">
                  <div className="flex items-center gap-2 mb-4">
                    <Gift className="w-5 h-5 text-[#1b1b1b]" />
                    <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest">Digital Stamp Cards</h3>
                  </div>
                  {promotions.length > 0 ? (
-                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                   <div className={`grid max-h-[34rem] grid-cols-1 gap-4 xl:grid-cols-2 ${SCROLL_PANEL_CLASS}`}>
                      {promotions.map((promo: any) => {
                        const progress = selectedCustomer.promoProgress?.[promo.id] || 0;
                        const isClaimable = progress >= promo.requiredStamps;
@@ -377,12 +387,12 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                </div>
 
                {/* Favourites */}
-               <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm">
+               <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm flex flex-col">
                  <div className="flex items-center gap-2 mb-4">
                    <Heart className="w-5 h-5 text-red-500" />
                    <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest">The Usual</h3>
                  </div>
-                 <div className="flex flex-wrap gap-2">
+                 <div className={`flex max-h-36 flex-wrap gap-2 ${SCROLL_PANEL_CLASS}`}>
                    {selectedCustomer.favorites?.length > 0 ? (
                      selectedCustomer.favorites.map((fav: string, index: number) => (
                        <span key={index} className="px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-bold text-gray-700 dark:text-gray-300">
@@ -397,12 +407,12 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
 
                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  {/* Activity History */}
-                 <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm">
+                 <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm flex max-h-[28rem] min-h-[20rem] flex-col">
                    <div className="flex items-center gap-2 mb-6">
                      <Clock className="w-5 h-5 text-gray-400" />
                      <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest">Recent Activity</h3>
                    </div>
-                   <div className="space-y-4">
+                   <div className={`min-h-0 flex-1 space-y-4 ${SCROLL_PANEL_CLASS}`}>
                      {selectedCustomer.recentHistory?.map((item: any, i: number) => (
                        <div key={i} className="flex justify-between items-start gap-4 pb-4 border-b border-gray-100 dark:border-gray-800 last:border-0 last:pb-0">
                          <div>
@@ -421,12 +431,12 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                  </div>
 
                  {/* Feedback */}
-                 <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm">
+                 <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm flex max-h-[28rem] min-h-[20rem] flex-col">
                    <div className="flex items-center gap-2 mb-6">
                      <MessageSquare className="w-5 h-5 text-gray-400" />
                      <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest">Feedback Left</h3>
                    </div>
-                   <div className="space-y-4">
+                   <div className={`min-h-0 flex-1 space-y-4 ${SCROLL_PANEL_CLASS}`}>
                      {selectedCustomer.feedback?.length > 0 ? (
                        selectedCustomer.feedback.map((item: any, i: number) => (
                          <div key={i} className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-2xl">
@@ -502,7 +512,9 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
               <div className="w-full">
                 <p className="font-bold text-lg text-gray-900 dark:text-white truncate mb-0.5 group-hover:text-[#1b1b1b] dark:group-hover:text-white transition-colors">{c.name}</p>
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="text-gray-500 uppercase tracking-widest">{c.accountDeleted ? "Deleted" : c.customerId.slice(0, 8)}</span>
+                  <span className="text-gray-500 uppercase tracking-widest" title={c.customerId}>
+                    {c.accountDeleted ? "Deleted" : formatCustomerCode(c.customerId)}
+                  </span>
                   <span className="text-gray-300 dark:text-gray-700">&bull;</span>
                   <span className={`${c.lifetimeStars > 20 ? 'text-[#1b1b1b] dark:text-white font-bold' : 'text-gray-400'}`}>
                     {c.lifetimeStars > 20 ? 'Loyal' : (c.lifetimeStars > 5 ? 'Regular' : 'New')}

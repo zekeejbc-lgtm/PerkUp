@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { collection, doc, getDoc, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
-import { Calendar, Coffee, Gift, ImageIcon, Store } from "lucide-react";
+import { Calendar, Gift, ImageIcon, Store, Tag, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { normalizeStampStyle, StoreStamp, StoreStampStyle } from "../../components/StoreStamp";
@@ -34,6 +34,7 @@ export default function CustomerCards() {
   const [cards, setCards] = useState<any[]>([]);
   const [promoCards, setPromoCards] = useState<any[]>([]);
   const [storeStyles, setStoreStyles] = useState<Record<string, StoreStampStyle>>({});
+  const [selectedPromo, setSelectedPromo] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -75,6 +76,7 @@ export default function CustomerCards() {
             return { ...promotion, card, progress };
           })
           .filter(isPromotionAvailable)
+          .filter((promotion: any) => Number(promotion.progress || 0) > 0)
           .sort((first: any, second: any) => String(first.title || "").localeCompare(String(second.title || "")));
         setPromoCards(nextPromoCards);
       } catch (error) {
@@ -97,74 +99,41 @@ export default function CustomerCards() {
         </div>
       </div>
 
-      {cards.length === 0 ? (
+      {promoCards.length === 0 ? (
         <div className="bg-white dark:bg-gray-900 p-8 rounded-3xl border border-dashed border-gray-300 dark:border-gray-700 text-center flex flex-col items-center">
           <div className="w-16 h-16 bg-gray-50 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
-            <Coffee className="w-8 h-8 text-gray-300 dark:text-gray-600" />
+            <Gift className="w-8 h-8 text-gray-300 dark:text-gray-600" />
           </div>
-          <p className="text-gray-500 dark:text-gray-400 font-medium mb-1">No active cards found</p>
-          <p className="text-sm text-gray-400 dark:text-gray-500 max-w-sm mb-6">You haven't collected any stars yet. Visit an affiliated store and present your Identity QR to start earning!</p>
+          <p className="text-gray-500 dark:text-gray-400 font-medium mb-1">No promo cards with stars yet</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500 max-w-sm mb-6">Earn at least one promotion stamp at a participating store to show its reward card here.</p>
           <Link to="/customer/stores" className="text-[#1b1b1b] dark:text-white font-medium hover:underline">
             Find stores near you
           </Link>
         </div>
       ) : (
         <div className="space-y-8">
-          <section className="space-y-4" aria-labelledby="store-cards-heading">
-            <div>
-              <h3 id="store-cards-heading" className="text-sm font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Store Stamp Cards</h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">General loyalty progress at each store.</p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {cards.map(card => {
-              const stampStyle = storeStyles[String(card.storeId || "")] || normalizeStampStyle(card);
-              const requiredStamps = Math.max(Number(card.requiredStamps || 10), 1);
-              const stars = Math.max(Number(card.stars || 0), 0);
-              const filledCount = Math.min(stars, requiredStamps);
-              return (
-              <div key={card.id} className="bg-white dark:bg-gray-900 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-800 transition-colors">
-                <div className="flex justify-between items-center mb-4">
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white">{card.storeName || "Store Name"}</span>
-                  <span className="text-xs font-medium text-[#1b1b1b] dark:text-white bg-gray-100 dark:bg-white/10 px-2 py-1 rounded-md">
-                    {stars}/{requiredStamps}
-                  </span>
-                </div>
-                <div className="flex gap-2 flex-wrap mb-2">
-                  {[...Array(filledCount)].map((_, i) => (
-                    <StoreStamp key={i} style={stampStyle} />
-                  ))}
-                  {[...Array(Math.max(0, requiredStamps - filledCount))].map((_, i) => (
-                    <StoreStamp key={`empty-${i}`} style={stampStyle} filled={false} />
-                  ))}
-                </div>
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{normalizeStampStyle(stampStyle).stampLabel}</p>
-              </div>
-            )})}
-            </div>
-          </section>
-
           <section className="space-y-4" aria-labelledby="promo-cards-heading">
             <div>
               <h3 id="promo-cards-heading" className="text-sm font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Promo Cards</h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Promotion mechanics, banners, and reward progress.</p>
             </div>
 
-            {promoCards.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-gray-300 bg-white p-6 text-center dark:border-gray-700 dark:bg-gray-900">
-                <Gift className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-600" />
-                <p className="mt-3 text-sm font-medium text-gray-500 dark:text-gray-400">No active promo cards for your stores yet.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                {promoCards.map((promo) => {
-                  const stampStyle = storeStyles[String(promo.storeId || "")] || normalizeStampStyle(promo.card);
-                  const requiredStamps = Math.max(Number(promo.requiredStamps || 10), 1);
-                  const progress = Math.max(Number(promo.progress || 0), 0);
-                  const filledCount = Math.min(progress, requiredStamps);
-                  const isReady = progress >= requiredStamps;
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+              {promoCards.map((promo) => {
+                const stampStyle = storeStyles[String(promo.storeId || "")] || normalizeStampStyle(promo.card);
+                const requiredStamps = Math.max(Number(promo.requiredStamps || 10), 1);
+                const progress = Math.max(Number(promo.progress || 0), 0);
+                const filledCount = Math.min(progress, requiredStamps);
+                const isReady = progress >= requiredStamps;
 
-                  return (
-                    <article key={promo.id} className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm transition-colors dark:border-gray-800 dark:bg-gray-900">
+                return (
+                  <button
+                    key={promo.id}
+                    type="button"
+                    onClick={() => setSelectedPromo(promo)}
+                    className="overflow-hidden rounded-3xl border border-gray-100 bg-white text-left shadow-sm transition-colors hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#1b1b1b] focus:ring-offset-2 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-gray-600 dark:focus:ring-white dark:focus:ring-offset-gray-950"
+                    aria-label={`View details for ${promo.title || "special promotion"}`}
+                  >
                       {promo.bannerImageUrl ? (
                         <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt={`${promo.title || "Promotion"} banner`} className="h-40 w-full object-cover" />
                       ) : (
@@ -218,14 +187,142 @@ export default function CustomerCards() {
                           </div>
                         </div>
                       </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
+                    </button>
+                );
+              })}
+            </div>
           </section>
         </div>
       )}
+
+      {selectedPromo && (
+        <PromoCardDetailsModal
+          promo={selectedPromo}
+          stampStyle={storeStyles[String(selectedPromo.storeId || "")] || normalizeStampStyle(selectedPromo.card)}
+          onClose={() => setSelectedPromo(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function PromoCardDetailsModal({
+  promo,
+  stampStyle,
+  onClose,
+}: {
+  promo: any;
+  stampStyle: StoreStampStyle;
+  onClose: () => void;
+}) {
+  const requiredStamps = Math.max(Number(promo.requiredStamps || 10), 1);
+  const progress = Math.max(Number(promo.progress || 0), 0);
+  const filledCount = Math.min(progress, requiredStamps);
+  const isReady = progress >= requiredStamps;
+  const normalizedStampStyle = normalizeStampStyle(stampStyle);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end bg-black/60 px-3 py-4 backdrop-blur-sm sm:items-center sm:justify-center"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="promo-card-details-title"
+        className="max-h-[92vh] w-full overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-gray-900 sm:max-w-2xl"
+      >
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-gray-800">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500">Card details</p>
+            <h2 id="promo-card-details-title" className="truncate text-lg font-bold text-gray-900 dark:text-white">
+              {promo.title || "Special Promotion"}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close card details"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="max-h-[calc(92vh-73px)] overflow-y-auto">
+          {promo.bannerImageUrl ? (
+            <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt={`${promo.title || "Promotion"} banner`} className="h-48 w-full object-cover sm:h-56" />
+          ) : (
+            <div className="flex h-40 items-center justify-center bg-gray-100 text-gray-400 dark:bg-white/10">
+              <ImageIcon className="h-8 w-8" />
+            </div>
+          )}
+
+          <div className="space-y-5 p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold text-gray-500 dark:text-gray-400">
+                  <Store className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{promo.card?.storeName || "Participating store"}</span>
+                </div>
+                {promo.linkedProductName && (
+                  <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-gray-500 dark:text-gray-400">
+                    <Tag className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{promo.linkedProductName}</span>
+                  </div>
+                )}
+              </div>
+              <span className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wide ${isReady ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200" : "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-200"}`}>
+                {isReady ? "Ready to claim" : `${Math.max(requiredStamps - progress, 0)} more to claim`}
+              </span>
+            </div>
+
+            <div>
+              <h3 className="text-xl font-bold leading-tight text-gray-900 dark:text-white">{promo.title || "Special Promotion"}</h3>
+              <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                {promo.description || `Collect ${requiredStamps} ${normalizedStampStyle.stampLabel.toLowerCase()}s to claim this promotion.`}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-gray-100 p-4 dark:border-gray-800">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500">Progress</p>
+                <p className="text-sm font-bold text-gray-900 dark:text-white">{progress}/{requiredStamps}</p>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {[...Array(filledCount)].map((_, i) => (
+                  <StoreStamp key={i} style={stampStyle} />
+                ))}
+                {[...Array(Math.max(0, requiredStamps - filledCount))].map((_, i) => (
+                  <StoreStamp key={`empty-${i}`} style={stampStyle} filled={false} />
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-gray-100 p-4 dark:border-gray-800">
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                  <Calendar className="h-4 w-4" />
+                  Validity
+                </p>
+                <p className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">{formatPromoDuration(promo)}</p>
+              </div>
+              <div className="rounded-xl border border-gray-100 p-4 dark:border-gray-800">
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                  <Gift className="h-4 w-4" />
+                  Reward
+                </p>
+                <p className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">
+                  {isReady ? "Ask staff to redeem this card." : `Collect ${Math.max(requiredStamps - progress, 0)} more ${normalizedStampStyle.stampLabel.toLowerCase()}${Math.max(requiredStamps - progress, 0) === 1 ? "" : "s"}.`}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

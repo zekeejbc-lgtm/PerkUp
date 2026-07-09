@@ -1,6 +1,8 @@
 import { FormEvent, useState } from "react";
 import { CheckCircle2, Clock3, Loader2, Search, Store, X, XCircle } from "lucide-react";
 import { PartnerApplicationStatus, trackPartnerApplication } from "../lib/partnerApplication";
+import { getDisplayImageUrl } from "../lib/imageStorage";
+import { formatApplicationTrackingCode } from "../lib/applicationTracking";
 
 interface PartnerApplicationTrackingModalProps {
   isOpen: boolean;
@@ -72,7 +74,7 @@ export function PartnerApplicationTrackingModal({
     event.preventDefault();
     const normalizedTrackingNumber = trackingNumber.trim();
     if (!normalizedTrackingNumber) {
-      setError("Enter your tracking number.");
+      setError("Enter your application code.");
       setApplication(null);
       return;
     }
@@ -91,6 +93,11 @@ export function PartnerApplicationTrackingModal({
 
   const statusMeta = application ? getStatusMeta(application.status) : null;
   const StatusIcon = statusMeta?.icon;
+  const applicationCode = application
+    ? application.trackingNumber.startsWith("PKUP-")
+      ? application.trackingNumber
+      : formatApplicationTrackingCode(application.applicationId || application.trackingNumber, application.businessName)
+    : "";
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm transition-colors dark:bg-black/60">
@@ -107,7 +114,7 @@ export function PartnerApplicationTrackingModal({
         <div className="border-b border-gray-100 p-6 pr-16 dark:border-gray-800">
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Track Application</h2>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            Enter the tracking number shown after submission or sent to your email.
+            Enter the application code shown after submission or sent to your email.
           </p>
         </div>
 
@@ -115,7 +122,7 @@ export function PartnerApplicationTrackingModal({
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="partner-tracking-number" className="text-xs font-semibold text-gray-900 dark:text-gray-100">
-                Tracking Number
+                Application Code
               </label>
               <div className="relative mt-1">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
@@ -127,7 +134,7 @@ export function PartnerApplicationTrackingModal({
                   value={trackingNumber}
                   onChange={(event) => setTrackingNumber(event.target.value)}
                   className="block w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  placeholder="Paste your tracking number"
+                  placeholder="PKUP-SHOP-1234-ABCD"
                 />
               </div>
             </div>
@@ -150,8 +157,16 @@ export function PartnerApplicationTrackingModal({
           {application && statusMeta && StatusIcon && (
             <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-gray-900 dark:bg-gray-900 dark:text-white">
-                  <Store className="h-5 w-5" />
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white text-gray-900 ring-1 ring-gray-200 dark:bg-gray-900 dark:text-white dark:ring-gray-700">
+                  {application.logoUrl ? (
+                    <img
+                      src={getDisplayImageUrl(application.logoUrl)}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <Store className="h-5 w-5" />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="break-words font-bold text-gray-900 dark:text-white">{application.businessName || "Partner application"}</p>
@@ -172,8 +187,8 @@ export function PartnerApplicationTrackingModal({
                   <dd className="mt-1 text-gray-900 dark:text-white">{formatDate(application.createdAt)}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Tracking Number</dt>
-                  <dd className="mt-1 break-all font-mono text-xs text-gray-700 dark:text-gray-300">{application.trackingNumber}</dd>
+                  <dt className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Application Code</dt>
+                  <dd className="mt-1 break-all font-mono text-sm font-bold text-gray-900 dark:text-white">{applicationCode}</dd>
                 </div>
               </dl>
             </div>

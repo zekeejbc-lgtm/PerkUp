@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { collection, getDocs, doc, updateDoc, serverTimestamp, getDoc } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { ShieldAlert, CheckCircle, Ban, Store, Plus, X, Upload, Image as ImageIcon, Search, SlidersHorizontal } from "lucide-react";
+import { ShieldAlert, CheckCircle, Ban, Store, Plus, X, Upload, Image as ImageIcon, Search, SlidersHorizontal, UserRound, MapPin } from "lucide-react";
 import AdminStoreDetail from "./AdminStoreDetail";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
@@ -31,8 +31,10 @@ const STORES_PER_PAGE = 8;
 export default function AdminStores() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [stores, setStores] = useState<any[]>([]);
+  const [ownerProfiles, setOwnerProfiles] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [branchSelectorGroup, setBranchSelectorGroup] = useState<{ businessName: string; branches: any[] } | null>(null);
   const selectedStoreId = searchParams.get("store");
   const [subscriptionPlans, setSubscriptionPlans] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -143,7 +145,22 @@ export default function AdminStores() {
     async function fetchStores() {
       try {
         const snap = await getDocs(collection(db, "stores"));
-        setStores(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const storeRows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setStores(storeRows);
+
+        const ownerIds = new Set(storeRows.map((store) => store.ownerId).filter(Boolean));
+        if (ownerIds.size > 0) {
+          const userSnap = await getDocs(collection(db, "users"));
+          const profiles: Record<string, any> = {};
+          userSnap.docs.forEach((userDoc) => {
+            if (ownerIds.has(userDoc.id)) {
+              profiles[userDoc.id] = { id: userDoc.id, ...userDoc.data() };
+            }
+          });
+          setOwnerProfiles(profiles);
+        } else {
+          setOwnerProfiles({});
+        }
 
         const subDoc = await getDoc(doc(db, "settings", "subscriptions"));
         if (subDoc.exists() && subDoc.data().plans) {
@@ -167,10 +184,40 @@ export default function AdminStores() {
         status: newStatus,
         updatedAt: serverTimestamp()
       });
-      setStores(stores.map(s => s.id === storeId ? { ...s, status: newStatus } : s));
+      setStores((currentStores) => currentStores.map(s => s.id === storeId ? { ...s, status: newStatus } : s));
     } catch (error) {
       handleDataError(error, OperationType.UPDATE, `stores/${storeId}`);
     }
+  };
+
+  const updateStoreGroupStatus = async (branches: any[], newStatus: string) => {
+    try {
+      const branchIds = branches.map((branch) => branch.id).filter(Boolean);
+      await Promise.all(branchIds.map((branchId) => updateDoc(doc(db, "stores", branchId), {
+        status: newStatus,
+        updatedAt: serverTimestamp()
+      })));
+      setStores((currentStores) => currentStores.map((store) => (
+        branchIds.includes(store.id) ? { ...store, status: newStatus } : store
+      )));
+    } catch (error) {
+      handleDataError(error, OperationType.UPDATE, "store group status");
+    }
+  };
+
+  const openStoreDashboard = (storeId: string) => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("store", storeId);
+    setSearchParams(nextParams);
+    setBranchSelectorGroup(null);
+  };
+
+  const openBranchSelector = (businessName: string, branches: any[]) => {
+    if (branches.length <= 1) {
+      openStoreDashboard(branches[0]?.id);
+      return;
+    }
+    setBranchSelectorGroup({ businessName, branches });
   };
 
   const handleAddStore = async (e: React.FormEvent) => {
@@ -351,12 +398,19 @@ export default function AdminStores() {
               const storeCategories = splitStoreCategories(primaryStore.category);
               const businessName = primaryStore.businessName || primaryStore.name;
               const activeBranches = branches.filter((branch) => branch.status === "active").length;
+              const suspendedBranches = branches.filter((branch) => branch.status === "suspended").length;
+              const ownerName = ownerProfiles[primaryStore.ownerId]?.name || primaryStore.ownerName || "Unassigned owner";
+              const location = primaryStore.location || primaryStore.address || "No location";
+              const allBranchesSuspended = branches.length > 0 && suspendedBranches === branches.length;
+              const groupStatusLabel = allBranchesSuspended
+                ? "All suspended"
+                : activeBranches === branches.length
+                  ? "All active"
+                  : `${activeBranches} active`;
 
               return (
                 <div key={id} className="group flex cursor-pointer flex-col gap-6 p-6 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 sm:flex-row sm:items-center sm:justify-between sm:gap-6" onClick={() => {
-                  const nextParams = new URLSearchParams(searchParams);
-                  nextParams.set("store", primaryStore.id);
-                  setSearchParams(nextParams);
+                  openBranchSelector(businessName, branches);
                 }}>
                   <div className="flex min-w-0 flex-1 items-center gap-4 sm:gap-4">
                     {primaryStore.logoUrl ? (
@@ -375,11 +429,6 @@ export default function AdminStores() {
                         <span className="self-start shrink-0 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-green-700 dark:border-green-800/50 dark:bg-green-900/30 dark:text-green-400 sm:self-auto sm:px-2.5 sm:text-[10px]">
                           {activeBranches} active
                         </span>
-                        {primaryStore.subscriptionLevel && (
-                          <span className="self-start sm:self-auto px-3 py-1 sm:px-2.5 rounded-full text-[11px] sm:text-[10px] font-bold tracking-wider uppercase shrink-0 bg-gray-100 text-[#1b1b1b] border border-gray-300 dark:bg-white/10 dark:text-white dark:border-white/15">
-                            {primaryStore.subscriptionLevel}
-                          </span>
-                        )}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {storeCategories.length > 0 ? storeCategories.map((category) => (
@@ -392,56 +441,41 @@ export default function AdminStores() {
                           </span>
                         )}
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-                        {branches.map((branch) => (
-                          <button
-                            key={branch.id}
-                            type="button"
-                            onClick={() => {
-                              const nextParams = new URLSearchParams(searchParams);
-                              nextParams.set("store", branch.id);
-                              setSearchParams(nextParams);
-                            }}
-                            className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-gray-400 hover:text-gray-950 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-gray-500 dark:hover:text-white"
-                          >
-                            {branch.branchName || (branch.isPrimaryBranch ? "Main" : branch.name)}
-                          </button>
-                        ))}
+                      <div className="mt-3 grid gap-1.5 text-sm text-gray-500 dark:text-gray-400 sm:text-xs">
+                        <p className="flex min-w-0 items-center gap-2">
+                          <UserRound className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{ownerName}</span>
+                        </p>
+                        <p className="flex min-w-0 items-center gap-2">
+                          <MapPin className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{location}</span>
+                        </p>
                       </div>
-                      {(primaryStore.location || primaryStore.address) && <p className="mt-2 max-w-full truncate text-sm text-gray-500 dark:text-gray-400 sm:text-xs">{primaryStore.location || primaryStore.address}</p>}
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2 rounded-2xl bg-gray-50 p-3 dark:bg-gray-900 sm:w-56 sm:shrink-0 sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
-                    {branches.map((branch) => (
-                      <div key={branch.id} className="flex items-center justify-between gap-2">
-                        <span className={`min-w-0 truncate rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
-                          branch.status === 'active' ? 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800/50' :
-                          branch.status === 'pending' ? 'bg-gray-100 text-[#1b1b1b] border border-gray-300 dark:bg-white/10 dark:text-white dark:border-white/15' :
-                          'bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800/50'
-                        }`}>
-                          {branch.branchName || "Main"}: {branch.status}
-                        </span>
-                        {branch.status !== 'active' && (
-                          <button
-                            onClick={() => updateStoreStatus(branch.id, 'active')}
-                            className="rounded-full p-2 text-green-700 transition-colors hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-900/50"
-                            title={`Approve ${branch.branchName || "branch"}`}
-                          >
-                            <CheckCircle className="h-4 w-4" />
-                          </button>
-                        )}
-                        {branch.status !== 'suspended' && (
-                          <button
-                            onClick={() => updateStoreStatus(branch.id, 'suspended')}
-                            className="rounded-full p-2 text-red-700 transition-colors hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900/50"
-                            title={`Suspend ${branch.branchName || "branch"}`}
-                          >
-                            <Ban className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                  <div className="flex items-center justify-between gap-3 rounded-2xl bg-gray-50 p-3 dark:bg-gray-900 sm:w-56 sm:shrink-0 sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
+                    <span className={`min-w-0 truncate rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                      allBranchesSuspended
+                        ? "border border-red-200 bg-red-50 text-red-700 dark:border-red-800/50 dark:bg-red-900/30 dark:text-red-400"
+                        : activeBranches === branches.length
+                          ? "border border-green-200 bg-green-50 text-green-700 dark:border-green-800/50 dark:bg-green-900/30 dark:text-green-400"
+                          : "border border-gray-300 bg-gray-100 text-[#1b1b1b] dark:border-white/15 dark:bg-white/10 dark:text-white"
+                    }`}>
+                      {groupStatusLabel}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => updateStoreGroupStatus(branches, allBranchesSuspended ? "active" : "suspended")}
+                      className={`rounded-full p-2 transition-colors ${
+                        allBranchesSuspended
+                          ? "text-green-700 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-900/50"
+                          : "text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900/50"
+                      }`}
+                      title={allBranchesSuspended ? "Activate all branches" : "Suspend all branches"}
+                    >
+                      {allBranchesSuspended ? <CheckCircle className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
+                    </button>
                   </div>
                 </div>
               );
@@ -469,6 +503,50 @@ export default function AdminStores() {
             itemLabel="stores"
             onPageChange={setCurrentPage}
           />
+        </div>
+      )}
+
+      {branchSelectorGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm dark:bg-black/60" onClick={() => setBranchSelectorGroup(null)}>
+          <div className="w-full max-w-md rounded-3xl border border-gray-100 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-100 p-5 dark:border-gray-800">
+              <div className="min-w-0">
+                <h3 className="truncate text-lg font-bold text-gray-900 dark:text-white">{branchSelectorGroup.businessName}</h3>
+                <p className="mt-1 text-sm text-gray-500">Choose a branch dashboard</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBranchSelectorGroup(null)}
+                className="rounded-full border border-gray-200 bg-gray-50 p-2 text-gray-500 transition-colors hover:text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto p-3">
+              {branchSelectorGroup.branches.map((branch) => (
+                <button
+                  key={branch.id}
+                  type="button"
+                  onClick={() => openStoreDashboard(branch.id)}
+                  className="flex w-full items-center justify-between gap-4 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-800"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-gray-900 dark:text-white">{branch.branchName || (branch.isPrimaryBranch ? "Main" : branch.name)}</p>
+                    <p className="mt-1 truncate text-sm text-gray-500">{branch.location || branch.address || "No location"}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                    branch.status === "active"
+                      ? "border border-green-200 bg-green-50 text-green-700 dark:border-green-800/50 dark:bg-green-900/30 dark:text-green-400"
+                      : branch.status === "suspended"
+                        ? "border border-red-200 bg-red-50 text-red-700 dark:border-red-800/50 dark:bg-red-900/30 dark:text-red-400"
+                        : "border border-gray-300 bg-gray-100 text-[#1b1b1b] dark:border-white/15 dark:bg-white/10 dark:text-white"
+                  }`}>
+                    {branch.status || "pending"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 

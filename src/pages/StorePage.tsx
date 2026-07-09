@@ -1,7 +1,7 @@
 import { useParams, Link, useLocation } from "react-router-dom";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "@/src/lib/dataCompat";
+import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, where } from "@/src/lib/dataCompat";
 import { db } from "../lib/backend";
 import { ArrowLeft, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send, Image as ImageIcon, Store as StoreIcon, Utensils, Gift, CalendarDays, X } from "lucide-react";
 import { MapContainer, Marker, Popup } from "react-leaflet";
@@ -336,7 +336,6 @@ export default function StorePage() {
     setSubmittingFeedback(true);
     setFeedbackSent(false);
     try {
-      const feedbackRef = doc(collection(db, "store_reviews"));
       const imageUrls = await Promise.all(
         reviewImageFiles.map((file, index) => uploadImageFileToDriveSecure(file, {
           owner: user.username || user.email || user.id,
@@ -344,7 +343,7 @@ export default function StorePage() {
         })),
       );
       const customerInitials = getInitials(user.name);
-      await setDoc(feedbackRef, {
+      await addDoc(collection(db, "store_reviews"), {
         storeId,
         storeName: store.name,
         customerId: user.id,
@@ -400,7 +399,7 @@ export default function StorePage() {
   const selectedProductPromotions = selectedProduct
     ? promotions.filter((promotion) => {
         const linkedProductId = String(promotion.linkedProductId || "");
-        return !linkedProductId || linkedProductId === selectedProduct.id;
+        return linkedProductId === selectedProduct.id;
       })
     : [];
   const selectedPromotionProduct = selectedPromotion?.linkedProductId

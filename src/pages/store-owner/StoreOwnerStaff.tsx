@@ -10,6 +10,7 @@ import { formatPhilippineDate, formatPhilippineDateTime } from "../../lib/dateTi
 import { validateStrongPassword } from "../../lib/passwordStrength";
 import { Pagination } from "../../components/Pagination";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
+import { formatCustomerCode } from "../../lib/customerId";
 
 const STAFF_PER_PAGE = 9;
 const SCAN_LOGS_PER_PAGE = 10;
@@ -406,7 +407,9 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                           {promotion?.title || "General scan"} · {formatDateTime(log.timestamp)}
                         </p>
                         {log.customerId && (
-                          <p className="mt-1 font-mono text-[11px] text-gray-400 truncate">{log.customerId}</p>
+                          <p className="mt-1 font-mono text-[11px] text-gray-400 truncate" title={log.customerId}>
+                            {formatCustomerCode(log.customerId)}
+                          </p>
                         )}
                       </div>
                       <div className="inline-flex items-center gap-1.5 self-start rounded-xl border border-gray-300 bg-gray-100 px-3 py-1.5 text-sm font-black text-[#1b1b1b] dark:border-white/15 dark:bg-white/10 dark:text-white sm:self-center">

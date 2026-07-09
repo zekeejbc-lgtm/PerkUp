@@ -9,6 +9,7 @@ import { getBirthdayStatus } from "@/src/lib/birthday";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { supabase } from "@/src/lib/supabase";
 import { formatPhilippineDate } from "@/src/lib/dateTime";
+import { formatCustomerCode } from "@/src/lib/customerId";
 
 type OfflineScan = {
   id: string;
@@ -91,7 +92,7 @@ const getCustomerLabel = (card: any) => {
   const username = String(card?.customerUsername || card?.username || "").trim();
   if (username) return `@${username}`;
   const customerId = String(card?.customerId || card?.id || "").trim();
-  return customerId ? `${customerId.slice(0, 8)}...` : "Customer";
+  return customerId ? formatCustomerCode(customerId) : "Customer";
 };
 
 const normalizeCardRows = (rows: { id: string; data: Record<string, unknown> | null }[]) =>

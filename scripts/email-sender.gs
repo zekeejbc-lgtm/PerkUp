@@ -207,7 +207,7 @@ function sendApplicationReceivedEmail(recipientEmail, userName, application) {
     subject: "We received your PerkUp partner application",
     userName: userName,
     heading: "Application received, " + userName + ".",
-    introText: "Thanks for applying to add " + businessName + " as a PerkUp partner store. Keep this tracking number for status updates.",
+    introText: "Thanks for applying to add " + businessName + " as a PerkUp partner store. Keep this application code for status updates.",
     secondaryText: "We will review your application and contact you through this email when there is an update.",
     application: {
       trackingNumber: trackingNumber,
@@ -219,7 +219,7 @@ function sendApplicationReceivedEmail(recipientEmail, userName, application) {
     showButton: true,
     plainText:
       "We received your PerkUp partner application for " + businessName + ".\n" +
-      "Tracking number: " + trackingNumber + "\n" +
+      "Application code: " + trackingNumber + "\n" +
       (subscriptionLevel ? "Subscription: " + subscriptionLevel + "\n" : "") +
       "Track your application: " + trackingLink
   });
@@ -260,7 +260,7 @@ function sendTestApplicationReceivedEmail() {
     "user@example.com",
     "John Doe",
     {
-      trackingNumber: "sample-tracking-number",
+      trackingNumber: "PKUP-DOWNT-1234-ABCD",
       businessName: "Downtown Coffee",
       subscriptionLevel: "Standard"
     }
