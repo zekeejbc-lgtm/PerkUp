@@ -1,6 +1,6 @@
-import React, { lazy, Suspense, useState, useEffect } from "react";
+import React, { lazy, Suspense, useCallback, useState, useEffect } from "react";
 import { Routes, Route, Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Store, ShoppingBag, Gift, Users, BadgeCheck, UserCircle, CreditCard, ChevronRight, Building, Menu, ArrowLeft, MessageSquare, Plus, Loader2 } from "lucide-react";
+import { Store, ShoppingBag, Gift, Users, BadgeCheck, UserCircle, CreditCard, ChevronRight, Building, Menu, ArrowLeft, MessageSquare, Plus, Loader2, RefreshCw, CheckCircle2, XCircle, Clock3 } from "lucide-react";
 import { DashboardShellSkeleton, PageSkeleton } from "../components/LoadingSkeleton";
 
 const StoreOwnerInfo = lazy(() => import("./store-owner/StoreOwnerInfo"));
@@ -12,10 +12,46 @@ const StoreOwnerStaff = lazy(() => import("./store-owner/StoreOwnerStaff"));
 const StoreOwnerAccount = lazy(() => import("./store-owner/StoreOwnerAccount"));
 const StoreOwnerSubscription = lazy(() => import("./store-owner/StoreOwnerSubscription"));
 import { useAuth } from "../contexts/AuthContext";
-import { query, where, getDocs, collection, addDoc, serverTimestamp } from "@/src/lib/dataCompat";
+import { collection, addDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../lib/backend";
 import { getDisplayImageUrl } from "../lib/imageStorage";
 import { StoreLocationPicker } from "../components/StoreLocationPicker";
+import { supabase } from "../lib/supabase";
+
+const normalizeDataRows = (rows: { id: string; data: Record<string, unknown> | null }[] | null | undefined) =>
+  (rows || []).map((row) => ({ id: row.id, ...(row.data || {}) }));
+
+const requestTimestamp = (request: any) => {
+  const value = request.updatedAt || request.reviewedAt || request.createdAt;
+  if (value?.seconds) return value.seconds * 1000;
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const branchRequestStatus = (status: string) => {
+  if (status === "approved") {
+    return {
+      label: "Approved",
+      message: "This branch was approved and added to your account.",
+      icon: CheckCircle2,
+      className: "border-green-200 bg-green-50 text-green-700 dark:border-green-900/60 dark:bg-green-950/20 dark:text-green-300",
+    };
+  }
+  if (status === "denied") {
+    return {
+      label: "Denied",
+      message: "This branch request was not approved.",
+      icon: XCircle,
+      className: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300",
+    };
+  }
+  return {
+    label: "Pending",
+    message: "Awaiting admin review.",
+    icon: Clock3,
+    className: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300",
+  };
+};
 
 export default function StoreOwnerDashboard() {
   const location = useLocation();
@@ -28,6 +64,7 @@ export default function StoreOwnerDashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [branchRequests, setBranchRequests] = useState<any[]>([]);
   const [showBranchRequest, setShowBranchRequest] = useState(false);
+  const [requestLookupBusy, setRequestLookupBusy] = useState(false);
   const [requestName, setRequestName] = useState("");
   const [requestAddress, setRequestAddress] = useState("");
   const [requestLatitude, setRequestLatitude] = useState(7.4478);
@@ -39,32 +76,52 @@ export default function StoreOwnerDashboard() {
   const activeStore = selectedStore;
   const requestedStoreId = searchParams.get("branch");
 
-  useEffect(() => {
-    async function fetchStores() {
-      if (!user) return;
-      try {
-        const [storesResult, requestsResult] = await Promise.allSettled([
-          getDocs(query(collection(db, "stores"), where("ownerId", "==", user.id))),
-          getDocs(query(collection(db, "branch_requests"), where("ownerId", "==", user.id))),
-        ]);
+  const loadOwnerData = useCallback(async (quiet = false) => {
+    if (!user) return;
+    if (!quiet) setRequestLookupBusy(true);
 
-        if (storesResult.status === "rejected") throw storesResult.reason;
-        setStores(storesResult.value.docs.map(d => ({ id: d.id, ...d.data() })));
+    try {
+      const [storesResult, requestsResult] = await Promise.allSettled([
+        supabase
+          .from("stores")
+          .select("id,data")
+          .eq("data->>ownerId", user.id)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("branch_requests")
+          .select("id,data,updated_at")
+          .eq("data->>ownerId", user.id)
+          .order("updated_at", { ascending: false }),
+      ]);
 
-        if (requestsResult.status === "fulfilled") {
-          setBranchRequests(requestsResult.value.docs.map(d => ({ id: d.id, ...d.data() })));
-        } else {
-          console.warn("Branch requests are unavailable until the database migration is deployed.", requestsResult.reason);
-          setBranchRequests([]);
-        }
-      } catch (error) {
-        handleDataError(error, OperationType.LIST, "stores");
-      } finally {
-        setLoading(false);
+      if (storesResult.status === "rejected") throw storesResult.reason;
+      if (storesResult.value.error) throw storesResult.value.error;
+      setStores(normalizeDataRows(storesResult.value.data as any));
+
+      if (requestsResult.status === "fulfilled" && !requestsResult.value.error) {
+        setBranchRequests(normalizeDataRows(requestsResult.value.data as any));
+      } else {
+        const requestError = requestsResult.status === "rejected" ? requestsResult.reason : requestsResult.value.error;
+        console.warn("Branch requests are unavailable until the database migration is deployed.", requestError);
+        setBranchRequests([]);
       }
+    } catch (error) {
+      handleDataError(error, OperationType.LIST, "stores");
+    } finally {
+      setLoading(false);
+      setRequestLookupBusy(false);
     }
-    fetchStores();
   }, [user]);
+
+  useEffect(() => {
+    loadOwnerData(true);
+  }, [loadOwnerData]);
+
+  useEffect(() => {
+    if (!user) return;
+    const refreshId = window.setInterval(() => loadOwnerData(true), 10000);
+    return () => window.clearInterval(refreshId);
+  }, [loadOwnerData, user]);
 
   useEffect(() => {
     if (requestedStoreId && stores.length > 0) {
@@ -86,6 +143,9 @@ export default function StoreOwnerDashboard() {
   const branchLimit = Math.max(1, Number(user?.branchLimit || 1));
   const remainingBranchSlots = Math.max(0, branchLimit - stores.length);
   const pendingBranchRequest = branchRequests.find((request) => request.status === "pending");
+  const visibleBranchRequests = [...branchRequests]
+    .sort((a, b) => requestTimestamp(b) - requestTimestamp(a))
+    .slice(0, 3);
 
   const submitBranchRequest = async () => {
     if (!user || !requestName.trim() || !requestAddress.trim() || !requestLocationSelected || remainingBranchSlots < 1 || pendingBranchRequest) return;
@@ -115,6 +175,7 @@ export default function StoreOwnerDashboard() {
       setRequestAddress("");
       setRequestLocationSelected(false);
       setShowBranchRequest(false);
+      await loadOwnerData(true);
     } catch (error) {
       setRequestError((error as Error).message);
     } finally {
@@ -208,7 +269,30 @@ export default function StoreOwnerDashboard() {
             <button type="button" disabled={remainingBranchSlots < 1 || Boolean(pendingBranchRequest)} onClick={() => setShowBranchRequest(!showBranchRequest)} className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900">
               <Plus className="h-4 w-4" /> Request a branch
             </button>
+            <button type="button" disabled={requestLookupBusy} onClick={() => loadOwnerData()} className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+              <RefreshCw className={`h-4 w-4 ${requestLookupBusy ? "animate-spin" : ""}`} /> Check status
+            </button>
           </div>
+          {visibleBranchRequests.length > 0 && (
+            <div className="mt-5 space-y-3">
+              {visibleBranchRequests.map((request) => {
+                const status = branchRequestStatus(String(request.status || "pending"));
+                const StatusIcon = status.icon;
+                return (
+                  <div key={request.id} className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-950/40 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-gray-900 dark:text-white">{request.branchName || "Branch request"}</p>
+                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{request.address || "No address provided"}</p>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{status.message}</p>
+                    </div>
+                    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold ${status.className}`}>
+                      <StatusIcon className="h-3.5 w-3.5" /> {status.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {showBranchRequest && (
             <div className="mt-6 space-y-4 border-t border-gray-200 pt-6 dark:border-gray-800">
               <div className="grid gap-4 sm:grid-cols-2">

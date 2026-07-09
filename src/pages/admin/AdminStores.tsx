@@ -94,9 +94,37 @@ export default function AdminStores() {
         String(left.branchName || "Main").localeCompare(String(right.branchName || "Main"));
     });
   }, [searchQuery, selectedCategory, stores]);
+  const filteredStoreGroups = useMemo(() => {
+    const groupMap = new Map<string, any[]>();
+
+    filteredStores.forEach((store) => {
+      const groupKey = String(store.ownerId || store.parentStoreId || store.businessName || store.name || store.id);
+      groupMap.set(groupKey, [...(groupMap.get(groupKey) || []), store]);
+    });
+
+    return Array.from(groupMap.entries())
+      .map(([groupKey, groupStores]) => {
+        const sortedBranches = [...groupStores].sort((left, right) => {
+          const leftPrimary = left.isPrimaryBranch === true || !left.parentStoreId;
+          const rightPrimary = right.isPrimaryBranch === true || !right.parentStoreId;
+          if (leftPrimary !== rightPrimary) return leftPrimary ? -1 : 1;
+          return String(left.branchName || "Main").localeCompare(String(right.branchName || "Main"));
+        });
+        return {
+          id: groupKey,
+          primaryStore: sortedBranches[0],
+          branches: sortedBranches,
+        };
+      })
+      .sort((left, right) => {
+        const leftName = String(left.primaryStore.businessName || left.primaryStore.name || "");
+        const rightName = String(right.primaryStore.businessName || right.primaryStore.name || "");
+        return leftName.localeCompare(rightName);
+      });
+  }, [filteredStores]);
   const hasActiveFilters = Boolean(searchQuery.trim()) || selectedCategory !== "All";
-  const totalPages = Math.max(1, Math.ceil(filteredStores.length / STORES_PER_PAGE));
-  const paginatedStores = filteredStores.slice((currentPage - 1) * STORES_PER_PAGE, currentPage * STORES_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(filteredStoreGroups.length / STORES_PER_PAGE));
+  const paginatedStoreGroups = filteredStoreGroups.slice((currentPage - 1) * STORES_PER_PAGE, currentPage * STORES_PER_PAGE);
 
   const clearFilters = () => {
     setSearchQuery("");
@@ -253,7 +281,7 @@ export default function AdminStores() {
         </div>
         <div className="mt-5 grid grid-cols-[auto_1fr] items-stretch gap-3 sm:mt-0 sm:flex sm:shrink-0 sm:items-center sm:gap-4">
           <span className="flex min-h-12 items-center justify-center rounded-2xl border border-gray-300/50 bg-gray-200 px-4 text-base font-semibold leading-tight text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 sm:min-h-0 sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-xs">
-            {filteredStores.length} {filteredStores.length === 1 ? "store" : "stores"}
+            {filteredStoreGroups.length} {filteredStoreGroups.length === 1 ? "store" : "stores"}
           </span>
           <button
             onClick={() => setShowAddModal(true)}
@@ -319,47 +347,40 @@ export default function AdminStores() {
           </div>
 
           <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
-            {filteredStores.length > 0 ? paginatedStores.map(store => {
-              const storeCategories = splitStoreCategories(store.category);
-              const businessName = store.businessName || store.name;
-              const branchName = store.branchName || "Main";
+            {filteredStoreGroups.length > 0 ? paginatedStoreGroups.map(({ id, primaryStore, branches }) => {
+              const storeCategories = splitStoreCategories(primaryStore.category);
+              const businessName = primaryStore.businessName || primaryStore.name;
+              const activeBranches = branches.filter((branch) => branch.status === "active").length;
 
               return (
-                <div key={store.id} className="group flex cursor-pointer flex-col gap-6 p-6 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 sm:flex-row sm:items-center sm:justify-between sm:gap-6" onClick={() => {
+                <div key={id} className="group flex cursor-pointer flex-col gap-6 p-6 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 sm:flex-row sm:items-center sm:justify-between sm:gap-6" onClick={() => {
                   const nextParams = new URLSearchParams(searchParams);
-                  nextParams.set("store", store.id);
+                  nextParams.set("store", primaryStore.id);
                   setSearchParams(nextParams);
                 }}>
                   <div className="flex min-w-0 flex-1 items-center gap-4 sm:gap-4">
-                    {store.logoUrl ? (
-                      <img src={getDisplayImageUrl(store.logoUrl)} alt="Store Logo" className="h-14 w-14 shrink-0 rounded-full border border-gray-200 object-cover dark:border-gray-700 sm:h-12 sm:w-12" />
+                    {primaryStore.logoUrl ? (
+                      <img src={getDisplayImageUrl(primaryStore.logoUrl)} alt="Store Logo" className="h-14 w-14 shrink-0 rounded-full border border-gray-200 object-cover dark:border-gray-700 sm:h-12 sm:w-12" />
                     ) : (
                       <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-gray-100 text-lg font-bold text-[#1b1b1b] dark:border-white/15 dark:bg-white/10 dark:text-white sm:h-12 sm:w-12 sm:text-base">
-                        {store.name?.charAt(0) || <Store className="h-6 w-6 sm:h-5 sm:w-5" />}
+                        {businessName?.charAt(0) || <Store className="h-6 w-6 sm:h-5 sm:w-5" />}
                       </div>
                     )}
                     <div className="min-w-0">
                       <div className="mb-2 flex flex-wrap items-center gap-2 sm:mb-1 sm:gap-3">
                         <h4 className="w-full truncate text-xl font-bold tracking-tight text-gray-900 transition-colors group-hover:text-[#1b1b1b] dark:text-white dark:group-hover:text-white sm:w-auto sm:text-lg">{businessName}</h4>
                         <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                          {branchName} branch
+                          {branches.length} {branches.length === 1 ? "branch" : "branches"}
                         </span>
-                        <span className={`self-start sm:self-auto px-3 py-1 sm:px-2.5 rounded-full text-[11px] sm:text-[10px] font-bold tracking-wider uppercase shrink-0 ${
-                          store.status === 'active' ? 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800/50' :
-                          store.status === 'pending' ? 'bg-gray-100 text-[#1b1b1b] border border-gray-300 dark:bg-white/10 dark:text-white dark:border-white/15' :
-                          'bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800/50'
-                        }`}>
-                          {store.status}
+                        <span className="self-start shrink-0 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-green-700 dark:border-green-800/50 dark:bg-green-900/30 dark:text-green-400 sm:self-auto sm:px-2.5 sm:text-[10px]">
+                          {activeBranches} active
                         </span>
-                        {store.subscriptionLevel && (
+                        {primaryStore.subscriptionLevel && (
                           <span className="self-start sm:self-auto px-3 py-1 sm:px-2.5 rounded-full text-[11px] sm:text-[10px] font-bold tracking-wider uppercase shrink-0 bg-gray-100 text-[#1b1b1b] border border-gray-300 dark:bg-white/10 dark:text-white dark:border-white/15">
-                            {store.subscriptionLevel}
+                            {primaryStore.subscriptionLevel}
                           </span>
                         )}
                       </div>
-                      {store.name !== businessName && (
-                        <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">{store.name}</p>
-                      )}
                       <div className="flex flex-wrap gap-2">
                         {storeCategories.length > 0 ? storeCategories.map((category) => (
                           <span key={category} className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
@@ -371,31 +392,56 @@ export default function AdminStores() {
                           </span>
                         )}
                       </div>
-                      {store.location && <p className="mt-2 max-w-full truncate text-sm text-gray-500 dark:text-gray-400 sm:text-xs">{store.location}</p>}
+                      <div className="mt-3 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                        {branches.map((branch) => (
+                          <button
+                            key={branch.id}
+                            type="button"
+                            onClick={() => {
+                              const nextParams = new URLSearchParams(searchParams);
+                              nextParams.set("store", branch.id);
+                              setSearchParams(nextParams);
+                            }}
+                            className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-gray-400 hover:text-gray-950 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-gray-500 dark:hover:text-white"
+                          >
+                            {branch.branchName || (branch.isPrimaryBranch ? "Main" : branch.name)}
+                          </button>
+                        ))}
+                      </div>
+                      {(primaryStore.location || primaryStore.address) && <p className="mt-2 max-w-full truncate text-sm text-gray-500 dark:text-gray-400 sm:text-xs">{primaryStore.location || primaryStore.address}</p>}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 rounded-2xl bg-gray-50 p-3 dark:bg-gray-900 sm:shrink-0 sm:rounded-none sm:bg-transparent sm:p-0" onClick={(e) => e.stopPropagation()}>
-                    {store.status !== 'active' && (
-                      <button
-                        onClick={() => updateStoreStatus(store.id, 'active')}
-                        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-3 sm:p-2 sm:rounded-full rounded-xl text-green-700 bg-green-100 sm:bg-transparent sm:hover:bg-green-100 dark:text-green-400 dark:bg-green-900/30 dark:sm:bg-transparent dark:sm:hover:bg-green-900/50 transition-colors font-semibold text-base sm:text-transparent"
-                        title="Approve Store"
-                      >
-                        <CheckCircle className="h-6 w-6 sm:h-5 sm:w-5 sm:text-green-600 dark:sm:text-green-500" />
-                        <span className="sm:hidden">Approve</span>
-                      </button>
-                    )}
-                    {store.status !== 'suspended' && (
-                      <button
-                        onClick={() => updateStoreStatus(store.id, 'suspended')}
-                        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-3 sm:p-2 sm:rounded-full rounded-xl text-red-700 bg-red-100 sm:bg-transparent sm:hover:bg-red-100 dark:text-red-400 dark:bg-red-900/30 dark:sm:bg-transparent dark:sm:hover:bg-red-900/50 transition-colors font-semibold text-base sm:text-transparent"
-                        title="Suspend Store"
-                      >
-                        <Ban className="h-6 w-6 sm:h-5 sm:w-5 sm:text-red-600 dark:sm:text-red-500" />
-                        <span className="sm:hidden">Suspend</span>
-                      </button>
-                    )}
+                  <div className="flex flex-col gap-2 rounded-2xl bg-gray-50 p-3 dark:bg-gray-900 sm:w-56 sm:shrink-0 sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
+                    {branches.map((branch) => (
+                      <div key={branch.id} className="flex items-center justify-between gap-2">
+                        <span className={`min-w-0 truncate rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                          branch.status === 'active' ? 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800/50' :
+                          branch.status === 'pending' ? 'bg-gray-100 text-[#1b1b1b] border border-gray-300 dark:bg-white/10 dark:text-white dark:border-white/15' :
+                          'bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800/50'
+                        }`}>
+                          {branch.branchName || "Main"}: {branch.status}
+                        </span>
+                        {branch.status !== 'active' && (
+                          <button
+                            onClick={() => updateStoreStatus(branch.id, 'active')}
+                            className="rounded-full p-2 text-green-700 transition-colors hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-900/50"
+                            title={`Approve ${branch.branchName || "branch"}`}
+                          >
+                            <CheckCircle className="h-4 w-4" />
+                          </button>
+                        )}
+                        {branch.status !== 'suspended' && (
+                          <button
+                            onClick={() => updateStoreStatus(branch.id, 'suspended')}
+                            className="rounded-full p-2 text-red-700 transition-colors hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900/50"
+                            title={`Suspend ${branch.branchName || "branch"}`}
+                          >
+                            <Ban className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               );
@@ -419,7 +465,7 @@ export default function AdminStores() {
           <Pagination
             page={currentPage}
             pageSize={STORES_PER_PAGE}
-            totalItems={filteredStores.length}
+            totalItems={filteredStoreGroups.length}
             itemLabel="stores"
             onPageChange={setCurrentPage}
           />

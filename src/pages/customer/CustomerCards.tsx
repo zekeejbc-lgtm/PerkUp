@@ -7,12 +7,12 @@ import { Link } from "react-router-dom";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { normalizeStampStyle, StoreStamp, StoreStampStyle } from "../../components/StoreStamp";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
-import { formatPhilippineDate } from "../../lib/dateTime";
+import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../../lib/dateTime";
 
 const isPromotionAvailable = (promotion: any) => {
   const now = Date.now();
-  const startsAt = promotion.startDate ? new Date(promotion.startDate).getTime() : Number.NaN;
-  const endsAt = promotion.endDate ? new Date(promotion.endDate).getTime() : Number.NaN;
+  const startsAt = promotion.startDate ? getPhilippineDateTimeMillis(promotion.startDate) : Number.NaN;
+  const endsAt = promotion.endDate ? getPhilippineDateTimeMillis(promotion.endDate) : Number.NaN;
 
   if (promotion.active === false) return false;
   if (Number.isFinite(startsAt) && startsAt > now) return false;

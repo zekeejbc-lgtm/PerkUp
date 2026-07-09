@@ -8,6 +8,7 @@ import { isSecureCustomerQr, normalizeCustomerUsername, redeemCustomerScan } fro
 import { getBirthdayStatus } from "@/src/lib/birthday";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { supabase } from "@/src/lib/supabase";
+import { formatPhilippineDate } from "@/src/lib/dateTime";
 
 type OfflineScan = {
   id: string;
@@ -58,7 +59,7 @@ const distanceInMeters = (from: { lat: number; lng: number }, to: { lat: number;
   return earthRadiusMeters * c;
 };
 
-const getPromotionGeofence = (promo: any, store: any) => {
+const getPromotionGeofence = (promo: any) => {
   const promoLat = Number(promo?.geofenceLat);
   const promoLng = Number(promo?.geofenceLng);
   if (promo?.geofenceEnabled && Number.isFinite(promoLat) && Number.isFinite(promoLng)) {
@@ -67,17 +68,6 @@ const getPromotionGeofence = (promo: any, store: any) => {
       lng: promoLng,
       radiusMeters: Number(promo.geofenceRadiusMeters || 500),
       label: "promotion",
-    };
-  }
-
-  const storeLat = Number(store?.lat);
-  const storeLng = Number(store?.lng);
-  if (Number.isFinite(storeLat) && Number.isFinite(storeLng)) {
-    return {
-      lat: storeLat,
-      lng: storeLng,
-      radiusMeters: 500,
-      label: "store",
     };
   }
 
@@ -321,7 +311,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
   useEffect(() => {
     const checkLocation = () => {
-      const geofence = getPromotionGeofence(promo, store);
+      const geofence = getPromotionGeofence(promo);
       if (!geofence) {
         setIsWithinGeofence(true);
         setScannerLocation(null);
@@ -801,7 +791,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                </div>
                <div>
                  <p className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">Valid Until</p>
-                 <p className="text-xl font-bold text-gray-900 dark:text-white">{promo.endDate ? new Date(promo.endDate).toLocaleDateString() : 'Continuous'}</p>
+                 <p className="text-xl font-bold text-gray-900 dark:text-white">{promo.endDate ? formatPhilippineDate(promo.endDate) : 'Continuous'}</p>
                </div>
                <div>
                  <p className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">Availability</p>

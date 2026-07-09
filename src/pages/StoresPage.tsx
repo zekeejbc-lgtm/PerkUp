@@ -5,6 +5,7 @@ import { AuthModal } from "../components/AuthModal";
 import { DirectionsButton } from "../components/DirectionsButton";
 import { PublicSiteHeader } from "../components/PublicSiteHeader";
 import { PublicSiteFooter } from "../components/PublicPageShell";
+import { useAuth } from "../contexts/AuthContext";
 import { db } from "../lib/backend";
 import { collection, getDocs, query, where } from "../lib/dataCompat";
 import { getDisplayImageUrl } from "../lib/imageStorage";
@@ -16,6 +17,7 @@ import {
 } from "../lib/storeDirectory";
 
 export default function StoresPage() {
+  const { user, loading: authLoading } = useAuth();
   const [stores, setStores] = useState<DirectoryStore[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -105,11 +107,11 @@ export default function StoresPage() {
         <section className="border-b border-[#1b1b1b]/10 px-6 pb-12 pt-7 dark:border-white/10 sm:pb-16 sm:pt-9">
           <div className="mx-auto max-w-6xl">
             <Link
-              to="/"
+              to={!authLoading && user ? "/dashboard" : "/"}
               className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 transition-colors hover:text-[#1b1b1b] dark:text-gray-400 dark:hover:text-white"
             >
               <ArrowLeft className="h-4 w-4" />
-              Back to homepage
+              {!authLoading && user ? "Back to dashboard" : "Back to homepage"}
             </Link>
             <div className="mx-auto mt-10 max-w-3xl text-center sm:mt-12">
               <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-gray-400 dark:text-gray-500">
@@ -284,7 +286,11 @@ export default function StoresPage() {
                       )}
 
                       <div className="mt-auto flex gap-2 pt-6">
-                        <Link to={`/store/${store.id}`} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1b1b1b] px-4 py-2.5 text-sm font-medium text-white hover:bg-black dark:bg-white dark:text-[#1b1b1b] dark:hover:bg-gray-100">
+                        <Link
+                          to={`/store/${store.id}`}
+                          state={{ storesPath: "/stores" }}
+                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1b1b1b] px-4 py-2.5 text-sm font-medium text-white hover:bg-black dark:bg-white dark:text-[#1b1b1b] dark:hover:bg-gray-100"
+                        >
                           View details
                           <ArrowRight className="h-4 w-4" />
                         </Link>

@@ -1,7 +1,21 @@
 export const PHILIPPINE_TIME_ZONE = "Asia/Manila";
 export const PHILIPPINE_LOCALE = "en-PH";
+export const PHILIPPINE_UTC_OFFSET = "+08:00";
 
 type DateValue = Date | string | number | { seconds?: number; toDate?: () => Date } | null | undefined;
+const LOCAL_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?$/;
+
+export function parsePhilippineDateTime(value: DateValue): Date | null {
+  if (typeof value === "string" && LOCAL_DATE_TIME_PATTERN.test(value.trim())) {
+    return toDate(`${value.trim()}${PHILIPPINE_UTC_OFFSET}`);
+  }
+
+  return toDate(value);
+}
+
+export function getPhilippineDateTimeMillis(value: DateValue) {
+  return parsePhilippineDateTime(value)?.getTime() ?? Number.NaN;
+}
 
 export function toDate(value: DateValue): Date | null {
   if (!value) return null;
@@ -15,7 +29,7 @@ export function toDate(value: DateValue): Date | null {
 }
 
 export function formatPhilippineDateTime(value: DateValue, fallback = "Unknown") {
-  const date = toDate(value);
+  const date = parsePhilippineDateTime(value);
   if (!date) return fallback;
   return new Intl.DateTimeFormat(PHILIPPINE_LOCALE, {
     timeZone: PHILIPPINE_TIME_ZONE,
@@ -29,7 +43,7 @@ export function formatPhilippineDateTime(value: DateValue, fallback = "Unknown")
 }
 
 export function formatPhilippineDate(value: DateValue, fallback = "Unknown") {
-  const date = toDate(value);
+  const date = parsePhilippineDateTime(value);
   if (!date) return fallback;
   return new Intl.DateTimeFormat(PHILIPPINE_LOCALE, {
     timeZone: PHILIPPINE_TIME_ZONE,

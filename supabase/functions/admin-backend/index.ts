@@ -117,6 +117,7 @@ Deno.serve(async (req) => {
         businessName: cleanText(storeInput.businessName, 120) || storeName,
         branchName: cleanText(storeInput.branchName, 80) || "Main",
         isPrimaryBranch: true,
+        parentStoreId: storeId,
         ownerId,
         status: ["pending", "active", "suspended"].includes(String(storeInput.status))
           ? String(storeInput.status)
@@ -236,14 +237,7 @@ Deno.serve(async (req) => {
       if ((count || 0) >= branchLimit) {
         return jsonResponse({ error: `This owner has reached the ${branchLimit}-branch limit.` }, 409);
       }
-      const { data: primaryStore, error: primaryError } = await admin
-        .from("stores")
-        .select("id,data")
-        .eq("data->>ownerId", ownerId)
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (primaryError) throw primaryError;
+      const primaryStore = await getPrimaryStoreForOwner(admin, ownerId);
       if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
       const businessName = cleanText(primaryStore.data?.businessName || primaryStore.data?.name, 120);
       const storeName = `${businessName} - ${branchName}`;
@@ -337,14 +331,7 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: `This owner has reached the ${branchLimit}-branch limit.` }, 409);
       }
 
-      const { data: primaryStore, error: primaryError } = await admin
-        .from("stores")
-        .select("id,data")
-        .eq("data->>ownerId", ownerId)
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (primaryError) throw primaryError;
+      const primaryStore = await getPrimaryStoreForOwner(admin, ownerId);
       if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
 
       const primaryData = (primaryStore.data || {}) as Record<string, unknown>;
@@ -910,6 +897,20 @@ const ownsStore = async (admin: any, storeId: string, ownerId: string) => {
     .maybeSingle();
   if (error) throw error;
   return Boolean(data);
+};
+
+const getPrimaryStoreForOwner = async (admin: any, ownerId: string) => {
+  const { data, error } = await admin
+    .from("stores")
+    .select("id,data")
+    .eq("data->>ownerId", ownerId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  const stores = data || [];
+  return stores.find((row: any) => row.data?.isPrimaryBranch === true) ||
+    stores.find((row: any) => !cleanText(row.data?.parentStoreId, 100)) ||
+    stores[0] ||
+    null;
 };
 
 const getUserProfile = async (admin: any, userId: string): Promise<UserProfile | null> => {

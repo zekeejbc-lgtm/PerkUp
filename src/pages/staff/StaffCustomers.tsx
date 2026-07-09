@@ -1,12 +1,30 @@
 import { useState, useEffect } from "react";
 import { collection, doc, query, where, getDoc, getDocs } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Cake, Star, Users } from "lucide-react";
+import { Cake, CreditCard, Star, Users } from "lucide-react";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { getBirthdayStatus } from "@/src/lib/birthday";
 import { Pagination } from "../../components/Pagination";
+import { getDisplayImageUrl } from "../../lib/imageStorage";
 
 const CUSTOMERS_PER_PAGE = 10;
+
+const getCustomerName = (card: any) => {
+  if (card.accountDeleted) return "Deleted account";
+  const profile = card.customerProfile || {};
+  return profile.name || profile.displayName || card.customerName || "Unknown customer";
+};
+
+const getCustomerSubtext = (card: any) => {
+  if (card.accountDeleted) return "Customer identifier removed";
+  const profile = card.customerProfile || {};
+  if (profile.username) return `@${profile.username}`;
+  if (profile.email) return profile.email;
+  return card.customerId || "No customer ID";
+};
+
+const getCardAppName = (card: any, store: any) =>
+  card.cardName || card.title || card.appName || card.storeName || store?.name || "PerkUp loyalty card";
 
 export default function StaffCustomers({ store }: { store: any }) {
   const [customers, setCustomers] = useState<any[]>([]);
@@ -31,10 +49,18 @@ export default function StaffCustomers({ store }: { store: any }) {
           if (!card.customerId) return card;
 
           try {
-            const customerDoc = await getDoc(doc(db, "users", card.customerId));
+            const [userDoc, customerDoc] = await Promise.all([
+              getDoc(doc(db, "users", card.customerId)),
+              getDoc(doc(db, "customers", card.customerId)),
+            ]);
+            const userProfile = userDoc.exists() ? userDoc.data() : {};
+            const customerProfile = customerDoc.exists() ? customerDoc.data() : {};
             return {
               ...card,
-              customerProfile: customerDoc.exists() ? customerDoc.data() : null,
+              customerProfile: {
+                ...customerProfile,
+                ...userProfile,
+              },
             };
           } catch (profileError) {
             console.warn("Failed to load customer profile", card.customerId, profileError);
@@ -76,7 +102,8 @@ export default function StaffCustomers({ store }: { store: any }) {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
-                  <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Customer ID</th>
+                  <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Customer</th>
+                  <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">App / Card</th>
                   <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Birthday</th>
                   <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Stars</th>
@@ -85,16 +112,36 @@ export default function StaffCustomers({ store }: { store: any }) {
               <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                 {paginatedCustomers.map(c => {
                   const birthday = getBirthdayStatus(c.customerProfile?.birthday);
+                  const avatarUrl = c.customerProfile?.avatarUrl || c.customerProfile?.photoURL || c.customerProfile?.profilePic || "";
+                  const customerName = getCustomerName(c);
+                  const customerSubtext = getCustomerSubtext(c);
+                  const cardAppName = getCardAppName(c, store);
 
                   return (
                     <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center border border-gray-300 dark:border-white/15">
-                            <Users className="w-5 h-5 text-[#1b1b1b] dark:text-white" />
+                          <div className="w-10 h-10 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center border border-gray-300 dark:border-white/15">
+                            {avatarUrl && !c.accountDeleted ? (
+                              <img src={getDisplayImageUrl(avatarUrl)} alt="" loading="lazy" className="h-full w-full object-cover" />
+                            ) : (
+                              <Users className="w-5 h-5 text-[#1b1b1b] dark:text-white" />
+                            )}
                           </div>
-                          <div>
-                            <p className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[120px] sm:max-w-xs">{c.accountDeleted ? "Deleted account" : (c.customerId || "Unknown")}</p>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[120px] sm:max-w-xs">{customerName}</p>
+                            <p className="text-xs text-gray-500 truncate max-w-[120px] sm:max-w-xs">{customerSubtext}</p>
+                            {!c.accountDeleted && c.customerId && (
+                              <p className="mt-0.5 font-mono text-[11px] text-gray-400 truncate max-w-[120px] sm:max-w-xs">{c.customerId}</p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <CreditCard className="h-4 w-4 shrink-0 text-[#1b1b1b] dark:text-white" />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-gray-900 dark:text-white max-w-[160px]">{cardAppName}</p>
                             <p className="text-xs text-gray-500">Joined {c.joinedAt?.toDate?.()?.toLocaleDateString() || "Recently"}</p>
                           </div>
                         </div>

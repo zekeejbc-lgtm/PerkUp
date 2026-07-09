@@ -375,7 +375,7 @@ function Layout({ children }: { children: ReactNode }) {
                 </div>
                 <div className="hidden sm:flex flex-col">
                   <span className="text-sm font-semibold text-gray-900 dark:text-white leading-tight">{user?.name || "User"}</span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400 leading-tight truncate max-w-[120px]">{user?.email}</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400 leading-tight truncate max-w-[120px]">{user?.username || user?.email}</span>
                 </div>
               </button>
               <ThemeToggle />

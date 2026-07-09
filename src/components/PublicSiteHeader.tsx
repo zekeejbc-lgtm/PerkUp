@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Search } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { ThemeToggle } from "./ThemeToggle";
+import { useAuth } from "../contexts/AuthContext";
 
 interface PublicSiteHeaderProps {
   onSignIn: () => void;
@@ -10,6 +11,8 @@ interface PublicSiteHeaderProps {
 }
 
 export function PublicSiteHeader({ onSignIn, onSignUp, onTrack }: PublicSiteHeaderProps) {
+  const { user, loading } = useAuth();
+
   return (
     <header className="sticky top-0 z-50 border-b border-[#1b1b1b]/10 bg-white/85 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#1b1b1b]/85">
       <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
@@ -28,20 +31,31 @@ export function PublicSiteHeader({ onSignIn, onSignUp, onTrack }: PublicSiteHead
               <span className="hidden sm:inline">Track</span>
             </button>
           )}
-          <button
-            type="button"
-            onClick={onSignIn}
-            className="text-sm font-medium text-[#1b1b1b] transition-opacity hover:opacity-70 dark:text-white"
-          >
-            Sign in
-          </button>
-          <button
-            type="button"
-            onClick={onSignUp}
-            className="hidden rounded-full bg-[#1b1b1b] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black dark:bg-white dark:text-[#1b1b1b] dark:hover:bg-gray-100 sm:block"
-          >
-            Sign up
-          </button>
+          {!loading && user ? (
+            <Link
+              to="/dashboard"
+              className="rounded-full bg-[#1b1b1b] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black dark:bg-white dark:text-[#1b1b1b] dark:hover:bg-gray-100"
+            >
+              Dashboard
+            </Link>
+          ) : !loading ? (
+            <>
+              <button
+                type="button"
+                onClick={onSignIn}
+                className="text-sm font-medium text-[#1b1b1b] transition-opacity hover:opacity-70 dark:text-white"
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                onClick={onSignUp}
+                className="hidden rounded-full bg-[#1b1b1b] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black dark:bg-white dark:text-[#1b1b1b] dark:hover:bg-gray-100 sm:block"
+              >
+                Sign up
+              </button>
+            </>
+          ) : null}
         </div>
       </nav>
     </header>

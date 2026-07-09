@@ -7,6 +7,7 @@ import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { getCompletedPromotionCount, getRemainingPromotionClaimsLabel } from "../../lib/promotionProgress";
 import { Pagination } from "../../components/Pagination";
+import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../../lib/dateTime";
 
 const PROMOTIONS_PER_PAGE = 6;
 
@@ -40,8 +41,8 @@ export default function StaffPromotions({ store }: { store: any }) {
         const now = Date.now();
         setPromotions(promos.filter(p => {
           if (p.active === false) return false;
-          if (p.startDate && new Date(p.startDate).getTime() > now) return false;
-          if (p.endDate && new Date(p.endDate).getTime() <= now) return false;
+          if (p.startDate && getPhilippineDateTimeMillis(p.startDate) > now) return false;
+          if (p.endDate && getPhilippineDateTimeMillis(p.endDate) <= now) return false;
           if (p.maxRedemptions && Number(p.claimedCount || 0) >= Number(p.maxRedemptions)) return false;
           return true;
         }));
@@ -104,7 +105,7 @@ export default function StaffPromotions({ store }: { store: any }) {
                   </div>
                   <div className="flex min-w-0 flex-col gap-1 px-2">
                     <span className="flex items-center gap-1 text-gray-500"><Calendar className="h-3.5 w-3.5" /> Ends</span>
-                    <span className="truncate">{promo.endDate ? new Date(promo.endDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "None"}</span>
+                    <span className="truncate">{promo.endDate ? formatPhilippineDate(promo.endDate) : "None"}</span>
                   </div>
                   <div className="flex min-w-0 flex-col gap-1 px-2">
                     <span className="flex items-center gap-1 text-gray-500"><Users className="h-3.5 w-3.5" /> Left</span>

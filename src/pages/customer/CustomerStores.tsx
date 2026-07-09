@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
 import { MapContainer, Marker, Popup } from "react-leaflet";
@@ -28,6 +29,7 @@ type CustomerStore = {
 };
 
 export default function CustomerStores() {
+  const navigate = useNavigate();
   const [stores, setStores] = useState<CustomerStore[]>([]);
   const [loading, setLoading] = useState(true);
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -175,10 +177,19 @@ export default function CustomerStores() {
                             </div>
                             {store.address && <p className="mt-3 text-xs leading-relaxed text-gray-600">{store.address}</p>}
                             {store.hours && <p className="mt-1 text-xs text-gray-500">{store.hours}</p>}
-                            <DirectionsButton
-                              destination={{ lat: store.lat, lng: store.lng, address: store.address, name: store.name }}
-                              className="w-full mt-2 rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-[#1b1b1b] hover:bg-gray-200"
-                            />
+                            <div className="mt-3 flex flex-col gap-2">
+                              <Link
+                                to={`/store/${store.id}`}
+                                state={{ storesPath: "/customer/stores" }}
+                                className="w-full rounded-lg bg-gray-900 px-3 py-2 text-center text-xs font-medium text-white transition-colors hover:bg-gray-800"
+                              >
+                                View Details
+                              </Link>
+                              <DirectionsButton
+                                destination={{ lat: store.lat, lng: store.lng, address: store.address, name: store.name }}
+                                className="w-full rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-[#1b1b1b] hover:bg-gray-200"
+                              />
+                            </div>
                           </div>
                         </Popup>
                       </Marker>
@@ -201,10 +212,23 @@ export default function CustomerStores() {
             paginatedStores.map((store) => {
               const logoUrl = getDisplayImageUrl(store.logoUrl || "");
               const hasCoordinates = Number.isFinite(store.lat) && Number.isFinite(store.lng);
+              const openStoreDetails = () => navigate(`/store/${store.id}`, {
+                state: { storesPath: "/customer/stores" },
+              });
               return (
               <div
                 key={store.id} 
-                className="flex flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-gray-800 dark:bg-gray-900 sm:flex-row sm:items-start"
+                role="link"
+                tabIndex={0}
+                onClick={openStoreDetails}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openStoreDetails();
+                  }
+                }}
+                className="flex cursor-pointer flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#1b1b1b]/30 dark:border-gray-800 dark:bg-gray-900 dark:focus:ring-white/40 sm:flex-row sm:items-start"
+                aria-label={`Open ${store.name} details`}
               >
                 <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white">
                   {logoUrl ? (
@@ -249,11 +273,16 @@ export default function CustomerStores() {
                   </div>
                 </div>
                 {hasCoordinates && (
-                  <DirectionsButton
-                    destination={{ lat: store.lat, lng: store.lng, address: store.address, name: store.name }}
-                    label="Navigate"
-                    className="w-full shrink-0 rounded-xl bg-[#1b1b1b] px-3 py-2 text-xs font-medium text-white hover:bg-black dark:bg-white dark:text-[#1b1b1b] sm:w-auto"
-                  />
+                  <div
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                  >
+                    <DirectionsButton
+                      destination={{ lat: store.lat, lng: store.lng, address: store.address, name: store.name }}
+                      label="Navigate"
+                      className="w-full shrink-0 rounded-xl bg-[#1b1b1b] px-3 py-2 text-xs font-medium text-white hover:bg-black dark:bg-white dark:text-[#1b1b1b] sm:w-auto"
+                    />
+                  </div>
                 )}
               </div>
               );

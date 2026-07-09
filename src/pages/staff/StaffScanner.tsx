@@ -25,6 +25,7 @@ import { CustomerScanCard, isSecureCustomerQr, normalizeCustomerUsername, redeem
 import { getDisplayImageUrl } from "@/src/lib/imageStorage";
 import { CustomDropdown } from "@/src/components/CustomDropdown";
 import { normalizeStampStyle, StoreStamp } from "@/src/components/StoreStamp";
+import { getPhilippineDateTimeMillis } from "@/src/lib/dateTime";
 
 type ScannerLocation = {
   lat: number;
@@ -116,8 +117,8 @@ const formatJoinedAt = (value: unknown) => {
 
 const isPromotionCurrentlyVisible = (promotion: Promotion) => {
   if (promotion.active === false) return false;
-  if (promotion.startDate && new Date(promotion.startDate).getTime() > Date.now()) return false;
-  if (promotion.endDate && new Date(promotion.endDate).getTime() <= Date.now()) return false;
+  if (promotion.startDate && getPhilippineDateTimeMillis(promotion.startDate) > Date.now()) return false;
+  if (promotion.endDate && getPhilippineDateTimeMillis(promotion.endDate) <= Date.now()) return false;
   return true;
 };
 

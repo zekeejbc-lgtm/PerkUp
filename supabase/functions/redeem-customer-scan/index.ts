@@ -5,6 +5,8 @@ const LEGACY_TOKEN_PREFIX = "perkup:v1:";
 const SIGNED_TOKEN_PREFIX = "perkup:v2:";
 const MAX_POINTS_PER_SCAN = 100;
 const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
+const PHILIPPINE_UTC_OFFSET = "+08:00";
+const LOCAL_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?$/;
 
 const requiredEnv = (name: string) => {
   const value = Deno.env.get(name);
@@ -14,6 +16,16 @@ const requiredEnv = (name: string) => {
 
 const normalizePoints = (points: unknown) =>
   Math.min(Math.max(Math.trunc(Number(points) || 1), 1), MAX_POINTS_PER_SCAN);
+
+const promotionDateMillis = (value: unknown) => {
+  const rawValue = String(value || "").trim();
+  if (!rawValue) return Number.NaN;
+  const dateText = LOCAL_DATE_TIME_PATTERN.test(rawValue)
+    ? `${rawValue}${PHILIPPINE_UTC_OFFSET}`
+    : rawValue;
+  const millis = new Date(dateText).getTime();
+  return Number.isFinite(millis) ? millis : Number.NaN;
+};
 
 const timestamp = () => ({
   seconds: Math.floor(Date.now() / 1000),
@@ -245,10 +257,10 @@ Deno.serve(async (req) => {
       if (promotion.active === false) {
         return jsonResponse({ error: "Promotion is not active." }, 409);
       }
-      if (promotion.startDate && new Date(promotion.startDate).getTime() > Date.now()) {
+      if (promotion.startDate && promotionDateMillis(promotion.startDate) > Date.now()) {
         return jsonResponse({ error: "Promotion has not started yet." }, 409);
       }
-      if (promotion.endDate && new Date(promotion.endDate).getTime() <= Date.now()) {
+      if (promotion.endDate && promotionDateMillis(promotion.endDate) <= Date.now()) {
         return jsonResponse({ error: "Promotion has already ended." }, 410);
       }
 

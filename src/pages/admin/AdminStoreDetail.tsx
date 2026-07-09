@@ -171,6 +171,7 @@ export default function AdminStoreDetail({
           setStore({ id: storeDoc.id, ...normalizedStoreData });
           setEditData({
             name: storeData.name || '',
+            ownerName: "",
             subscriptionLevel,
             owedAmount,
             address: String(storeData.address || ""),
@@ -193,10 +194,21 @@ export default function AdminStoreDetail({
             if (ownerDoc.exists()) {
               const ownerData = ownerDoc.data();
               setOwner({ id: ownerDoc.id, ...ownerData });
+              setEditData((current: any) => ({
+                ...current,
+                ownerName: String(ownerData.name || ""),
+              }));
               setBranchLimit(Math.max(1, Number(ownerData.branchLimit || 1)));
             }
             const branchSnap = await getDocs(query(collection(db, "stores"), where("ownerId", "==", storeData.ownerId)));
-            setBranches(branchSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+            setBranches(branchSnap.docs
+              .map(d => ({ id: d.id, ...d.data() }))
+              .sort((left, right) => {
+                const leftPrimary = left.isPrimaryBranch === true || !left.parentStoreId;
+                const rightPrimary = right.isPrimaryBranch === true || !right.parentStoreId;
+                if (leftPrimary !== rightPrimary) return leftPrimary ? -1 : 1;
+                return String(left.branchName || "Main").localeCompare(String(right.branchName || "Main"));
+              }));
             const branchRequestSnap = await getDocs(query(collection(db, "branch_requests"), where("ownerId", "==", storeData.ownerId)));
             setBranchRequests(branchRequestSnap.docs.map(d => ({ id: d.id, ...d.data() })));
           }
@@ -266,34 +278,38 @@ export default function AdminStoreDetail({
         dateInputToDate(editData.subscriptionEnd),
       );
       const priceChangesNextCycle = nextPlanAmount !== currentAmount && Boolean(nextPaymentDate);
+      const { ownerName: rawOwnerName, ...storeEditData } = editData;
+      const nextOwnerName = String(rawOwnerName || "").trim();
       const nextData = {
-        ...editData,
+        ...storeEditData,
         logoUrl,
-        address: editData.address || "",
-        contact: editData.contact || "",
-        website: editData.website || "",
-        description: editData.description || "",
-        hours: formatStoreHours(editData.openingTime, editData.closingTime),
-        openingHours: formatStoreHours(editData.openingTime, editData.closingTime),
+        address: storeEditData.address || "",
+        contact: storeEditData.contact || "",
+        website: storeEditData.website || "",
+        description: storeEditData.description || "",
+        hours: formatStoreHours(storeEditData.openingTime, storeEditData.closingTime),
+        openingHours: formatStoreHours(storeEditData.openingTime, storeEditData.closingTime),
         owedAmount: priceChangesNextCycle ? currentAmount : nextPlanAmount,
         subscriptionDependencies: dependencies,
         pendingOwedAmount: priceChangesNextCycle ? nextPlanAmount : deleteField(),
         pendingOwedAmountEffectiveAt: priceChangesNextCycle ? nextPaymentDate : deleteField(),
-        subscriptionStart: dateInputToDate(editData.subscriptionStart),
-        subscriptionEnd: dateInputToDate(editData.subscriptionEnd),
-        paymentSchedule: editData.paymentSchedule,
+        subscriptionStart: dateInputToDate(storeEditData.subscriptionStart),
+        subscriptionEnd: dateInputToDate(storeEditData.subscriptionEnd),
+        paymentSchedule: storeEditData.paymentSchedule,
         updatedAt: serverTimestamp(),
       };
 
       await updateDoc(doc(db, "stores", storeId), nextData);
       if (owner) {
         const nextBranchLimit = dependencies.branchLimit > 0 ? dependencies.branchLimit : 100;
-        await updateDoc(doc(db, "users", owner.id), {
+        const nextOwnerData = {
+          ...(nextOwnerName ? { name: nextOwnerName } : {}),
           branchLimit: nextBranchLimit,
           updatedAt: serverTimestamp(),
-        });
+        };
+        await updateDoc(doc(db, "users", owner.id), nextOwnerData);
         setBranchLimit(nextBranchLimit);
-        setOwner({ ...owner, branchLimit: nextBranchLimit });
+        setOwner({ ...owner, ...nextOwnerData, branchLimit: nextBranchLimit });
       }
       setStore({
         ...store,
@@ -303,6 +319,7 @@ export default function AdminStoreDetail({
       });
       setEditData({
         ...editData,
+        ownerName: nextOwnerName,
         owedAmount: nextData.owedAmount,
       });
       setIsEditing(false);
@@ -324,6 +341,7 @@ export default function AdminStoreDetail({
   const handleCancelEdit = () => {
     setEditData({
       name: store.name || '',
+      ownerName: owner?.name || "",
       subscriptionLevel: store.subscriptionLevel || plans[0]?.name || 'Standard',
       owedAmount: Number(store.owedAmount || 0),
       address: String(store.address || ""),
@@ -761,9 +779,10 @@ export default function AdminStoreDetail({
                     }`}
                   >
                     <span className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-gray-900 dark:text-white">{branch.name}</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{branch.branchName || branch.name}</span>
                       {branch.id === storeId && <span className="text-[10px] font-bold uppercase tracking-wider text-green-600">Current</span>}
                     </span>
+                    {branch.businessName && <p className="mt-1 truncate text-xs text-gray-600 dark:text-gray-300">{branch.businessName}</p>}
                     <p className="mt-1 truncate text-xs text-gray-500">{branch.address || branch.location || "No address"}</p>
                     <p className="mt-2 text-xs font-medium text-green-600">{branch.id === storeId ? "View overview" : "Open dashboard"}</p>
                   </button>
@@ -840,8 +859,18 @@ export default function AdminStoreDetail({
                 <h5 className="text-xs font-semibold text-gray-500 mb-3 border-b border-gray-200 dark:border-gray-700 pb-1">Store Owner</h5>
                 {owner ? (
                   <div className="flex items-center justify-between bg-white dark:bg-gray-900 p-3 rounded-xl border border-gray-100 dark:border-gray-800">
-                    <div>
-                      <p className="font-medium text-sm text-gray-900 dark:text-white">{owner.name}</p>
+                    <div className="min-w-0 flex-1">
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editData.ownerName || ""}
+                          onChange={e => setEditData({ ...editData, ownerName: e.target.value })}
+                          className="mb-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                          placeholder="Owner name"
+                        />
+                      ) : (
+                        <p className="font-medium text-sm text-gray-900 dark:text-white">{owner.name}</p>
+                      )}
                       <p className="text-xs text-gray-500">{owner.email}</p>
                     </div>
                     <button onClick={() => setResetModalUser(owner)} className="p-2 text-gray-500 hover:text-[#1b1b1b] bg-gray-50 dark:bg-gray-800 rounded-lg" title="Reset Password">
@@ -958,7 +987,7 @@ export default function AdminStoreDetail({
                 <div>
                   <h3 id="delete-store-title" className="text-xl font-bold text-gray-900 dark:text-white">Delete {store.name}?</h3>
                   <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
-                    This permanently deletes the store and removes its owner and staff accounts. This action cannot be undone.
+                    This permanently deletes this branch and its branch data. The shared owner account is removed only when this is the owner's last branch. This action cannot be undone.
                   </p>
                 </div>
               </div>

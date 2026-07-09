@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useLocation } from "react-router-dom";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "@/src/lib/dataCompat";
@@ -15,6 +15,7 @@ import { ThemeToggle } from "../components/ThemeToggle";
 import { MapBaseLayers } from "../components/MapBaseLayers";
 import { getDisplayImageUrl, uploadImageFileToDriveSecure } from "../lib/imageStorage";
 import { PublicSiteFooter } from "../components/PublicPageShell";
+import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../lib/dateTime";
 
 interface StoreContent {
   id: string;
@@ -97,18 +98,14 @@ const getInitials = (name?: string) => {
 };
 
 const promotionDate = (value?: string) => {
-  if (!value) return "";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? ""
-    : date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return value ? formatPhilippineDate(value, "") : "";
 };
 
 const isPromotionRunning = (promotion: StorePromotion) => {
   if (promotion.active === false) return false;
   const now = Date.now();
-  const startsAt = promotion.startDate ? new Date(promotion.startDate).getTime() : Number.NaN;
-  const endsAt = promotion.endDate ? new Date(promotion.endDate).getTime() : Number.NaN;
+  const startsAt = promotion.startDate ? getPhilippineDateTimeMillis(promotion.startDate) : Number.NaN;
+  const endsAt = promotion.endDate ? getPhilippineDateTimeMillis(promotion.endDate) : Number.NaN;
   return (!Number.isFinite(startsAt) || startsAt <= now) && (!Number.isFinite(endsAt) || endsAt > now);
 };
 
@@ -151,11 +148,13 @@ const createBranchPin = (branch: StoreContent, selected: boolean) => {
 
 export default function StorePage() {
   const { storeId } = useParams();
+  const location = useLocation();
   const { user } = useAuth();
   const [store, setStore] = useState<StoreContent | null>(null);
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [promotions, setPromotions] = useState<StorePromotion[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<StoreProduct | null>(null);
+  const [selectedPromotion, setSelectedPromotion] = useState<StorePromotion | null>(null);
   const [branches, setBranches] = useState<StoreContent[]>([]);
   const [reviews, setReviews] = useState<StoreReview[]>([]);
   const [loading, setLoading] = useState(true);
@@ -272,8 +271,8 @@ export default function StorePage() {
               .map((promotionDoc) => ({ id: promotionDoc.id, ...promotionDoc.data() } as StorePromotion))
               .filter(isPromotionRunning)
               .sort((a, b) => {
-                const aEnd = a.endDate ? new Date(a.endDate).getTime() : Number.POSITIVE_INFINITY;
-                const bEnd = b.endDate ? new Date(b.endDate).getTime() : Number.POSITIVE_INFINITY;
+                const aEnd = a.endDate ? getPhilippineDateTimeMillis(a.endDate) : Number.POSITIVE_INFINITY;
+                const bEnd = b.endDate ? getPhilippineDateTimeMillis(b.endDate) : Number.POSITIVE_INFINITY;
                 return aEnd - bEnd;
               }),
           );
@@ -404,6 +403,11 @@ export default function StorePage() {
         return !linkedProductId || linkedProductId === selectedProduct.id;
       })
     : [];
+  const selectedPromotionProduct = selectedPromotion?.linkedProductId
+    ? products.find((product) => product.id === selectedPromotion.linkedProductId)
+    : null;
+  const navigationState = location.state as { storesPath?: string } | null;
+  const backToStoresPath = navigationState?.storesPath || (user?.role === "customer" ? "/customer/stores" : "/stores");
 
   return (
     <div className="flex min-h-screen flex-col bg-white selection:bg-[#1b1b1b] selection:text-white transition-colors dark:bg-[#1b1b1b] dark:selection:bg-white dark:selection:text-[#1b1b1b]">
@@ -437,7 +441,7 @@ export default function StorePage() {
       <div className="mx-auto w-full max-w-7xl px-4 pt-6 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between">
           <Link
-            to="/stores"
+            to={backToStoresPath}
             className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -658,7 +662,13 @@ export default function StorePage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {promotions.map((promotion) => (
-                <article key={promotion.id} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                <button
+                  key={promotion.id}
+                  type="button"
+                  onClick={() => setSelectedPromotion(promotion)}
+                  className="overflow-hidden rounded-3xl border border-gray-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 dark:border-gray-800 dark:bg-gray-900 dark:focus-visible:ring-white"
+                  aria-label={`View details for ${promotion.title || "special promotion"}`}
+                >
                   {promotion.bannerImageUrl && (
                     <img
                       src={getDisplayImageUrl(promotion.bannerImageUrl)}
@@ -680,7 +690,8 @@ export default function StorePage() {
                       </p>
                     )}
                   </div>
-                </article>
+                  <span className="sr-only">Open promotion details</span>
+                </button>
               ))}
             </div>
           </section>
@@ -727,6 +738,114 @@ export default function StorePage() {
               })}
             </div>
           </section>
+        )}
+
+        {selectedPromotion && (
+          <div
+            className="fixed inset-0 z-[100] flex items-end justify-center bg-gray-950/65 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setSelectedPromotion(null);
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="promotion-dialog-title"
+              className="relative max-h-[92dvh] w-full overflow-y-auto rounded-t-[2rem] border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900 sm:max-w-2xl sm:rounded-[2rem]"
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedPromotion(null)}
+                className="absolute right-4 top-4 z-10 rounded-full bg-white/90 p-2 text-gray-700 shadow-sm backdrop-blur transition hover:bg-white dark:bg-gray-900/90 dark:text-gray-200"
+                aria-label="Close promotion details"
+                autoFocus
+              >
+                <X className="h-5 w-5" />
+              </button>
+              {selectedPromotion.bannerImageUrl && (
+                <div className="relative h-64 bg-gray-100 dark:bg-gray-800 sm:h-80">
+                  <img
+                    src={getDisplayImageUrl(selectedPromotion.bannerImageUrl)}
+                    alt={`${selectedPromotion.title || "Promotion"} banner`}
+                    className="h-full w-full object-cover"
+                  />
+                  <span className="absolute bottom-4 left-5 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white">Running now</span>
+                </div>
+              )}
+              <div className="p-6 sm:p-8">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">Promotion</p>
+                <h2 id="promotion-dialog-title" className="mt-2 text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+                  {selectedPromotion.title || "Special promotion"}
+                </h2>
+                <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">Details</p>
+                  <p className="mt-2 leading-7 text-gray-600 dark:text-gray-300">
+                    {selectedPromotion.description || "No additional promotion details have been provided."}
+                  </p>
+                </div>
+                <div className="mt-6 grid gap-3 border-t border-gray-200 pt-5 dark:border-gray-800 sm:grid-cols-2">
+                  <div className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/70">
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">Duration</p>
+                    <p className="mt-2 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+                      <CalendarDays className="h-4 w-4" />
+                      {selectedPromotion.startDate ? promotionDate(selectedPromotion.startDate) : "Available now"}
+                      {" - "}
+                      {selectedPromotion.endDate ? promotionDate(selectedPromotion.endDate) : "No end date"}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/70">
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">Reward Goal</p>
+                    <p className="mt-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+                      Collect {Math.max(Number(selectedPromotion.requiredStamps || 10), 1)} stamps to complete this offer.
+                    </p>
+                  </div>
+                </div>
+                {(selectedPromotion.linkedProductName || selectedPromotionProduct) && (
+                  <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
+                    <div className="flex items-center gap-2">
+                      <Utensils className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                      <h3 className="font-bold text-gray-900 dark:text-white">Featured product</h3>
+                    </div>
+                    {selectedPromotionProduct ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedPromotion(null);
+                          setSelectedProduct(selectedPromotionProduct);
+                        }}
+                        className="mt-3 flex w-full items-center gap-4 rounded-2xl bg-gray-50 p-3 text-left transition hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 dark:bg-gray-800/70 dark:hover:bg-gray-800 dark:focus-visible:ring-white"
+                        aria-label={`View details for ${selectedPromotionProduct.name}`}
+                      >
+                        <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 dark:bg-gray-800">
+                          {selectedPromotionProduct.imageUrl ? (
+                            <img
+                              src={getDisplayImageUrl(selectedPromotionProduct.imageUrl)}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <Utensils className="h-6 w-6 text-gray-400 dark:text-gray-500" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-gray-900 dark:text-white">{selectedPromotionProduct.name}</p>
+                          {Number.isFinite(Number(selectedPromotionProduct.price)) && (
+                            <p className="mt-1 text-sm font-semibold text-gray-600 dark:text-gray-300">₱{Number(selectedPromotionProduct.price).toFixed(2)}</p>
+                          )}
+                          <p className="mt-1 text-xs font-bold uppercase tracking-[0.16em] text-gray-400 dark:text-gray-500">View product</p>
+                        </div>
+                      </button>
+                    ) : (
+                      <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                        {selectedPromotion.linkedProductName}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
         )}
 
         {selectedProduct && (
