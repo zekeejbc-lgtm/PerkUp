@@ -376,7 +376,15 @@ export async function deleteDoc(ref: DocumentRef) {
 
 export async function addDoc(collectionRef: CollectionRef, value: Record<string, unknown>) {
   const ref = doc(collectionRef);
-  await setDoc(ref, value);
+  const incoming = serializeValue(value) as Record<string, unknown>;
+  assertNoTemporaryObjectUrls(incoming);
+  const { error } = await dataApi(ref.collectionName).insert({
+    id: ref.id,
+    data: incoming,
+  });
+
+  if (error) throw error;
+  clearCollectionCache(ref.collectionName);
   return ref;
 }
 

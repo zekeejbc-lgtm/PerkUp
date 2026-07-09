@@ -11,6 +11,7 @@ import {
   dateInputToDate,
   formatMoney,
   getSubscriptionOwedAmount,
+  getSubscriptionDependencies,
   PAYMENT_SCHEDULE_OPTIONS,
 } from "../../lib/subscriptionBilling";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
@@ -23,6 +24,9 @@ import { getAvailableStoreCategories, normalizeStoreCategory, splitStoreCategori
 import { TimeInput } from "../../components/TimeInput";
 import { formatStoreHours } from "../../lib/dateTime";
 import { CategoryInput } from "../../components/CategoryInput";
+import { Pagination } from "../../components/Pagination";
+
+const STORES_PER_PAGE = 8;
 
 export default function AdminStores() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -33,6 +37,7 @@ export default function AdminStores() {
   const [subscriptionPlans, setSubscriptionPlans] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
+  const [currentPage, setCurrentPage] = useState(1);
 
   // New store form state
   const [storeName, setStoreName] = useState("");
@@ -65,6 +70,8 @@ export default function AdminStores() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const billingPlans = subscriptionPlans.length > 0 ? subscriptionPlans : DEFAULT_SUBSCRIPTION_PLANS;
   const selectedOwedAmount = getSubscriptionOwedAmount(billingPlans, subLevel);
+  const selectedSubscriptionDependencies = getSubscriptionDependencies(billingPlans, subLevel);
+  const selectedBranchLimit = selectedSubscriptionDependencies.branchLimit > 0 ? selectedSubscriptionDependencies.branchLimit : 100;
   const categories = useMemo(() => getAvailableStoreCategories(stores), [stores]);
   const filteredStores = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -88,11 +95,21 @@ export default function AdminStores() {
     });
   }, [searchQuery, selectedCategory, stores]);
   const hasActiveFilters = Boolean(searchQuery.trim()) || selectedCategory !== "All";
+  const totalPages = Math.max(1, Math.ceil(filteredStores.length / STORES_PER_PAGE));
+  const paginatedStores = filteredStores.slice((currentPage - 1) * STORES_PER_PAGE, currentPage * STORES_PER_PAGE);
 
   const clearFilters = () => {
     setSearchQuery("");
     setSelectedCategory("All");
   };
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedCategory]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   useEffect(() => {
     async function fetchStores() {
@@ -172,6 +189,8 @@ export default function AdminStores() {
           status: "active",
           subscriptionLevel: subLevel,
           owedAmount: selectedOwedAmount,
+          subscriptionDependencies: selectedSubscriptionDependencies,
+          branchLimit: selectedBranchLimit,
           subscriptionStart: dateInputToDate(subStart),
           subscriptionEnd: dateInputToDate(subEnd),
           paymentSchedule,
@@ -300,7 +319,7 @@ export default function AdminStores() {
           </div>
 
           <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
-            {filteredStores.length > 0 ? filteredStores.map(store => {
+            {filteredStores.length > 0 ? paginatedStores.map(store => {
               const storeCategories = splitStoreCategories(store.category);
               const businessName = store.businessName || store.name;
               const branchName = store.branchName || "Main";
@@ -397,6 +416,13 @@ export default function AdminStores() {
               </div>
             )}
           </div>
+          <Pagination
+            page={currentPage}
+            pageSize={STORES_PER_PAGE}
+            totalItems={filteredStores.length}
+            itemLabel="stores"
+            onPageChange={setCurrentPage}
+          />
         </div>
       )}
 

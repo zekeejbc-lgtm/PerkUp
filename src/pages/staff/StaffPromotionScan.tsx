@@ -86,7 +86,8 @@ const getPromotionGeofence = (promo: any, store: any) => {
 
 const getCardProgress = (card: any, promo: any) => {
   const required = Math.max(Number(promo?.requiredStamps || 10), 1);
-  const stars = Math.max(Number(card?.stars || 0), 0);
+  const promotionId = String(promo?.id || "");
+  const stars = Math.max(Number(card?.promoProgress?.[promotionId] || 0), 0);
   return {
     required,
     stars,
@@ -787,7 +788,13 @@ export default function StaffPromotionScan({ store }: { store: any }) {
              <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap leading-relaxed mb-6">
                {promo.description || "No specific mechanics outlined."}
              </p>
-             <div className="flex items-center gap-6 border-t border-gray-200 dark:border-gray-700 pt-6">
+             <div className="flex flex-wrap items-center gap-6 border-t border-gray-200 dark:border-gray-700 pt-6">
+               {promo.linkedProductName && (
+                 <div>
+                   <p className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">Product</p>
+                   <p className="text-xl font-bold text-gray-900 dark:text-white">{promo.linkedProductName}</p>
+                 </div>
+               )}
                <div>
                  <p className="text-xs text-gray-500 uppercase tracking-widest font-bold mb-1">Required Points</p>
                  <p className="text-xl font-bold text-gray-900 dark:text-white">{promo.requiredStamps || 0}</p>

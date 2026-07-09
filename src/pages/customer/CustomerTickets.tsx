@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Loader2, RefreshCw, Star, Ticket } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { supabase } from "../../lib/supabase";
+import { Pagination } from "../../components/Pagination";
+
+const TICKETS_PER_PAGE = 10;
 
 type CustomerTicket = {
   id: string;
@@ -21,7 +24,14 @@ export default function CustomerTickets() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const knownIds = useRef(new Set<string>());
+  const totalPages = Math.max(1, Math.ceil(tickets.length / TICKETS_PER_PAGE));
+  const paginatedTickets = tickets.slice((currentPage - 1) * TICKETS_PER_PAGE, currentPage * TICKETS_PER_PAGE);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   const loadTickets = useCallback(async (quiet = false) => {
     if (!user?.id) return;
@@ -109,7 +119,7 @@ export default function CustomerTickets() {
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          {tickets.map((ticket) => (
+          {paginatedTickets.map((ticket) => (
             <article key={ticket.id} className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -131,6 +141,13 @@ export default function CustomerTickets() {
           ))}
         </div>
       )}
+      <Pagination
+        page={currentPage}
+        pageSize={TICKETS_PER_PAGE}
+        totalItems={tickets.length}
+        itemLabel="tickets"
+        onPageChange={setCurrentPage}
+      />
     </div>
   );
 }

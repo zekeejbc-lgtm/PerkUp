@@ -75,6 +75,18 @@ function doPost(e) {
       });
     }
 
+    if (action === "application_received" || action === "applicationreceived") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        email: sendApplicationReceivedEmail(
+          data.recipientEmail,
+          data.userName,
+          data.application
+        )
+      });
+    }
+
     if (action === "upload") {
       return createJsonResponse(uploadImage(data));
     }

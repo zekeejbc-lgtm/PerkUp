@@ -9,6 +9,9 @@ import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { DirectionsButton } from "../../components/DirectionsButton";
 import { MapBaseLayers } from "../../components/MapBaseLayers";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
+import { Pagination } from "../../components/Pagination";
+
+const STORES_PER_PAGE = 8;
 
 type CustomerStore = {
   id: string;
@@ -29,6 +32,7 @@ export default function CustomerStores() {
   const [loading, setLoading] = useState(true);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     async function fetchStores() {
@@ -70,6 +74,16 @@ export default function CustomerStores() {
     return name.includes(term) || category.includes(term) || address.includes(term);
   });
   const mappedStores = filteredStores.filter((store) => Number.isFinite(store.lat) && Number.isFinite(store.lng));
+  const totalPages = Math.max(1, Math.ceil(filteredStores.length / STORES_PER_PAGE));
+  const paginatedStores = filteredStores.slice((currentPage - 1) * STORES_PER_PAGE, currentPage * STORES_PER_PAGE);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   if (loading) {
     return (
@@ -184,7 +198,7 @@ export default function CustomerStores() {
               <p className="text-gray-500 dark:text-gray-400">No stores found matching your search.</p>
             </div>
           ) : (
-            filteredStores.map((store) => {
+            paginatedStores.map((store) => {
               const logoUrl = getDisplayImageUrl(store.logoUrl || "");
               const hasCoordinates = Number.isFinite(store.lat) && Number.isFinite(store.lng);
               return (
@@ -194,7 +208,7 @@ export default function CustomerStores() {
               >
                 <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white">
                   {logoUrl ? (
-                    <img src={logoUrl} alt={`${store.name} logo`} className="h-full w-full object-cover" />
+                    <img src={logoUrl} alt={`${store.name} logo`} loading="lazy" className="h-full w-full object-cover" />
                   ) : (
                     <StoreIcon className="h-7 w-7" />
                   )}
@@ -245,6 +259,13 @@ export default function CustomerStores() {
               );
             })
           )}
+          <Pagination
+            page={currentPage}
+            pageSize={STORES_PER_PAGE}
+            totalItems={filteredStores.length}
+            itemLabel="stores"
+            onPageChange={setCurrentPage}
+          />
         </div>
       </div>
     </div>

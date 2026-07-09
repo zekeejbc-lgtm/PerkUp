@@ -8,6 +8,11 @@ import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { TemporaryPasswordField } from "../../components/TemporaryPasswordField";
 import { formatPhilippineDate, formatPhilippineDateTime } from "../../lib/dateTime";
 import { validateStrongPassword } from "../../lib/passwordStrength";
+import { Pagination } from "../../components/Pagination";
+import { getDisplayImageUrl } from "../../lib/imageStorage";
+
+const STAFF_PER_PAGE = 9;
+const SCAN_LOGS_PER_PAGE = 10;
 
 const toDate = (value: any) => {
   if (!value) return null;
@@ -26,6 +31,18 @@ const formatDateTime = (value: any) => {
   return formatPhilippineDateTime(value);
 };
 
+const getAvatarUrl = (member: any) => member?.avatarUrl || member?.photoURL || member?.profilePic || "";
+
+const getInitial = (name?: string) => String(name || "S").trim().charAt(0).toUpperCase() || "S";
+
+const getDayKey = (value: any) => {
+  const date = toDate(value);
+  return date ? date.toISOString().slice(0, 10) : "";
+};
+
+const getTopEntry = (entries: [string, number][]) =>
+  entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] || null;
+
 export default function StoreOwnerStaff({ store }: { store: any }) {
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +55,8 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
   const [customersById, setCustomersById] = useState<Record<string, any>>({});
   const [staffToRemove, setStaffToRemove] = useState<any>(null);
   const [isRemovingStaff, setIsRemovingStaff] = useState(false);
+  const [staffPage, setStaffPage] = useState(1);
+  const [scanPage, setScanPage] = useState(1);
   
   const [formData, setFormData] = useState({
     name: "",
@@ -61,6 +80,25 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
     };
     fetchStaff();
   }, [store]);
+
+  const staffTotalPages = Math.max(1, Math.ceil(staff.length / STAFF_PER_PAGE));
+  const paginatedStaff = staff.slice((staffPage - 1) * STAFF_PER_PAGE, staffPage * STAFF_PER_PAGE);
+  const scanTotalPages = Math.max(1, Math.ceil(scanLogs.length / SCAN_LOGS_PER_PAGE));
+  const paginatedScanLogs = scanLogs.slice((scanPage - 1) * SCAN_LOGS_PER_PAGE, scanPage * SCAN_LOGS_PER_PAGE);
+  const staffLimit = Math.trunc(Number(store?.subscriptionDependencies?.staffLimit || 0));
+  const hasReachedStaffLimit = staffLimit > 0 && staff.length >= staffLimit;
+
+  useEffect(() => {
+    setStaffPage((page) => Math.min(page, staffTotalPages));
+  }, [staffTotalPages]);
+
+  useEffect(() => {
+    setScanPage(1);
+  }, [selectedStaff?.id]);
+
+  useEffect(() => {
+    setScanPage((page) => Math.min(page, scanTotalPages));
+  }, [scanTotalPages]);
 
   useEffect(() => {
     if (!selectedStaff?.id || !store?.id) return;
@@ -115,6 +153,10 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
   }, [selectedStaff?.id, store?.id]);
 
   const handleOpenModal = () => {
+    if (hasReachedStaffLimit) {
+      alert(`Your current subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.`);
+      return;
+    }
     setFormData({ name: "", email: "", password: "", requirePasswordChange: true });
     setIsModalOpen(true);
   };
@@ -123,6 +165,10 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
     e.preventDefault();
     if (!validateStrongPassword(formData.password, { name: formData.name, email: formData.email }).valid) {
       alert("Use a strong password that meets every requirement.");
+      return;
+    }
+    if (hasReachedStaffLimit) {
+      alert(`Your current subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.`);
       return;
     }
     setSaving(true);
@@ -179,6 +225,34 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
     const uniquePromotions = new Set(scanLogs.map(log => log.promotionId).filter(Boolean)).size;
     const lastScan = scanLogs[0]?.timestamp;
     const createdAt = selectedStaff.createdAt || selectedStaff.created_at;
+    const avatarUrl = getAvatarUrl(selectedStaff);
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const scansToday = scanLogs.filter((log) => getDayKey(log.timestamp) === getDayKey(new Date())).length;
+    const scans7Days = scanLogs.filter((log) => {
+      const date = toDate(log.timestamp);
+      return date ? now - date.getTime() <= 7 * dayMs : false;
+    }).length;
+    const scans30Days = scanLogs.filter((log) => {
+      const date = toDate(log.timestamp);
+      return date ? now - date.getTime() <= 30 * dayMs : false;
+    }).length;
+    const promoScans = scanLogs.filter((log) => Boolean(log.promotionId)).length;
+    const generalScans = totalScans - promoScans;
+    const averagePoints = totalScans ? totalPoints / totalScans : 0;
+    const customerRepeatRate = totalScans ? Math.round(((totalScans - uniqueCustomers) / totalScans) * 100) : 0;
+    const promotionCounts = new Map<string, number>();
+    const dayCounts = new Map<string, number>();
+    scanLogs.forEach((log) => {
+      if (log.promotionId) {
+        const label = promotionsById[log.promotionId]?.title || log.promotionTitle || "Promotion scan";
+        promotionCounts.set(label, (promotionCounts.get(label) || 0) + 1);
+      }
+      const dayKey = getDayKey(log.timestamp);
+      if (dayKey) dayCounts.set(dayKey, (dayCounts.get(dayKey) || 0) + 1);
+    });
+    const topPromotion = getTopEntry([...promotionCounts.entries()]);
+    const mostActiveDay = getTopEntry([...dayCounts.entries()]);
 
     return (
       <div className="space-y-6 pb-20">
@@ -194,9 +268,13 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 flex flex-col lg:flex-row gap-6 shadow-sm">
           <div className="flex flex-1 items-center gap-5 min-w-0">
             <div className="w-20 h-20 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center shrink-0 border-4 border-gray-100 dark:border-white/10">
-              <span className="text-3xl font-black text-[#1b1b1b] dark:text-white uppercase">
-                {selectedStaff.name ? selectedStaff.name.charAt(0) : "S"}
-              </span>
+              {avatarUrl ? (
+                <img src={getDisplayImageUrl(avatarUrl)} alt="" className="h-full w-full rounded-full object-cover" />
+              ) : (
+                <span className="text-3xl font-black text-[#1b1b1b] dark:text-white uppercase">
+                  {getInitial(selectedStaff.name)}
+                </span>
+              )}
             </div>
             <div className="min-w-0">
               <h2 className="text-3xl font-black tracking-tight text-gray-900 dark:text-white truncate">{selectedStaff.name || "Unnamed Staff"}</h2>
@@ -257,15 +335,46 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                 <TrendingUp className="w-5 h-5 text-[#1b1b1b]" />
                 <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest">Performance</h3>
               </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {totalScans > 0
-                  ? `${selectedStaff.name || "This staff member"} has processed ${totalScans} scan${totalScans === 1 ? "" : "s"} for this branch.`
-                  : "No scan activity has been recorded for this staff member yet."}
-              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: "Today", value: scansToday },
+                  { label: "7 days", value: scans7Days },
+                  { label: "30 days", value: scans30Days },
+                  { label: "Avg points", value: averagePoints ? averagePoints.toFixed(1) : "0.0" },
+                ].map((metric) => (
+                  <div key={metric.label} className="rounded-2xl bg-gray-50 p-3 dark:bg-gray-800/60">
+                    <p className="text-xl font-black text-gray-900 dark:text-white">{analyticsLoading ? "-" : metric.value}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{metric.label}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
           <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm">
+            <div className="mb-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/50">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Promo vs General</p>
+                <p className="mt-2 text-2xl font-black text-gray-900 dark:text-white">{analyticsLoading ? "-" : `${promoScans}/${generalScans}`}</p>
+                <p className="mt-1 text-xs text-gray-500">Promotion and general scans</p>
+              </div>
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/50">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Repeat Load</p>
+                <p className="mt-2 text-2xl font-black text-gray-900 dark:text-white">{analyticsLoading ? "-" : `${customerRepeatRate}%`}</p>
+                <p className="mt-1 text-xs text-gray-500">Scans beyond unique customers</p>
+              </div>
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/50">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Top Promotion</p>
+                <p className="mt-2 truncate text-base font-black text-gray-900 dark:text-white">{analyticsLoading ? "-" : topPromotion?.[0] || "None yet"}</p>
+                <p className="mt-1 text-xs text-gray-500">{topPromotion ? `${topPromotion[1]} scan${topPromotion[1] === 1 ? "" : "s"}` : "No promotion scans"}</p>
+              </div>
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/50">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Most Active Day</p>
+                <p className="mt-2 text-base font-black text-gray-900 dark:text-white">{analyticsLoading ? "-" : mostActiveDay ? formatDate(mostActiveDay[0]) : "None yet"}</p>
+                <p className="mt-1 text-xs text-gray-500">{mostActiveDay ? `${mostActiveDay[1]} scan${mostActiveDay[1] === 1 ? "" : "s"}` : "No scan history"}</p>
+              </div>
+            </div>
+
             <div className="flex items-center justify-between gap-4 mb-6">
               <div>
                 <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest">Recent Scan Activity</h3>
@@ -283,7 +392,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
               </div>
             ) : (
               <div className="space-y-3">
-                {scanLogs.slice(0, 20).map((log) => {
+                {paginatedScanLogs.map((log) => {
                   const promotion = log.promotionId ? promotionsById[log.promotionId] : null;
                   const customer = log.customerId ? customersById[log.customerId] : null;
 
@@ -307,6 +416,13 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                     </div>
                   );
                 })}
+                <Pagination
+                  page={scanPage}
+                  pageSize={SCAN_LOGS_PER_PAGE}
+                  totalItems={scanLogs.length}
+                  itemLabel="scans"
+                  onPageChange={setScanPage}
+                />
               </div>
             )}
           </div>
@@ -322,9 +438,11 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Staff Management</h2>
           <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Add staff accounts so they can scan customer loyalty cards.</p>
         </div>
-        <button 
+        <button
           onClick={handleOpenModal}
-          className="flex items-center gap-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-4 py-2 rounded-xl font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors text-sm shrink-0"
+          disabled={hasReachedStaffLimit}
+          title={hasReachedStaffLimit ? `Staff limit reached for this subscription (${staffLimit}).` : "Add staff"}
+          className="flex items-center gap-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-4 py-2 rounded-xl font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors text-sm shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="w-4 h-4" />
           Add Staff
@@ -339,7 +457,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
             <p className="text-sm text-gray-500 mt-1">Add staff to allow them to process rewards in your store.</p>
           </div>
         ) : (
-          staff.map(member => (
+          paginatedStaff.map(member => (
             <div
               key={member.id}
               role="button"
@@ -355,7 +473,11 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
             >
                <div className="flex items-start gap-4 mb-4">
                  <div className="w-12 h-12 bg-gray-100 dark:bg-white/10 rounded-full flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <span className="font-bold text-[#1b1b1b] dark:text-white text-lg uppercase">{member.name ? member.name.charAt(0) : 'S'}</span>
+                    {getAvatarUrl(member) ? (
+                      <img src={getDisplayImageUrl(getAvatarUrl(member))} alt="" className="h-full w-full rounded-full object-cover" />
+                    ) : (
+                      <span className="font-bold text-[#1b1b1b] dark:text-white text-lg uppercase">{getInitial(member.name)}</span>
+                    )}
                  </div>
                  <div className="flex-1 min-w-0">
                     <h3 className="font-bold text-gray-900 dark:text-white text-lg truncate">{member.name || 'Unnamed Staff'}</h3>
@@ -386,6 +508,13 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
           ))
         )}
       </div>
+      <Pagination
+        page={staffPage}
+        pageSize={STAFF_PER_PAGE}
+        totalItems={staff.length}
+        itemLabel="staff"
+        onPageChange={setStaffPage}
+      />
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm overflow-y-auto">

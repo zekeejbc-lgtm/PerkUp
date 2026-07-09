@@ -15,6 +15,11 @@ const requiredEnv = (name: string) => {
 const normalizePoints = (points: unknown) =>
   Math.min(Math.max(Math.trunc(Number(points) || 1), 1), MAX_POINTS_PER_SCAN);
 
+const timestamp = () => ({
+  seconds: Math.floor(Date.now() / 1000),
+  nanoseconds: 0,
+});
+
 const normalizeUsername = (value: unknown) =>
   String(value || "").trim().replace(/^@+/, "").toLowerCase();
 
@@ -206,6 +211,8 @@ Deno.serve(async (req) => {
       stampLabel: String(store?.stampLabel || "Stamp"),
     };
     let promotionTitle: string | null = null;
+    let promotionRequiredStamps = 10;
+    let promotionMaxRedemptions = 0;
 
     if (promotionId) {
       const { data: promotionRow, error: promotionError } = await admin
@@ -221,6 +228,7 @@ Deno.serve(async (req) => {
         startDate?: string;
         endDate?: string;
         maxRedemptions?: number | null;
+        requiredStamps?: number | string;
         title?: string;
         geofenceEnabled?: boolean;
         geofenceLat?: number | string | null;
@@ -232,6 +240,8 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Promotion is not available for this store." }, 403);
       }
       promotionTitle = String(promotion.title || "Promotion");
+      promotionRequiredStamps = Math.max(Number(promotion.requiredStamps || 10), 1);
+      promotionMaxRedemptions = Number(promotion.maxRedemptions || 0);
       if (promotion.active === false) {
         return jsonResponse({ error: "Promotion is not active." }, 409);
       }
@@ -258,17 +268,6 @@ Deno.serve(async (req) => {
         }
       }
 
-      const maxRedemptions = Number(promotion.maxRedemptions || 0);
-      if (maxRedemptions > 0) {
-        const { count, error: countError } = await admin
-          .from("promotions_scanned")
-          .select("id", { count: "exact", head: true })
-          .eq("data->>promotionId", promotionId);
-        if (countError) throw countError;
-        if (Number(count || 0) >= maxRedemptions) {
-          return jsonResponse({ error: "Promotion has run out of available redemptions." }, 409);
-        }
-      }
     }
 
     let customerId = "";
@@ -373,6 +372,9 @@ Deno.serve(async (req) => {
           stars: Number(cardRow.data?.stars || 0),
           ...storeStampStyle,
           status,
+          promoProgress: cardRow.data?.promoProgress && typeof cardRow.data.promoProgress === "object"
+            ? cardRow.data.promoProgress
+            : {},
           joinedAt: cardRow.data?.joinedAt || cardRow.data?.createdAt || null,
           updatedAt: cardRow.data?.updatedAt || null,
           data: cardRow.data,
@@ -390,7 +392,43 @@ Deno.serve(async (req) => {
     const existingCard = selectedCard
       ? { id: selectedCard.id, data: selectedCard.data }
       : undefined;
-    const existingStars = Number(existingCard?.data?.stars || 0);
+    const existingPromoProgress = promotionId
+      ? Number((existingCard?.data?.promoProgress as Record<string, unknown> | undefined)?.[promotionId] || 0)
+      : 0;
+    const existingStars = promotionId ? existingPromoProgress : Number(existingCard?.data?.stars || 0);
+    let responseCards = activeCards.map(({ data: _data, ...card }) => card);
+
+    if (promotionId) {
+      const customerAlreadyCompleted = (cardRows || []).some((row) => {
+        const cardData = (row as { data?: Record<string, unknown> }).data || {};
+        if (String(cardData.customerId || "") !== customerId) return false;
+        const progress = Number((cardData.promoProgress as Record<string, unknown> | undefined)?.[promotionId] || 0);
+        return progress >= promotionRequiredStamps;
+      });
+
+      if (existingPromoProgress >= promotionRequiredStamps || customerAlreadyCompleted) {
+        return jsonResponse({ error: "This customer has already completed this promotion." }, 409);
+      }
+
+      if (promotionMaxRedemptions > 0) {
+        const completedCustomerIds = new Set<string>();
+        let anonymousCompletedCards = 0;
+
+        for (const row of cardRows || []) {
+          const cardData = (row as { data?: Record<string, unknown> }).data || {};
+          const progress = Number((cardData.promoProgress as Record<string, unknown> | undefined)?.[promotionId] || 0);
+          if (progress < promotionRequiredStamps) continue;
+
+          const completedCustomerId = String(cardData.customerId || "").trim();
+          if (completedCustomerId) completedCustomerIds.add(completedCustomerId);
+          else anonymousCompletedCards += 1;
+        }
+
+        if (completedCustomerIds.size + anonymousCompletedCards >= promotionMaxRedemptions) {
+          return jsonResponse({ error: "Promotion has run out of available completed cards." }, 409);
+        }
+      }
+    }
 
     if (!previewOnly) {
       const ticketId = crypto.randomUUID();
@@ -407,39 +445,122 @@ Deno.serve(async (req) => {
       ].join(".");
       const cryptographicId = await signedReceiptId(receiptPayload, serviceKey);
 
-      if (existingCard) {
-        const { error: updateError } = await admin.rpc("increment_loyalty_totals", {
-          p_customer_id: customerId,
-          p_card_id: existingCard.id,
-          p_points: points,
-          p_stamp_receipt_id: cryptographicId,
-        });
-        if (updateError) throw updateError;
-      } else {
-        const { error: insertCardError } = await admin.from("cards").insert({
-          id: crypto.randomUUID(),
-          data: {
+      if (promotionId) {
+        const nextProgressValue = Math.max(existingPromoProgress + points, 0);
+        if (existingCard) {
+          const promoProgress = existingCard.data?.promoProgress && typeof existingCard.data.promoProgress === "object"
+            ? { ...(existingCard.data.promoProgress as Record<string, unknown>) }
+            : {};
+          promoProgress[promotionId] = nextProgressValue;
+
+          const nextCardData = {
+            ...existingCard.data,
+            promoProgress,
+            lastPromotionStampReceiptId: cryptographicId,
+            updatedAt: timestamp(),
+          };
+          const { error: updateError } = await admin
+            .from("cards")
+            .update({ data: nextCardData })
+            .eq("id", existingCard.id)
+            .eq("data->>customerId", customerId)
+            .eq("data->>storeId", storeId);
+          if (updateError) throw updateError;
+
+          responseCards = activeCards.map(({ data: _data, ...card }) =>
+            card.id === existingCard.id
+              ? { ...card, promoProgress, updatedAt: nextCardData.updatedAt }
+              : card
+          );
+        } else {
+          const newCardId = crypto.randomUUID();
+          const joinedAt = timestamp();
+          const promoProgress = { [promotionId]: nextProgressValue };
+          const newCardData = {
             storeId,
             customerId,
             storeName: String(store?.name || "Store"),
-            stars: points,
+            stars: 0,
+            promoProgress,
             ...storeStampStyle,
-            lastStampReceiptId: cryptographicId,
-            joinedAt: {
-              seconds: Math.floor(Date.now() / 1000),
-              nanoseconds: 0,
-            },
+            lastPromotionStampReceiptId: cryptographicId,
+            joinedAt,
+            updatedAt: joinedAt,
             status: "active",
-          },
-        });
-        if (insertCardError) throw insertCardError;
-        const { error: totalError } = await admin.rpc("increment_loyalty_totals", {
-          p_customer_id: customerId,
-          p_card_id: null,
-          p_points: points,
-          p_stamp_receipt_id: cryptographicId,
-        });
-        if (totalError) throw totalError;
+          };
+          const { error: insertCardError } = await admin.from("cards").insert({
+            id: newCardId,
+            data: newCardData,
+          });
+          if (insertCardError) throw insertCardError;
+
+          responseCards = [
+            ...responseCards,
+            {
+              id: newCardId,
+              label: String(store?.name || "Store"),
+              storeName: String(store?.name || "Store"),
+              stars: 0,
+              ...storeStampStyle,
+              status: "active",
+              promoProgress,
+              joinedAt,
+              updatedAt: joinedAt,
+            },
+          ];
+        }
+      } else {
+        if (existingCard) {
+          const { error: updateError } = await admin.rpc("increment_loyalty_totals", {
+            p_customer_id: customerId,
+            p_card_id: existingCard.id,
+            p_points: points,
+            p_stamp_receipt_id: cryptographicId,
+          });
+          if (updateError) throw updateError;
+          responseCards = activeCards.map(({ data: _data, ...card }) =>
+            card.id === existingCard.id ? { ...card, stars: Number(card.stars || 0) + points } : card
+          );
+        } else {
+          const newCardId = crypto.randomUUID();
+          const joinedAt = timestamp();
+          const { error: insertCardError } = await admin.from("cards").insert({
+            id: newCardId,
+            data: {
+              storeId,
+              customerId,
+              storeName: String(store?.name || "Store"),
+              stars: points,
+              ...storeStampStyle,
+              lastStampReceiptId: cryptographicId,
+              joinedAt,
+              status: "active",
+            },
+          });
+          if (insertCardError) throw insertCardError;
+          const { error: totalError } = await admin.rpc("increment_loyalty_totals", {
+            p_customer_id: customerId,
+            p_card_id: null,
+            p_points: points,
+            p_stamp_receipt_id: cryptographicId,
+          });
+          if (totalError) throw totalError;
+
+          responseCards = [
+            ...responseCards,
+            {
+              id: newCardId,
+              label: String(store?.name || "Store"),
+              storeName: String(store?.name || "Store"),
+              stars: points,
+              ...storeStampStyle,
+              status: "active",
+              promoProgress: {},
+              joinedAt,
+              updatedAt: joinedAt,
+            },
+          ];
+        }
       }
 
       const scanLog = {
@@ -484,7 +605,7 @@ Deno.serve(async (req) => {
           profilePic: customer?.profilePic || customer?.avatarUrl || customer?.photoURL || null,
           existingStars,
           newStars: existingStars + points,
-          cards: activeCards.map(({ data: _data, ...card }) => card),
+          cards: responseCards,
         },
         points,
         ticket: {
@@ -511,7 +632,7 @@ Deno.serve(async (req) => {
         profilePic: customer?.profilePic || customer?.avatarUrl || customer?.photoURL || null,
         existingStars,
         newStars: previewOnly ? existingStars : existingStars + points,
-        cards: activeCards.map(({ data: _data, ...card }) => card),
+        cards: responseCards,
       },
       points,
     });

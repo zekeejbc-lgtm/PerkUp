@@ -5,31 +5,38 @@ import { Gift, Calendar, Star, ChevronRight, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
+import { getCompletedPromotionCount, getRemainingPromotionClaimsLabel } from "../../lib/promotionProgress";
+import { Pagination } from "../../components/Pagination";
 
-const getRemainingClaims = (promo: any) => {
-  const maxRedemptions = Number(promo.maxRedemptions || 0);
-  if (!maxRedemptions) return "Unlimited";
-  return `${Math.max(maxRedemptions - Number(promo.claimedCount || 0), 0)} left`;
-};
+const PROMOTIONS_PER_PAGE = 6;
 
 export default function StaffPromotions({ store }: { store: any }) {
   const [promotions, setPromotions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(promotions.length / PROMOTIONS_PER_PAGE));
+  const paginatedPromotions = promotions.slice(
+    (currentPage - 1) * PROMOTIONS_PER_PAGE,
+    currentPage * PROMOTIONS_PER_PAGE,
+  );
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   useEffect(() => {
     if (!store?.id) return;
     async function fetchPromotions() {
       try {
-        const q = query(collection(db, "promotions"), where("storeId", "==", store.id));
-        const snap = await getDocs(q);
-        const promos = await Promise.all(
-          snap.docs.map(async d => {
-            const promo = { id: d.id, ...(d.data() as any) };
-            const claimsQuery = query(collection(db, "promotions_scanned"), where("promotionId", "==", d.id));
-            const claimsSnap = await getDocs(claimsQuery);
-            return { ...promo, claimedCount: claimsSnap.size };
-          }),
-        );
+        const [promotionsSnap, cardsSnap] = await Promise.all([
+          getDocs(query(collection(db, "promotions"), where("storeId", "==", store.id))),
+          getDocs(query(collection(db, "cards"), where("storeId", "==", store.id))),
+        ]);
+        const cards = cardsSnap.docs.map((cardDoc) => ({ id: cardDoc.id, ...cardDoc.data() }));
+        const promos = promotionsSnap.docs.map((d) => {
+          const promo = { id: d.id, ...(d.data() as any) };
+          return { ...promo, claimedCount: getCompletedPromotionCount(cards, promo) };
+        });
         const now = Date.now();
         setPromotions(promos.filter(p => {
           if (p.active === false) return false;
@@ -68,14 +75,14 @@ export default function StaffPromotions({ store }: { store: any }) {
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {promotions.map((promo) => (
+          {paginatedPromotions.map((promo) => (
             <Link
               key={promo.id}
               to={`/staff/promotions/${promo.id}`}
               className="group relative flex min-h-[430px] flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-gray-400 hover:shadow-xl dark:border-gray-800 dark:bg-gray-900 dark:hover:border-gray-600"
             >
               {promo.bannerImageUrl ? (
-                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className="aspect-[16/7] w-full object-cover" />
+                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" className="aspect-[16/7] w-full object-cover" />
               ) : (
                 <div className="aspect-[16/7] w-full bg-gray-100 dark:bg-white/5" />
               )}
@@ -101,7 +108,7 @@ export default function StaffPromotions({ store }: { store: any }) {
                   </div>
                   <div className="flex min-w-0 flex-col gap-1 px-2">
                     <span className="flex items-center gap-1 text-gray-500"><Users className="h-3.5 w-3.5" /> Left</span>
-                    <span className="truncate">{getRemainingClaims(promo)}</span>
+                    <span className="truncate">{getRemainingPromotionClaimsLabel(promo)}</span>
                   </div>
                 </div>
 
@@ -113,6 +120,13 @@ export default function StaffPromotions({ store }: { store: any }) {
           ))}
         </div>
       )}
+      <Pagination
+        page={currentPage}
+        pageSize={PROMOTIONS_PER_PAGE}
+        totalItems={promotions.length}
+        itemLabel="promotions"
+        onPageChange={setCurrentPage}
+      />
     </div>
   );
 }

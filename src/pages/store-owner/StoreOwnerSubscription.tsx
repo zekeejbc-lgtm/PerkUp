@@ -3,7 +3,9 @@ import {
   formatMoney,
   formatPaymentSchedule,
   formatPredictedPaymentDate,
+  formatBillingDate,
   predictPaymentDates,
+  resolveStoreBilling,
 } from "../../lib/subscriptionBilling";
 
 export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
@@ -29,6 +31,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
               store.subscriptionEnd,
               6,
             );
+            const billing = resolveStoreBilling(store, []);
             return (
               <section key={store.id} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
                 <div className="bg-gradient-to-br from-gray-900 to-gray-800 p-6 text-white">
@@ -41,8 +44,13 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                       <p className="mt-1 text-sm text-gray-400">{store.subscriptionLevel || "Subscription plan"}</p>
                     </div>
                     <div className="sm:text-right">
-                      <div className="text-3xl font-black">{formatMoney(Number(store.owedAmount || 0))}</div>
+                      <div className="text-3xl font-black">{formatMoney(Number(billing.amountDue || 0))}</div>
                       <div className="mt-1 text-xs uppercase tracking-widest text-gray-400">amount due</div>
+                      {Number.isFinite(Number(store.pendingOwedAmount)) && Number(store.pendingOwedAmount) !== Number(billing.amountDue || 0) && (
+                        <div className="mt-2 text-xs text-gray-300">
+                          {formatMoney(Number(store.pendingOwedAmount))} starts on {formatBillingDate(store.pendingOwedAmountEffectiveAt)}.
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="mt-6 flex items-center gap-3 border-t border-white/10 pt-5">

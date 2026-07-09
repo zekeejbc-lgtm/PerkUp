@@ -3,8 +3,9 @@ import { useAuth } from "../../contexts/AuthContext";
 import { doc, updateDoc } from "@/src/lib/dataCompat";
 import { db, logOut } from "../../lib/backend";
 import { UserCircle, Mail, Phone, MapPin, AtSign, Save, CheckCircle2, X, Calendar, FileText, LogOut } from "lucide-react";
-import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import AccountSecurity from "@/src/components/AccountSecurity";
+import { ProfileAvatarImage } from "@/src/components/ProfileAvatarImage";
 
 export default function StoreOwnerAccount() {
   const { user, refreshUser } = useAuth();
@@ -133,11 +134,12 @@ export default function StoreOwnerAccount() {
           <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-center gap-5">
             <div className="relative h-20 w-20 min-w-20 shrink-0 aspect-square bg-gray-100 dark:bg-white/10 rounded-full flex items-center justify-center overflow-hidden group">
-              {formData.avatarUrl ? (
-                <img src={getDisplayImageUrl(formData.avatarUrl)} alt="Profile" className="w-full h-full object-cover" />
-              ) : (
-                <UserCircle className="w-12 h-12 text-[#1b1b1b] dark:text-white" />
-              )}
+              <ProfileAvatarImage
+                src={formData.avatarUrl}
+                alt="Profile"
+                className="w-full h-full object-cover"
+                fallback={<UserCircle className="w-12 h-12 text-[#1b1b1b] dark:text-white" />}
+              />
               {isEditing && (
               <label className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity text-white">
                 <UserCircle className="w-5 h-5" />

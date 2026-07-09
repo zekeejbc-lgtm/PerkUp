@@ -38,6 +38,19 @@ const callDrive = async (payload: Record<string, unknown>) => {
   return data as { fileId?: string; url?: string; webViewLink?: string };
 };
 
+const callEmail = async (payload: Record<string, unknown>) => {
+  const secret = Deno.env.get("DRIVE_CRUD_SECRET");
+  if (!secret) throw new Error("DRIVE_CRUD_SECRET is not configured.");
+  const response = await fetch(Deno.env.get("GAS_EMAIL_URL") || Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") || DEFAULT_GAS_UPLOAD_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ ...payload, secret }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success || !data.email) throw new Error(data.error || `Email request failed with HTTP ${response.status}.`);
+  return data;
+};
+
 const extractFileId = (url: string) =>
   url.match(/[?&]id=([a-zA-Z0-9_-]+)/)?.[1] ||
   url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ||
@@ -52,6 +65,36 @@ Deno.serve(async (req) => {
     const admin = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
       auth: { persistSession: false },
     });
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const action = cleanText(body.action, 40).toLowerCase();
+
+    if (action === "track") {
+      const trackingNumber = cleanText(body.trackingNumber, 120);
+      if (!trackingNumber) return jsonResponse({ error: "Tracking number is required." }, 400);
+
+      const { data: applicationRow, error: applicationError } = await admin
+        .from("applications")
+        .select("id,data")
+        .eq("id", trackingNumber)
+        .maybeSingle();
+      if (applicationError) throw applicationError;
+      if (!applicationRow) return jsonResponse({ found: false }, 404);
+
+      const applicationData = applicationRow.data || {};
+      return jsonResponse({
+        found: true,
+        application: {
+          trackingNumber: applicationRow.id,
+          businessName: cleanText(applicationData.businessName, 120),
+          subscriptionLevel: cleanText(applicationData.subscriptionLevel, 80),
+          status: cleanText(applicationData.status || "pending", 40),
+          createdAt: applicationData.createdAt || null,
+          updatedAt: applicationData.updatedAt || null,
+          approvedStoreId: cleanText(applicationData.approvedStoreId, 120),
+        },
+      });
+    }
+
     const forwarded = req.headers.get("cf-connecting-ip") ||
       req.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() ||
       "unknown";
@@ -75,7 +118,6 @@ Deno.serve(async (req) => {
     });
     if (rateWriteError) throw rateWriteError;
 
-    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const businessName = cleanText(body.businessName, 120);
     const applicantName = cleanText(body.applicantName, 80);
     const email = cleanText(body.email, 254).toLowerCase();
@@ -152,7 +194,24 @@ Deno.serve(async (req) => {
         throw fileError;
       }
     }
-    return jsonResponse({ applicationId, submitted: true });
+    const emailNotification = { sent: false, error: "" };
+    try {
+      await callEmail({
+        action: "application_received",
+        recipientEmail: email,
+        userName: applicantName,
+        application: {
+          trackingNumber: applicationId,
+          businessName,
+          subscriptionLevel,
+        },
+      });
+      emailNotification.sent = true;
+    } catch (emailError) {
+      emailNotification.error = emailError instanceof Error ? emailError.message : "Application email could not be sent.";
+      console.error("Application tracking email failed", { applicationId, error: emailNotification.error });
+    }
+    return jsonResponse({ applicationId, submitted: true, notification: emailNotification });
   } catch (error) {
     if (uploadedFileId) {
       const secret = Deno.env.get("DRIVE_CRUD_SECRET");

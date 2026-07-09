@@ -1,8 +1,9 @@
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useState } from "react";
 import AccountSecurity from "@/src/components/AccountSecurity";
+import { ProfileAvatarImage } from "@/src/components/ProfileAvatarImage";
 import { useAuth } from "../../contexts/AuthContext";
 import { logOut } from "../../lib/backend";
-import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { updateCustomerProfile } from "@/src/lib/secureQr";
 import { getUsernameValidationMessage, normalizeUsername } from "@/src/lib/username";
 import {
@@ -192,11 +193,12 @@ export default function CustomerProfile() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-center gap-5">
               <div className="relative h-20 w-20 min-w-20 shrink-0 aspect-square bg-gray-100 dark:bg-white/10 rounded-full flex items-center justify-center overflow-hidden group">
-                {pendingAvatarPreviewUrl || formData.avatarUrl ? (
-                  <img src={pendingAvatarPreviewUrl || getDisplayImageUrl(formData.avatarUrl)} alt="Profile" className="block h-full w-full object-cover" />
-                ) : (
-                  <UserCircle className="w-12 h-12 text-[#1b1b1b] dark:text-white" />
-                )}
+                <ProfileAvatarImage
+                  src={pendingAvatarPreviewUrl || formData.avatarUrl}
+                  alt="Profile"
+                  className="block h-full w-full object-cover"
+                  fallback={<UserCircle className="w-12 h-12 text-[#1b1b1b] dark:text-white" />}
+                />
                 {isEditing && (
                   <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
                     <ImagePlus className="w-5 h-5" />

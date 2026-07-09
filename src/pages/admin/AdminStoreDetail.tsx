@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
+import { deleteField, doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
 import { AlertTriangle, ArrowLeft, Building2, Check, Edit, Key, Loader2, Plus, Save, Trash2, Upload, X } from "lucide-react";
@@ -17,12 +17,18 @@ import {
   formatPaymentSchedule,
   formatPredictedPaymentDate,
   getSubscriptionOwedAmount,
+  getNextPaymentDate,
+  getSubscriptionDependencies,
   PAYMENT_SCHEDULE_OPTIONS,
   predictPaymentDates,
+  resolveStoreBilling,
   toDateInputValue,
 } from "../../lib/subscriptionBilling";
 import { TimeInput } from "../../components/TimeInput";
 import { formatPhilippineDateTime, formatStoreHours, formatTime12Hour } from "../../lib/dateTime";
+import { Pagination } from "../../components/Pagination";
+
+const ACTIVITY_LOGS_PER_PAGE = 8;
 
 export default function AdminStoreDetail({
   storeId,
@@ -58,6 +64,7 @@ export default function AdminStoreDetail({
     claims: 0
   });
   const [reviews, setReviews] = useState<any[]>([]);
+  const [activityPage, setActivityPage] = useState(1);
 
   // Edit store state
   const [isEditing, setIsEditing] = useState(false);
@@ -88,6 +95,40 @@ export default function AdminStoreDetail({
   const deleteNameMatches = String(store?.name || "").trim() !== "" && deleteNameConfirmation.trim() === String(store?.name || "").trim();
   const deleteWordMatches = deleteWordConfirmation.trim() === "DELETE";
   const canConfirmDelete = deleteNameMatches && deleteWordMatches && !isDeleting;
+  const activityRows = store
+    ? [
+        {
+          id: "store-created",
+          date: formatPhilippineDateTime(store.createdAt),
+          event: "Store Profile Created",
+          actor: "System",
+        },
+        ...staff.map((staffMember) => ({
+          id: `staff-${staffMember.id}`,
+          date: "Unknown",
+          event: "Staff Account Registered",
+          actor: `${staffMember.name} (${staffMember.email})`,
+        })),
+        ...(analytics.promotions > 0
+          ? [{
+              id: "promotions-published",
+              date: "Multiple",
+              event: `${analytics.promotions} Active Promotions Published`,
+              actor: "Store Owner",
+            }]
+          : []),
+        ...(analytics.claims > 0
+          ? [{
+              id: "claims-processed",
+              date: "Multiple",
+              event: `${analytics.claims} Customer Claim(s) Processed`,
+              actor: "Staff",
+            }]
+          : []),
+      ]
+    : [];
+  const activityTotalPages = Math.max(1, Math.ceil(activityRows.length / ACTIVITY_LOGS_PER_PAGE));
+  const paginatedActivityRows = activityRows.slice((activityPage - 1) * ACTIVITY_LOGS_PER_PAGE, activityPage * ACTIVITY_LOGS_PER_PAGE);
 
   useEffect(() => {
     async function fetchDetails() {
@@ -107,10 +148,27 @@ export default function AdminStoreDetail({
             ? subDoc.data().plans
             : DEFAULT_SUBSCRIPTION_PLANS;
           const subscriptionLevel = storeData.subscriptionLevel || loadedPlans[0]?.name || 'Standard';
-          const owedAmount = getSubscriptionOwedAmount(loadedPlans, subscriptionLevel, Number(storeData.owedAmount || 0));
+          const billing = resolveStoreBilling({ ...storeData, subscriptionLevel }, loadedPlans);
+          const owedAmount = billing.amountDue;
+          const normalizedStoreData = {
+            ...storeData,
+            subscriptionLevel,
+            owedAmount,
+            pendingOwedAmount: billing.pendingAmount,
+            pendingOwedAmountEffectiveAt: billing.pendingAmount ? billing.nextPaymentDate : null,
+          };
+
+          if (billing.shouldPersistAppliedAmount) {
+            await updateDoc(doc(db, "stores", storeId), {
+              owedAmount,
+              pendingOwedAmount: deleteField(),
+              pendingOwedAmountEffectiveAt: deleteField(),
+              updatedAt: serverTimestamp(),
+            });
+          }
 
           setPlans(loadedPlans);
-          setStore({ id: storeDoc.id, ...storeData });
+          setStore({ id: storeDoc.id, ...normalizedStoreData });
           setEditData({
             name: storeData.name || '',
             subscriptionLevel,
@@ -183,6 +241,14 @@ export default function AdminStoreDetail({
     fetchDetails();
   }, [storeId]);
 
+  useEffect(() => {
+    setActivityPage(1);
+  }, [storeId]);
+
+  useEffect(() => {
+    setActivityPage((page) => Math.min(page, activityTotalPages));
+  }, [activityTotalPages]);
+
   const handleUpdateStore = async () => {
     try {
       const logoUrl = pendingLogo
@@ -191,6 +257,15 @@ export default function AdminStoreDetail({
             purpose: "admin-store-logo",
           })
         : editData.logoUrl;
+      const dependencies = getSubscriptionDependencies(plans, editData.subscriptionLevel);
+      const currentAmount = Number(store.owedAmount || 0);
+      const nextPlanAmount = getSubscriptionOwedAmount(plans, editData.subscriptionLevel, currentAmount);
+      const nextPaymentDate = getNextPaymentDate(
+        editData.paymentSchedule,
+        dateInputToDate(editData.subscriptionStart),
+        dateInputToDate(editData.subscriptionEnd),
+      );
+      const priceChangesNextCycle = nextPlanAmount !== currentAmount && Boolean(nextPaymentDate);
       const nextData = {
         ...editData,
         logoUrl,
@@ -200,7 +275,10 @@ export default function AdminStoreDetail({
         description: editData.description || "",
         hours: formatStoreHours(editData.openingTime, editData.closingTime),
         openingHours: formatStoreHours(editData.openingTime, editData.closingTime),
-        owedAmount: getSubscriptionOwedAmount(plans, editData.subscriptionLevel, Number(editData.owedAmount || 0)),
+        owedAmount: priceChangesNextCycle ? currentAmount : nextPlanAmount,
+        subscriptionDependencies: dependencies,
+        pendingOwedAmount: priceChangesNextCycle ? nextPlanAmount : deleteField(),
+        pendingOwedAmountEffectiveAt: priceChangesNextCycle ? nextPaymentDate : deleteField(),
         subscriptionStart: dateInputToDate(editData.subscriptionStart),
         subscriptionEnd: dateInputToDate(editData.subscriptionEnd),
         paymentSchedule: editData.paymentSchedule,
@@ -208,7 +286,21 @@ export default function AdminStoreDetail({
       };
 
       await updateDoc(doc(db, "stores", storeId), nextData);
-      setStore({ ...store, ...nextData });
+      if (owner) {
+        const nextBranchLimit = dependencies.branchLimit > 0 ? dependencies.branchLimit : 100;
+        await updateDoc(doc(db, "users", owner.id), {
+          branchLimit: nextBranchLimit,
+          updatedAt: serverTimestamp(),
+        });
+        setBranchLimit(nextBranchLimit);
+        setOwner({ ...owner, branchLimit: nextBranchLimit });
+      }
+      setStore({
+        ...store,
+        ...nextData,
+        pendingOwedAmount: priceChangesNextCycle ? nextPlanAmount : null,
+        pendingOwedAmountEffectiveAt: priceChangesNextCycle ? nextPaymentDate : null,
+      });
       setEditData({
         ...editData,
         owedAmount: nextData.owedAmount,
@@ -225,7 +317,7 @@ export default function AdminStoreDetail({
     setEditData({
       ...editData,
       subscriptionLevel: level,
-      owedAmount: getSubscriptionOwedAmount(plans, level, Number(editData.owedAmount || 0)),
+      owedAmount: getSubscriptionOwedAmount(plans, level, Number(store?.owedAmount || editData.owedAmount || 0)),
     });
   };
 
@@ -233,7 +325,7 @@ export default function AdminStoreDetail({
     setEditData({
       name: store.name || '',
       subscriptionLevel: store.subscriptionLevel || plans[0]?.name || 'Standard',
-      owedAmount: getSubscriptionOwedAmount(plans, store.subscriptionLevel, Number(store.owedAmount || 0)),
+      owedAmount: Number(store.owedAmount || 0),
       address: String(store.address || ""),
       contact: String(store.contact || ""),
       website: String(store.website || ""),
@@ -578,7 +670,14 @@ export default function AdminStoreDetail({
                       {formatMoney(editData.owedAmount)}
                     </div>
                   ) : (
-                    <p className="text-red-600 font-medium">{formatMoney(getSubscriptionOwedAmount(plans, store.subscriptionLevel, Number(store.owedAmount || 0)))}</p>
+                    <div>
+                      <p className="text-red-600 font-medium">{formatMoney(Number(store.owedAmount || 0))}</p>
+                      {Number.isFinite(Number(store.pendingOwedAmount)) && Number(store.pendingOwedAmount) !== Number(store.owedAmount || 0) && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          {formatMoney(Number(store.pendingOwedAmount))} starts on {formatBillingDate(store.pendingOwedAmountEffectiveAt)}.
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -815,35 +914,23 @@ export default function AdminStoreDetail({
                      </tr>
                    </thead>
                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-gray-700 dark:text-gray-300">
-                     <tr className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
-                       <td className="px-6 py-3 font-mono text-xs">{formatPhilippineDateTime(store.createdAt)}</td>
-                       <td className="px-6 py-3 font-medium">Store Profile Created</td>
-                       <td className="px-6 py-3 text-gray-500">System</td>
-                     </tr>
-                     {staff.map(s => (
-                       <tr key={`staff-${s.id}`} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
-                         <td className="px-6 py-3 font-mono text-xs">Unknown</td>
-                         <td className="px-6 py-3 font-medium">Staff Account Registered</td>
-                         <td className="px-6 py-3 text-gray-500">{s.name} ({s.email})</td>
+                     {paginatedActivityRows.map((row) => (
+                       <tr key={row.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
+                         <td className="px-6 py-3 font-mono text-xs">{row.date}</td>
+                         <td className="px-6 py-3 font-medium">{row.event}</td>
+                         <td className="px-6 py-3 text-gray-500">{row.actor}</td>
                        </tr>
                      ))}
-                     {analytics.promotions > 0 && (
-                       <tr className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
-                         <td className="px-6 py-3 font-mono text-xs">Multiple</td>
-                         <td className="px-6 py-3 font-medium">{analytics.promotions} Active Promotions Published</td>
-                         <td className="px-6 py-3 text-gray-500">Store Owner</td>
-                       </tr>
-                     )}
-                     {analytics.claims > 0 && (
-                       <tr className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
-                         <td className="px-6 py-3 font-mono text-xs">Multiple</td>
-                         <td className="px-6 py-3 font-medium">{analytics.claims} Customer Claim(s) Processed</td>
-                         <td className="px-6 py-3 text-gray-500">Staff</td>
-                       </tr>
-                     )}
                    </tbody>
                  </table>
                </div>
+               <Pagination
+                 page={activityPage}
+                 pageSize={ACTIVITY_LOGS_PER_PAGE}
+                 totalItems={activityRows.length}
+                 itemLabel="events"
+                 onPageChange={setActivityPage}
+               />
             </div>
           </div>
         )}

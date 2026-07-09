@@ -364,9 +364,17 @@ export default function StaffScanner({ store }: { store: any }) {
         scannerLocation,
       });
 
-      const updatedCards = scannedCustomer.cards.map((card) =>
-        card.id === selectedCardId ? { ...card, stars: result.customer.newStars } : card,
-      );
+      const updatedCards = scannedCustomer.cards.map((card) => {
+        if (card.id !== selectedCardId) return card;
+        if (!selectedPromotionId) return { ...card, stars: result.customer.newStars };
+        return {
+          ...card,
+          promoProgress: {
+            ...(card.promoProgress || {}),
+            [selectedPromotionId]: result.customer.newStars,
+          },
+        };
+      });
       setScannedCustomer({
         ...scannedCustomer,
         existingStars: result.customer.newStars,
@@ -441,7 +449,9 @@ export default function StaffScanner({ store }: { store: any }) {
   };
 
   const selectedCard = scannedCustomer?.cards.find((card) => card.id === selectedCardId);
-  const currentStars = selectedCard?.stars ?? scannedCustomer?.existingStars ?? 0;
+  const currentStars = selectedPromotionId
+    ? Number(selectedCard?.promoProgress?.[selectedPromotionId] ?? scannedCustomer?.existingStars ?? 0)
+    : selectedCard?.stars ?? scannedCustomer?.existingStars ?? 0;
   const scannerDisabled = isProcessing || Boolean(scannedCustomer) || !isWithinGeofence;
 
   return (
@@ -745,7 +755,7 @@ export default function StaffScanner({ store }: { store: any }) {
                             <div className="shrink-0 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2 text-center dark:border-gray-700 dark:bg-gray-800">
                               <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{normalizeStampStyle(card).stampLabel}</p>
                               <p className="flex items-center justify-center gap-1 text-xl font-black text-gray-900 dark:text-white">
-                                {card.stars}
+                                {selectedPromotionId ? Number(card.promoProgress?.[selectedPromotionId] || 0) : card.stars}
                                 <StoreStamp style={card} size="sm" />
                               </p>
                             </div>

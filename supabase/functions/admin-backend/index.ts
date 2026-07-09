@@ -484,6 +484,26 @@ Deno.serve(async (req) => {
       if (!email || !name || !isStrongPassword(password, name, email)) {
         return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, and no account name or email." }, 400);
       }
+      if (role === "staff" && storeId) {
+        const { data: storeRow, error: storeLimitError } = await admin
+          .from("stores")
+          .select("data")
+          .eq("id", storeId)
+          .maybeSingle();
+        if (storeLimitError) throw storeLimitError;
+        const staffLimit = Math.trunc(Number(storeRow?.data?.subscriptionDependencies?.staffLimit || 0));
+        if (staffLimit > 0) {
+          const { count, error: countError } = await admin
+            .from("users")
+            .select("id", { count: "exact", head: true })
+            .eq("data->>storeId", storeId)
+            .eq("data->>role", "staff");
+          if (countError) throw countError;
+          if ((count || 0) >= staffLimit) {
+            return jsonResponse({ error: `This subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.` }, 409);
+          }
+        }
+      }
 
       const { data: created, error: createError } = await admin.auth.admin.createUser({
         email,

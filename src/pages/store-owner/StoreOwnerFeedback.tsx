@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Inbox, MessageSquare, Star } from "lucide-react";
+import { BarChart3, CheckCircle2, Clock3, Inbox, MessageSquare, Star, TrendingDown, TrendingUp } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
+import { Pagination } from "../../components/Pagination";
+
+const REVIEWS_PER_PAGE = 6;
 
 const toDate = (value: any) => {
   if (!value) return null;
@@ -24,6 +27,8 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
   const [loading, setLoading] = useState(true);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [savingReplyId, setSavingReplyId] = useState("");
+  const [filter, setFilter] = useState<"all" | "unanswered" | "low">("all");
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     async function fetchFeedback() {
@@ -87,6 +92,60 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
     return total / feedback.length;
   }, [feedback]);
 
+  const analytics = useMemo(() => {
+    const distribution = [5, 4, 3, 2, 1].map((rating) => ({
+      rating,
+      count: feedback.filter((item) => Number(item.rating || 0) === rating).length,
+    }));
+    const replied = feedback.filter((item) => Boolean(item.ownerReply)).length;
+    const lowRatings = feedback.filter((item) => Number(item.rating || 0) <= 3).length;
+    const now = Date.now();
+    const recentWindowMs = 30 * 24 * 60 * 60 * 1000;
+    const recent = feedback.filter((item) => {
+      const createdAt = toDate(item.createdAt);
+      return createdAt ? now - createdAt.getTime() <= recentWindowMs : false;
+    });
+    const previous = feedback.filter((item) => {
+      const createdAt = toDate(item.createdAt);
+      if (!createdAt) return false;
+      const age = now - createdAt.getTime();
+      return age > recentWindowMs && age <= recentWindowMs * 2;
+    });
+    const average = (rows: any[]) => rows.length
+      ? rows.reduce((sum, item) => sum + Number(item.rating || 0), 0) / rows.length
+      : 0;
+    const recentAverage = average(recent);
+    const previousAverage = average(previous);
+    const trend = recentAverage && previousAverage ? recentAverage - previousAverage : 0;
+
+    return {
+      distribution,
+      replied,
+      unanswered: feedback.length - replied,
+      responseRate: feedback.length ? Math.round((replied / feedback.length) * 100) : 0,
+      lowRatings,
+      recentCount: recent.length,
+      recentAverage,
+      trend,
+    };
+  }, [feedback]);
+
+  const filteredFeedback = useMemo(() => {
+    if (filter === "unanswered") return feedback.filter((item) => !item.ownerReply);
+    if (filter === "low") return feedback.filter((item) => Number(item.rating || 0) <= 3);
+    return feedback;
+  }, [feedback, filter]);
+  const totalPages = Math.max(1, Math.ceil(filteredFeedback.length / REVIEWS_PER_PAGE));
+  const paginatedFeedback = filteredFeedback.slice((currentPage - 1) * REVIEWS_PER_PAGE, currentPage * REVIEWS_PER_PAGE);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
   if (loading) return <PageSkeleton variant="feedback" />;
 
   return (
@@ -94,7 +153,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Store Reviews</h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Read customer reviews and publish a store response.</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Track rating patterns, response coverage, and customer issues.</p>
         </div>
         <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-800/60">
           <Star className="h-5 w-5 fill-[#1b1b1b] text-[#1b1b1b] dark:fill-white dark:text-white" />
@@ -114,8 +173,78 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Customer feedback submitted from the store page will appear here.</p>
         </div>
       ) : (
-        <div className="grid gap-4">
-          {feedback.map((item) => {
+        <>
+        <div className="grid gap-4 lg:grid-cols-4">
+          <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-center gap-2 text-gray-500">
+              <MessageSquare className="h-4 w-4" />
+              <p className="text-xs font-bold uppercase tracking-widest">Total Reviews</p>
+            </div>
+            <p className="mt-3 text-3xl font-black text-gray-900 dark:text-white">{feedback.length}</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{analytics.recentCount} in the last 30 days</p>
+          </div>
+          <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-center gap-2 text-gray-500">
+              <CheckCircle2 className="h-4 w-4" />
+              <p className="text-xs font-bold uppercase tracking-widest">Response Rate</p>
+            </div>
+            <p className="mt-3 text-3xl font-black text-gray-900 dark:text-white">{analytics.responseRate}%</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{analytics.unanswered} unanswered</p>
+          </div>
+          <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-center gap-2 text-gray-500">
+              <Clock3 className="h-4 w-4" />
+              <p className="text-xs font-bold uppercase tracking-widest">30-Day Average</p>
+            </div>
+            <div className="mt-3 flex items-end gap-2">
+              <p className="text-3xl font-black text-gray-900 dark:text-white">{analytics.recentAverage ? analytics.recentAverage.toFixed(1) : "-"}</p>
+              {analytics.trend !== 0 && (
+                <span className={`mb-1 inline-flex items-center gap-1 text-sm font-bold ${analytics.trend > 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                  {analytics.trend > 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                  {Math.abs(analytics.trend).toFixed(1)}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Compared with prior 30 days</p>
+          </div>
+          <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-center gap-2 text-gray-500">
+              <BarChart3 className="h-4 w-4" />
+              <p className="text-xs font-bold uppercase tracking-widest">Needs Attention</p>
+            </div>
+            <p className="mt-3 text-3xl font-black text-gray-900 dark:text-white">{analytics.lowRatings}</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Reviews rated 3 stars or below</p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+          <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h3 className="text-sm font-bold uppercase tracking-widest text-gray-900 dark:text-white">Review Queue</h3>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  ["all", "All"],
+                  ["unanswered", "Unanswered"],
+                  ["low", "3 stars or below"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setFilter(value as typeof filter)}
+                    className={`rounded-xl px-3 py-2 text-xs font-bold transition-colors ${
+                      filter === value
+                        ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-4">
+          {paginatedFeedback.map((item) => {
             const createdAt = toDate(item.createdAt);
             const replyUpdatedAt = toDate(item.ownerReplyUpdatedAt);
             return (
@@ -124,7 +253,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
                   <div className="flex items-start gap-3">
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 text-sm font-black text-gray-600 dark:bg-white/10 dark:text-gray-200">
                       {!item.anonymous && item.customerAvatarUrl ? (
-                        <img src={getDisplayImageUrl(item.customerAvatarUrl)} alt="" className="h-full w-full object-cover" />
+                        <img src={getDisplayImageUrl(item.customerAvatarUrl)} alt="" loading="lazy" className="h-full w-full object-cover" />
                       ) : (
                         <span>{item.customerInitials || getInitials(item.customerName)}</span>
                       )}
@@ -197,7 +326,42 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
               </article>
             );
           })}
+          {filteredFeedback.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-gray-200 p-8 text-center dark:border-gray-700">
+              <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">No reviews match this filter.</p>
+            </div>
+          )}
+            </div>
+            <Pagination
+              page={currentPage}
+              pageSize={REVIEWS_PER_PAGE}
+              totalItems={filteredFeedback.length}
+              itemLabel="reviews"
+              onPageChange={setCurrentPage}
+            />
+          </div>
+
+          <aside className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <h3 className="text-sm font-bold uppercase tracking-widest text-gray-900 dark:text-white">Rating Distribution</h3>
+            <div className="mt-5 space-y-4">
+              {analytics.distribution.map(({ rating, count }) => {
+                const width = feedback.length ? Math.round((count / feedback.length) * 100) : 0;
+                return (
+                  <div key={rating} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-gray-500">
+                      <span>{rating} star</span>
+                      <span>{count}</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                      <div className="h-full rounded-full bg-gray-900 dark:bg-white" style={{ width: `${width}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
         </div>
+        </>
       )}
     </div>
   );

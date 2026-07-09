@@ -6,6 +6,9 @@ import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveS
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { ImageCropEditor } from "../../components/ImageCropEditor";
+import { Pagination } from "../../components/Pagination";
+
+const PRODUCTS_PER_PAGE = 9;
 
 export default function StoreOwnerProducts({ store }: { store: any }) {
   const [products, setProducts] = useState<any[]>([]);
@@ -25,6 +28,13 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
   const [imageEditorFile, setImageEditorFile] = useState<File | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(products.length / PRODUCTS_PER_PAGE));
+  const paginatedProducts = products.slice((currentPage - 1) * PRODUCTS_PER_PAGE, currentPage * PRODUCTS_PER_PAGE);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   useEffect(() => {
     if (!store?.id) return;
@@ -174,11 +184,11 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
             <p className="text-sm text-gray-500 mt-1">Add your first product to build your catalog.</p>
           </div>
         ) : (
-          products.map(product => (
+          paginatedProducts.map(product => (
             <div key={product.id} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden group flex flex-col h-full shadow-sm hover:shadow-md transition-shadow">
               <div className="h-48 bg-gray-100 dark:bg-gray-800 relative shrink-0">
                 {product.imageUrl ? (
-                  <img src={getDisplayImageUrl(product.imageUrl)} alt={product.name} className="w-full h-full object-cover" />
+                  <img src={getDisplayImageUrl(product.imageUrl)} alt={product.name} loading="lazy" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
                     <ImageIcon className="w-8 h-8 text-gray-300 dark:text-gray-600" />
@@ -250,6 +260,13 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
           ))
         )}
       </div>
+      <Pagination
+        page={currentPage}
+        pageSize={PRODUCTS_PER_PAGE}
+        totalItems={products.length}
+        itemLabel="products"
+        onPageChange={setCurrentPage}
+      />
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm dark:bg-black/60 sm:p-6">

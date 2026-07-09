@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, deleteDoc, addDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Gift, Calendar, Plus, Edit2, Trash2, ArrowLeft, MapPin, ImagePlus, Users, Copy, Ticket, Loader2 } from "lucide-react";
+import { Gift, Calendar, Plus, Edit2, Trash2, ArrowLeft, MapPin, ImagePlus, Users, Copy, Ticket, Loader2, ShoppingBag } from "lucide-react";
 import { Circle, MapContainer, Marker, useMapEvents } from "react-leaflet";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
@@ -9,6 +9,8 @@ import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveS
 import { getStoreReferralCode, getStoreReferralStats } from "../../lib/secureQr";
 import { MapBaseLayers } from "../../components/MapBaseLayers";
 import { formatPhilippineDateTime } from "../../lib/dateTime";
+import { getCompletedPromotionCount, getRemainingPromotionClaimsLabel } from "../../lib/promotionProgress";
+import { Pagination } from "../../components/Pagination";
 
 type PromotionFormData = {
   title: string;
@@ -19,6 +21,8 @@ type PromotionFormData = {
   active: boolean;
   bannerImageUrl: string;
   maxRedemptions: number | "";
+  linkedProductId: string;
+  linkedProductName: string;
   geofenceEnabled: boolean;
   geofenceLat: number | "";
   geofenceLng: number | "";
@@ -27,17 +31,12 @@ type PromotionFormData = {
 
 const DEFAULT_RADIUS_METERS = 500;
 const DEFAULT_CENTER = { lat: 7.4478, lng: 125.8078 };
+const PROMOTIONS_PER_PAGE = 6;
 
 const getStoreCenter = (store: any) => ({
   lat: Number(store?.lat) || DEFAULT_CENTER.lat,
   lng: Number(store?.lng) || DEFAULT_CENTER.lng,
 });
-
-const getRemainingClaims = (promo: any) => {
-  const maxRedemptions = Number(promo.maxRedemptions || 0);
-  if (!maxRedemptions) return "Unlimited";
-  return `${Math.max(maxRedemptions - Number(promo.claimedCount || 0), 0)} / ${maxRedemptions} left`;
-};
 
 function GeofenceClickHandler({ onPick }: { onPick: (lat: number, lng: number) => void }) {
   useMapEvents({
@@ -50,6 +49,7 @@ function GeofenceClickHandler({ onPick }: { onPick: (lat: number, lng: number) =
 
 export default function StoreOwnerPromotions({ store }: { store: any }) {
   const [promotions, setPromotions] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [promotionToDelete, setPromotionToDelete] = useState<any>(null);
@@ -64,6 +64,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const [referralClock, setReferralClock] = useState(() => Date.now());
   const [referralCount, setReferralCount] = useState<number | null>(null);
   const [loadingReferralCode, setLoadingReferralCode] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const storeCenter = useMemo(() => getStoreCenter(store), [store]);
   const [formData, setFormData] = useState<PromotionFormData>({
@@ -75,6 +76,8 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     active: true,
     bannerImageUrl: "",
     maxRedemptions: "",
+    linkedProductId: "",
+    linkedProductName: "",
     geofenceEnabled: false,
     geofenceLat: storeCenter.lat,
     geofenceLng: storeCenter.lng,
@@ -98,16 +101,18 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
       .catch((error) => console.error("Failed to load referral usage", error));
     const fetchPromotions = async () => {
       try {
-        const q = query(collection(db, "promotions"), where("storeId", "==", store.id));
-        const snap = await getDocs(q);
-        const promos = await Promise.all(
-          snap.docs.map(async (d) => {
-            const promo = { id: d.id, ...d.data() };
-            const claimsQuery = query(collection(db, "promotions_scanned"), where("promotionId", "==", d.id));
-            const claimsSnap = await getDocs(claimsQuery);
-            return { ...promo, claimedCount: claimsSnap.size };
-          }),
-        );
+        const [promotionsSnap, productsSnap, cardsSnap] = await Promise.all([
+          getDocs(query(collection(db, "promotions"), where("storeId", "==", store.id))),
+          getDocs(query(collection(db, "products"), where("storeId", "==", store.id))),
+          getDocs(query(collection(db, "cards"), where("storeId", "==", store.id))),
+        ]);
+        const storeProducts = productsSnap.docs.map((productDoc) => ({ id: productDoc.id, ...productDoc.data() }));
+        const cards = cardsSnap.docs.map((cardDoc) => ({ id: cardDoc.id, ...cardDoc.data() }));
+        const promos = promotionsSnap.docs.map((d) => {
+          const promo = { id: d.id, ...d.data() };
+          return { ...promo, claimedCount: getCompletedPromotionCount(cards, promo) };
+        });
+        setProducts(storeProducts);
         setPromotions(promos);
       } catch (error) {
         console.error("Failed to fetch promos", error);
@@ -122,6 +127,16 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     const timer = window.setInterval(() => setReferralClock(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  const totalPages = Math.max(1, Math.ceil(promotions.length / PROMOTIONS_PER_PAGE));
+  const paginatedPromotions = promotions.slice(
+    (currentPage - 1) * PROMOTIONS_PER_PAGE,
+    currentPage * PROMOTIONS_PER_PAGE,
+  );
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   const handleGetReferralCode = async () => {
     if (!store?.id || loadingReferralCode) return;
@@ -159,6 +174,8 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
       active: true,
       bannerImageUrl: "",
       maxRedemptions: "",
+      linkedProductId: "",
+      linkedProductName: "",
       geofenceEnabled: false,
       geofenceLat: storeCenter.lat,
       geofenceLng: storeCenter.lng,
@@ -179,6 +196,8 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
         active: promo.active ?? true,
         bannerImageUrl: promo.bannerImageUrl || "",
         maxRedemptions: promo.maxRedemptions ? Number(promo.maxRedemptions) : "",
+        linkedProductId: promo.linkedProductId || "",
+        linkedProductName: promo.linkedProductName || "",
         geofenceEnabled: Boolean(promo.geofenceEnabled),
         geofenceLat: Number(promo.geofenceLat || storeCenter.lat),
         geofenceLng: Number(promo.geofenceLng || storeCenter.lng),
@@ -210,11 +229,14 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
           })
         : formData.bannerImageUrl;
       const maxRedemptions = Number(formData.maxRedemptions || 0);
+      const linkedProduct = products.find((product) => product.id === formData.linkedProductId);
       const data = {
         storeId: store.id,
         ...formData,
         bannerImageUrl,
         maxRedemptions: maxRedemptions > 0 ? maxRedemptions : null,
+        linkedProductId: linkedProduct ? linkedProduct.id : null,
+        linkedProductName: linkedProduct ? String(linkedProduct.name || "Product") : null,
         geofenceLat: formData.geofenceEnabled ? Number(formData.geofenceLat || storeCenter.lat) : null,
         geofenceLng: formData.geofenceEnabled ? Number(formData.geofenceLng || storeCenter.lng) : null,
         geofenceRadiusMeters: formData.geofenceEnabled ? Math.max(Number(formData.geofenceRadiusMeters || DEFAULT_RADIUS_METERS), 25) : null,
@@ -369,7 +391,36 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                       placeholder="Unlimited"
                       className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
                     />
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Counts customers who complete the promo card.</p>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2">
+                    <ShoppingBag className="w-4 h-4 text-gray-500" /> Product Dependency
+                  </label>
+                  <select
+                    value={formData.linkedProductId}
+                    onChange={(event) => {
+                      const product = products.find((item) => item.id === event.target.value);
+                      setFormData({
+                        ...formData,
+                        linkedProductId: event.target.value,
+                        linkedProductName: product ? String(product.name || "Product") : "",
+                      });
+                    }}
+                    className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
+                  >
+                    <option value="">No specific product</option>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name || "Untitled product"}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Use this for product-specific offers like buy 10 coffees, get 1 coffee free.
+                  </p>
                 </div>
               </div>
 
@@ -567,10 +618,10 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
             <p className="text-sm text-gray-500 mt-1">Add your first promotional offer to attract customers.</p>
           </div>
         ) : (
-          promotions.map((promo) => (
+          paginatedPromotions.map((promo) => (
             <div key={promo.id} className={`bg-white dark:bg-gray-900 border rounded-2xl overflow-hidden ${(promo.active ?? true) ? "border-gray-300 dark:border-white/15 shadow-sm" : "border-gray-200 dark:border-gray-800 opacity-75"}`}>
               {promo.bannerImageUrl && (
-                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className="h-36 w-full object-cover" />
+                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" className="h-36 w-full object-cover" />
               )}
               <div className="p-6">
                 <div className="flex justify-between items-start gap-4 mb-4">
@@ -585,6 +636,12 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                           {(promo.active ?? true) ? "Active" : "Inactive"}
                         </span>
                         <span className="text-xs text-gray-500 font-semibold">{promo.requiredStamps} Stamps Required</span>
+                        {promo.linkedProductName && (
+                          <span className="inline-flex items-center gap-1 text-xs text-gray-500 font-semibold">
+                            <ShoppingBag className="h-3.5 w-3.5" />
+                            {promo.linkedProductName}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -601,7 +658,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                   )}
                   <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 dark:bg-gray-800/50 p-2 rounded-lg">
                     <Users className="w-4 h-4 shrink-0" />
-                    <span>{getRemainingClaims(promo)}</span>
+                    <span>{getRemainingPromotionClaimsLabel(promo)}</span>
                   </div>
                   {promo.geofenceEnabled && (
                     <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 dark:bg-gray-800/50 p-2 rounded-lg">
@@ -659,6 +716,13 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
           ))
         )}
       </div>
+      <Pagination
+        page={currentPage}
+        pageSize={PROMOTIONS_PER_PAGE}
+        totalItems={promotions.length}
+        itemLabel="promotions"
+        onPageChange={setCurrentPage}
+      />
 
       <ConfirmationModal
         isOpen={Boolean(promotionToDelete)}

@@ -3,12 +3,41 @@ export type SubscriptionPlan = {
   name?: string;
   price?: number | string;
   interval?: string;
+  features?: string[];
+  dependencies?: SubscriptionDependencies;
+};
+
+export type SubscriptionDependencies = {
+  customerLimit?: number | string;
+  staffLimit?: number | string;
+  branchLimit?: number | string;
 };
 
 export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
-  { id: "standard", name: "Standard", price: 99, interval: "month" },
-  { id: "premium", name: "Premium", price: 199, interval: "month" },
-  { id: "enterprise", name: "Enterprise", price: 499, interval: "month" },
+  {
+    id: "standard",
+    name: "Standard",
+    price: 99,
+    interval: "month",
+    features: ["Up to 1,000 customers", "Basic analytics", "Standard support", "1 Staff Account"],
+    dependencies: { customerLimit: 1000, staffLimit: 1, branchLimit: 1 },
+  },
+  {
+    id: "premium",
+    name: "Premium",
+    price: 199,
+    interval: "month",
+    features: ["Up to 10,000 customers", "Advanced analytics", "Priority support", "5 Staff Accounts", "Custom promotions"],
+    dependencies: { customerLimit: 10000, staffLimit: 5, branchLimit: 3 },
+  },
+  {
+    id: "enterprise",
+    name: "Enterprise",
+    price: 499,
+    interval: "month",
+    features: ["Unlimited customers", "Custom reporting", "24/7 Dedicated support", "Unlimited Staff Accounts", "White-label options"],
+    dependencies: { customerLimit: 0, staffLimit: 0, branchLimit: 0 },
+  },
 ];
 
 export const PAYMENT_SCHEDULE_OPTIONS = [
@@ -110,6 +139,89 @@ export function getSubscriptionOwedAmount(
   const plan = findSubscriptionPlan(plans, level);
   const price = Number(plan?.price);
   return Number.isFinite(price) ? price : fallback;
+}
+
+export function normalizeSubscriptionDependencies(value?: SubscriptionDependencies) {
+  const toLimit = (entry: unknown, fallback = 0) => {
+    const parsed = Number(entry);
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback;
+  };
+
+  return {
+    customerLimit: toLimit(value?.customerLimit),
+    staffLimit: toLimit(value?.staffLimit),
+    branchLimit: toLimit(value?.branchLimit, 1),
+  };
+}
+
+export function getSubscriptionDependencies(plans: SubscriptionPlan[], level?: string) {
+  return normalizeSubscriptionDependencies(findSubscriptionPlan(plans, level)?.dependencies);
+}
+
+export function formatSubscriptionLimit(value?: number | string, label = "items") {
+  const limit = Number(value);
+  if (!Number.isFinite(limit) || limit <= 0) return `Unlimited ${label}`;
+  return `${limit.toLocaleString("en-PH")} ${label}`;
+}
+
+export function getNextPaymentDate(
+  schedule?: string,
+  subscriptionStart?: any,
+  subscriptionEnd?: any,
+  today = new Date(),
+) {
+  return predictPaymentDates(schedule, subscriptionStart, subscriptionEnd, 1, today)[0] || null;
+}
+
+export function resolveStoreBilling(store: any, plans: SubscriptionPlan[], today = new Date()) {
+  const currentAmount = Number(store?.owedAmount);
+  const fallbackAmount = Number.isFinite(currentAmount)
+    ? currentAmount
+    : getSubscriptionOwedAmount(plans, store?.subscriptionLevel);
+  const nextPlanAmount = getSubscriptionOwedAmount(plans, store?.subscriptionLevel, fallbackAmount);
+  const nextPaymentDate = getNextPaymentDate(store?.paymentSchedule, store?.subscriptionStart, store?.subscriptionEnd, today);
+  const pendingAmount = Number(store?.pendingOwedAmount);
+  const effectiveAt = toDate(store?.pendingOwedAmountEffectiveAt);
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const pendingCanApply = Number.isFinite(pendingAmount) && effectiveAt && effectiveAt <= startOfToday;
+
+  if (pendingCanApply && pendingAmount !== fallbackAmount) {
+    return {
+      amountDue: pendingAmount,
+      nextPlanAmount,
+      pendingAmount: null,
+      nextPaymentDate,
+      shouldPersistAppliedAmount: true,
+    };
+  }
+
+  if (Number.isFinite(pendingAmount) && pendingAmount !== fallbackAmount) {
+    return {
+      amountDue: fallbackAmount,
+      nextPlanAmount,
+      pendingAmount,
+      nextPaymentDate: effectiveAt || nextPaymentDate,
+      shouldPersistAppliedAmount: false,
+    };
+  }
+
+  if (nextPlanAmount !== fallbackAmount && nextPaymentDate) {
+    return {
+      amountDue: fallbackAmount,
+      nextPlanAmount,
+      pendingAmount: nextPlanAmount,
+      nextPaymentDate,
+      shouldPersistAppliedAmount: false,
+    };
+  }
+
+  return {
+    amountDue: fallbackAmount,
+    nextPlanAmount,
+    pendingAmount: null,
+    nextPaymentDate,
+    shouldPersistAppliedAmount: false,
+  };
 }
 
 export function formatMoney(amount: number) {

@@ -71,7 +71,7 @@ export default function CustomerCards() {
           .map((promotionDoc) => {
             const promotion = { id: promotionDoc.id, ...promotionDoc.data() };
             const card = cardsByStoreId[String((promotion as any).storeId || "")];
-            const progress = Number(card?.promoProgress?.[promotionDoc.id] ?? card?.stars ?? 0);
+            const progress = Number(card?.promoProgress?.[promotionDoc.id] || 0);
             return { ...promotion, card, progress };
           })
           .filter(isPromotionAvailable)
@@ -180,6 +180,11 @@ export default function CustomerCards() {
                               <span className="truncate">{promo.card?.storeName || "Participating store"}</span>
                             </div>
                             <h4 className="mt-2 text-lg font-bold leading-snug text-gray-900 dark:text-white">{promo.title || "Special Promotion"}</h4>
+                            {promo.linkedProductName && (
+                              <p className="mt-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                                Product: {promo.linkedProductName}
+                              </p>
+                            )}
                           </div>
                           <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wide ${isReady ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200" : "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-200"}`}>
                             {progress}/{requiredStamps}

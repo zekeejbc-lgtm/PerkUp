@@ -17,6 +17,7 @@ import { MapBaseLayers } from "../components/MapBaseLayers";
 import { DirectoryStore, getStoreCategories, isStoreOpenNow, storeMatchesFilters } from "../lib/storeDirectory";
 
 import { PartnerApplicationModal } from "../components/PartnerApplicationModal";
+import { PartnerApplicationTrackingModal } from "../components/PartnerApplicationTrackingModal";
 import { NewsletterForm } from "../components/NewsletterForm";
 
 interface AuthNavigationState {
@@ -81,6 +82,7 @@ export default function LandingPage() {
   const [openNowOnly, setOpenNowOnly] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showAppModal, setShowAppModal] = useState(false);
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [config, setConfig] = useState<any>({
     heroHeadline: "Reward your \nbest customers.",
@@ -117,7 +119,9 @@ export default function LandingPage() {
   }, [loading, navigationState?.authRequired, user]);
 
   useEffect(() => {
-    if (new URLSearchParams(location.search).get("partner") === "true") setShowAppModal(true);
+    const params = new URLSearchParams(location.search);
+    if (params.get("partner") === "true") setShowAppModal(true);
+    if (params.get("track") === "true") setShowTrackingModal(true);
   }, [location.search]);
 
   const closeAuthModal = () => {
@@ -212,6 +216,7 @@ export default function LandingPage() {
       <PublicSiteHeader
         onSignIn={() => openAuthModal("signin")}
         onSignUp={() => openAuthModal("signup")}
+        onTrack={() => setShowTrackingModal(true)}
       />
 
       <main className="flex-1">
@@ -507,12 +512,21 @@ export default function LandingPage() {
               <p className="text-gray-400 text-lg max-w-2xl mx-auto mb-10">
                 Join our growing network of local businesses. Drive more foot traffic, build customer loyalty, and get insights into your best customers.
               </p>
-              <button
-                onClick={() => setShowAppModal(true)}
-                className="bg-white text-[#1b1b1b] px-8 py-4 rounded-full font-medium hover:bg-gray-100 transition-colors shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#1b1b1b] focus:ring-white"
-              >
-                Apply to be a Partner
-              </button>
+              <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+                <button
+                  onClick={() => setShowAppModal(true)}
+                  className="inline-flex items-center justify-center rounded-full bg-white px-8 py-4 font-medium text-[#1b1b1b] shadow-lg transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-[#1b1b1b]"
+                >
+                  Apply to be a Partner
+                </button>
+                <button
+                  onClick={() => setShowTrackingModal(true)}
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-white/30 px-8 py-4 font-medium text-white transition-colors hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-[#1b1b1b]"
+                >
+                  <Search className="h-4 w-4" />
+                  Track Application
+                </button>
+              </div>
             </div>
           </section>
         )}
@@ -602,6 +616,7 @@ export default function LandingPage() {
 
       <AuthModal isOpen={showAuthModal} onClose={closeAuthModal} initialMode={authMode} />
       <PartnerApplicationModal isOpen={showAppModal} onClose={() => setShowAppModal(false)} />
+      <PartnerApplicationTrackingModal isOpen={showTrackingModal} onClose={() => setShowTrackingModal(false)} />
     </div>
   );
 }

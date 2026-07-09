@@ -58,6 +58,8 @@ interface StorePromotion {
   startDate?: string;
   endDate?: string;
   active?: boolean;
+  linkedProductId?: string;
+  linkedProductName?: string;
 }
 
 interface StoreReview {
@@ -396,6 +398,12 @@ export default function StorePage() {
     .filter((entry): entry is { branch: StoreContent; coordinates: [number, number] } => Boolean(entry.coordinates));
   const selectedCoordinates = getCoordinates(store);
   const mapCenter = selectedCoordinates ?? mappedBranches[0]?.coordinates ?? null;
+  const selectedProductPromotions = selectedProduct
+    ? promotions.filter((promotion) => {
+        const linkedProductId = String(promotion.linkedProductId || "");
+        return !linkedProductId || linkedProductId === selectedProduct.id;
+      })
+    : [];
 
   return (
     <div className="flex min-h-screen flex-col bg-white selection:bg-[#1b1b1b] selection:text-white transition-colors dark:bg-[#1b1b1b] dark:selection:bg-white dark:selection:text-[#1b1b1b]">
@@ -770,14 +778,14 @@ export default function StorePage() {
                     {selectedProduct.ingredients || "No additional product details have been provided."}
                   </p>
                 </div>
-                {promotions.length > 0 && (
+                {selectedProductPromotions.length > 0 && (
                   <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
                     <div className="flex items-center gap-2">
                       <Gift className="h-5 w-5 text-gray-500 dark:text-gray-400" />
                       <h3 className="font-bold text-gray-900 dark:text-white">Current promotions</h3>
                     </div>
                     <div className="mt-3 space-y-3">
-                      {promotions.map((promotion) => (
+                      {selectedProductPromotions.map((promotion) => (
                         <div key={promotion.id} className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/70">
                           <p className="font-bold text-gray-900 dark:text-white">{promotion.title || "Special promotion"}</p>
                           {promotion.description && <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">{promotion.description}</p>}

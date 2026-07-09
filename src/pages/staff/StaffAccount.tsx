@@ -4,7 +4,8 @@ import { doc, updateDoc } from "@/src/lib/dataCompat";
 import { db, logOut } from "../../lib/backend";
 import { AtSign, Calendar, CheckCircle2, FileText, ImagePlus, LogOut, Mail, Phone, Save, Shield, User, X } from "lucide-react";
 import React, { useEffect, useState } from "react";
-import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
+import { ProfileAvatarImage } from "@/src/components/ProfileAvatarImage";
 
 export default function StaffAccount() {
   const { user, refreshUser } = useAuth();
@@ -127,11 +128,12 @@ export default function StaffAccount() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-center gap-5">
             <div className="relative flex h-20 w-20 min-w-20 shrink-0 aspect-square items-center justify-center overflow-hidden rounded-full bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white group">
-              {formData.avatarUrl ? (
-                <img src={getDisplayImageUrl(formData.avatarUrl)} alt="Profile" className="h-full w-full object-cover" />
-              ) : (
-                <User className="w-12 h-12" />
-              )}
+              <ProfileAvatarImage
+                src={formData.avatarUrl}
+                alt="Profile"
+                className="h-full w-full object-cover"
+                fallback={<User className="w-12 h-12" />}
+              />
               {isEditing && (
                 <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
                   <ImagePlus className="w-5 h-5" />

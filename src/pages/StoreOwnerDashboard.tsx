@@ -14,6 +14,7 @@ const StoreOwnerSubscription = lazy(() => import("./store-owner/StoreOwnerSubscr
 import { useAuth } from "../contexts/AuthContext";
 import { query, where, getDocs, collection, addDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../lib/backend";
+import { getDisplayImageUrl } from "../lib/imageStorage";
 import { StoreLocationPicker } from "../components/StoreLocationPicker";
 
 export default function StoreOwnerDashboard() {
@@ -165,23 +166,31 @@ export default function StoreOwnerDashboard() {
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {stores.map((store) => (
-              <button
-                key={store.id}
-                onClick={() => selectStore(store)}
-                className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 text-left hover:border-[#1b1b1b] dark:hover:border-white hover:shadow-lg transition-all group relative overflow-hidden"
-              >
-                <div className="absolute top-0 right-0 w-32 h-32 bg-gray-100 dark:bg-[#1b1b1b]/10 rounded-bl-full -z-10 transition-transform group-hover:scale-110" />
-                <div className="w-12 h-12 bg-gray-100 dark:bg-white/15 rounded-2xl flex items-center justify-center mb-6">
-                  <Building className="w-6 h-6 text-[#1b1b1b] dark:text-white" />
-                </div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{store.name || 'Unnamed Branch'}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mb-6">{store.address || 'No address set'}</p>
-                <div className="flex items-center text-sm font-semibold text-[#1b1b1b] dark:text-white">
-                  Manage Branch <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
-                </div>
-              </button>
-            ))}
+            {stores.map((store) => {
+              const logoUrl = getDisplayImageUrl(store.logoUrl || "");
+
+              return (
+                <button
+                  key={store.id}
+                  onClick={() => selectStore(store)}
+                  className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 text-left hover:border-[#1b1b1b] dark:hover:border-white hover:shadow-lg transition-all group relative overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-gray-100 dark:bg-[#1b1b1b]/10 rounded-bl-full -z-10 transition-transform group-hover:scale-110" />
+                  <div className="w-12 h-12 overflow-hidden bg-gray-100 dark:bg-white/15 rounded-2xl flex items-center justify-center mb-6 border border-gray-200 dark:border-white/10">
+                    {logoUrl ? (
+                      <img src={logoUrl} alt={`${store.name || "Branch"} logo`} className="h-full w-full object-cover" />
+                    ) : (
+                      <Building className="w-6 h-6 text-[#1b1b1b] dark:text-white" />
+                    )}
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{store.name || 'Unnamed Branch'}</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mb-6">{store.address || 'No address set'}</p>
+                  <div className="flex items-center text-sm font-semibold text-[#1b1b1b] dark:text-white">
+                    Manage Branch <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
         <div className="rounded-3xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
@@ -264,7 +273,11 @@ export default function StoreOwnerDashboard() {
                 title={`Branch: ${activeStore.name}`}
                 className="w-full flex items-center justify-center p-3 bg-gray-100 dark:bg-white/10 border-gray-300 dark:border-white/15 rounded-2xl border hover:bg-gray-100 dark:hover:bg-white/15 cursor-pointer"
               >
-                <Building className="w-6 h-6 text-[#1b1b1b] dark:text-white" />
+                {activeStore.logoUrl ? (
+                  <img src={getDisplayImageUrl(activeStore.logoUrl)} alt={`${activeStore.name || "Branch"} logo`} className="h-8 w-8 rounded-xl object-cover" />
+                ) : (
+                  <Building className="w-6 h-6 text-[#1b1b1b] dark:text-white" />
+                )}
               </button>
             )}
           </div>

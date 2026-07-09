@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from "react";
-import { collection, getDocs, doc, getDoc } from "@/src/lib/dataCompat";
+import React, { useEffect, useMemo, useState } from "react";
+import { collection, doc, getDoc, getDocs } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { Ban, X, FileText, Upload, Image as ImageIcon } from "lucide-react";
+import { Ban, FileText, Image as ImageIcon, Loader2, Search, Store, Upload, X } from "lucide-react";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
   dateInputToDate,
   formatMoney,
+  getSubscriptionDependencies,
   getSubscriptionOwedAmount,
   PAYMENT_SCHEDULE_OPTIONS,
   toDateInputValue,
@@ -17,14 +18,45 @@ import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { ImageCropEditor } from "../../components/ImageCropEditor";
 import { TemporaryPasswordField } from "../../components/TemporaryPasswordField";
 import { validateStrongPassword } from "../../lib/passwordStrength";
+import { Pagination } from "../../components/Pagination";
+
+const APPLICATIONS_PER_PAGE = 8;
+
+const STATUS_OPTIONS = [
+  { label: "Pending", value: "pending" },
+  { label: "Approved", value: "approved" },
+  { label: "Rejected", value: "rejected" },
+  { label: "All", value: "all" },
+];
+
+const getTimestampMs = (value: any) => {
+  if (!value) return 0;
+  if (typeof value === "string") return new Date(value).getTime() || 0;
+  if (typeof value === "object" && Number.isFinite(Number(value.seconds))) return Number(value.seconds) * 1000;
+  return 0;
+};
+
+const formatApplicationDate = (value: any) => {
+  const timestamp = getTimestampMs(value);
+  if (!timestamp) return "date unavailable";
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(timestamp));
+};
 
 export default function AdminApplications() {
   const [applications, setApplications] = useState<any[]>([]);
+  const [storesById, setStoresById] = useState<Record<string, any>>({});
   const [loadingApps, setLoadingApps] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [subscriptionPlans, setSubscriptionPlans] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("pending");
+  const [subscriptionFilter, setSubscriptionFilter] = useState("all");
 
-  // New store form state
   const [storeName, setStoreName] = useState("");
   const [storeLocation, setStoreLocation] = useState("");
   const [storeCoordinates, setStoreCoordinates] = useState<[number, number] | null>(null);
@@ -33,12 +65,6 @@ export default function AdminApplications() {
   const [logoEditorFile, setLogoEditorFile] = useState<File | null>(null);
   const [ownerEmail, setOwnerEmail] = useState("");
   const [selectedApplicationId, setSelectedApplicationId] = useState("");
-
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) setLogoEditorFile(file);
-    e.target.value = "";
-  };
   const [ownerName, setOwnerName] = useState("");
   const [ownerPassword, setOwnerPassword] = useState("");
   const [requirePasswordChange, setRequirePasswordChange] = useState(true);
@@ -47,31 +73,87 @@ export default function AdminApplications() {
   const [subEnd, setSubEnd] = useState("");
   const [paymentSchedule, setPaymentSchedule] = useState("every_30_days");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
   const billingPlans = subscriptionPlans.length > 0 ? subscriptionPlans : DEFAULT_SUBSCRIPTION_PLANS;
   const selectedOwedAmount = getSubscriptionOwedAmount(billingPlans, subLevel);
+  const selectedSubscriptionDependencies = getSubscriptionDependencies(billingPlans, subLevel);
+  const selectedBranchLimit = selectedSubscriptionDependencies.branchLimit > 0 ? selectedSubscriptionDependencies.branchLimit : 100;
+  const selectedApplication = applications.find((app) => app.id === selectedApplicationId);
+  const pendingCount = applications.filter((app) => (app.status || "pending") === "pending").length;
+
+  const subscriptionOptions = useMemo(() => {
+    const levels = Array.from(new Set(applications.map((app) => String(app.subscriptionLevel || "").trim()).filter(Boolean)));
+    return [{ label: "All Plans", value: "all" }, ...levels.sort().map((level) => ({ label: level, value: level }))];
+  }, [applications]);
+
+  const filteredApplications = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    return applications
+      .filter((app) => statusFilter === "all" || (app.status || "pending") === statusFilter)
+      .filter((app) => subscriptionFilter === "all" || app.subscriptionLevel === subscriptionFilter)
+      .filter((app) => {
+        if (!normalizedSearch) return true;
+        const approvedStore = app.approvedStoreId ? storesById[app.approvedStoreId] : null;
+        return [
+          app.businessName,
+          app.applicantName,
+          app.email,
+          app.phoneNumber,
+          app.address,
+          app.description,
+          approvedStore?.name,
+          approvedStore?.businessName,
+          approvedStore?.location,
+        ].some((value) => String(value || "").toLowerCase().includes(normalizedSearch));
+      })
+      .sort((left, right) => getTimestampMs(right.createdAt) - getTimestampMs(left.createdAt));
+  }, [applications, searchTerm, statusFilter, subscriptionFilter, storesById]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredApplications.length / APPLICATIONS_PER_PAGE));
+  const paginatedApplications = filteredApplications.slice(
+    (currentPage - 1) * APPLICATIONS_PER_PAGE,
+    currentPage * APPLICATIONS_PER_PAGE,
+  );
 
   useEffect(() => {
     async function fetchApplications() {
       setLoadingApps(true);
       try {
         const snap = await getDocs(collection(db, "applications"));
-        setApplications(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        
+        setApplications(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+
+        const storeSnap = await getDocs(collection(db, "stores"));
+        setStoresById(Object.fromEntries(storeSnap.docs.map((d) => [d.id, { id: d.id, ...d.data() }])));
+
         const subDoc = await getDoc(doc(db, "settings", "subscriptions"));
         if (subDoc.exists() && subDoc.data().plans) {
           setSubscriptionPlans(subDoc.data().plans);
-          if (subDoc.data().plans.length > 0) {
-             setSubLevel(subDoc.data().plans[0].name);
-          }
+          if (subDoc.data().plans.length > 0) setSubLevel(subDoc.data().plans[0].name);
         }
       } catch (error) {
+        console.error("Application loading failed", error);
         setApplications([]);
+        setStoresById({});
       } finally {
         setLoadingApps(false);
       }
     }
     fetchApplications();
   }, []);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, subscriptionFilter]);
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setLogoEditorFile(file);
+    e.target.value = "";
+  };
 
   const handleApproveApplication = (app: any) => {
     setStoreName(app.businessName);
@@ -80,10 +162,9 @@ export default function AdminApplications() {
     setStoreLocation(app.address || "");
     const applicationCoordinates = Array.isArray(app.coordinates) ? app.coordinates.map(Number) : null;
     setStoreCoordinates(
-      applicationCoordinates?.length === 2 &&
-      applicationCoordinates.every(Number.isFinite)
+      applicationCoordinates?.length === 2 && applicationCoordinates.every(Number.isFinite)
         ? [applicationCoordinates[0], applicationCoordinates[1]]
-        : null
+        : null,
     );
     setStoreLogo(app.logoUrl || "");
     setPendingLogo(null);
@@ -91,18 +172,18 @@ export default function AdminApplications() {
     setSubStart(toDateInputValue(app.subscriptionStart));
     setSubEnd(toDateInputValue(app.subscriptionEnd));
     setPaymentSchedule(app.paymentSchedule || "every_30_days");
-    setOwnerPassword(""); 
+    setOwnerPassword("");
     setSelectedApplicationId(app.id);
     setShowAddModal(true);
   };
-  
+
   const handleRejectApplication = async (appId: string) => {
     try {
-       await invokeAdminBackend<{ rejected: boolean }>({ action: "reject_application", applicationId: appId });
-       setApplications(applications.map(a => a.id === appId ? { ...a, status: "rejected" } : a));
+      await invokeAdminBackend<{ rejected: boolean }>({ action: "reject_application", applicationId: appId });
+      setApplications((current) => current.map((app) => app.id === appId ? { ...app, status: "rejected" } : app));
     } catch (error) {
-       console.error("Application rejection failed", error);
-       alert("Failed to reject application.");
+      console.error("Application rejection failed", error);
+      alert("Failed to reject application.");
     }
   };
 
@@ -136,17 +217,16 @@ export default function AdminApplications() {
           status: "active",
           subscriptionLevel: subLevel,
           owedAmount: selectedOwedAmount,
+          subscriptionDependencies: selectedSubscriptionDependencies,
+          branchLimit: selectedBranchLimit,
           subscriptionStart: dateInputToDate(subStart),
           subscriptionEnd: dateInputToDate(subEnd),
           paymentSchedule,
         },
       });
 
-      setApplications(applications.map((app) =>
-        app.id === selectedApplicationId
-          ? { ...app, status: "approved", approvedStoreId: result.store.id }
-          : app
-      ));
+      setStoresById((stores) => ({ ...stores, [result.store.id]: result.store }));
+      setApplications((current) => current.filter((app) => app.id !== selectedApplicationId));
       setShowAddModal(false);
       setPendingLogo(null);
       alert(
@@ -163,108 +243,185 @@ export default function AdminApplications() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50">
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/50 p-6 dark:border-gray-800 dark:bg-gray-900/50">
         <div className="flex items-center gap-3">
-          <FileText className="w-5 h-5 text-gray-500" />
-          <h3 className="font-semibold text-gray-900 dark:text-white text-lg">Partner Applications</h3>
+          <FileText className="h-5 w-5 text-gray-500" />
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Partner Applications</h3>
         </div>
-        <span className="text-xs font-semibold bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-xl border border-gray-300/50 dark:border-gray-700">
-          {applications.filter((a: any) => a.status !== 'rejected').length} Pending
+        <span className="rounded-xl border border-gray-300/50 bg-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+          {pendingCount} Pending
         </span>
       </div>
-      
+
       {loadingApps ? (
-        <div className="space-y-3 p-6">
+        <div className="space-y-4 p-6">
+          <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+            <Loader2 className="h-5 w-5 animate-spin text-gray-500" />
+            <span className="text-sm font-medium text-gray-600 dark:text-gray-300">Loading applications...</span>
+          </div>
           <SkeletonBlock className="h-24 rounded-2xl" />
           <SkeletonBlock className="h-24 rounded-2xl" />
           <SkeletonBlock className="h-24 rounded-2xl" />
         </div>
       ) : (
-        <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
-          {applications.filter((a: any) => a.status !== 'rejected').map(app => (
-            <div key={app.id} className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-6 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-3 mb-1">
-                  <h4 className="font-bold tracking-tight text-gray-900 dark:text-white text-lg truncate">{app.businessName}</h4>
-                  {app.subscriptionLevel && (
-                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold tracking-wider uppercase bg-gray-100 text-[#1b1b1b] border border-gray-300 dark:bg-white/10 dark:text-white dark:border-white/15">
-                      {app.subscriptionLevel}
-                    </span>
+        <div>
+          <div className="grid gap-3 border-b border-gray-100 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 lg:grid-cols-[minmax(0,1fr)_12rem_12rem]">
+            <label className="relative block">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                type="search"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm text-gray-900 outline-none transition focus:border-gray-400 focus:bg-white dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:border-gray-500"
+                placeholder="Search store, owner, email, phone, or location"
+              />
+            </label>
+            <CustomDropdown options={STATUS_OPTIONS} value={statusFilter} onChange={setStatusFilter} className="w-full" />
+            <CustomDropdown options={subscriptionOptions} value={subscriptionFilter} onChange={setSubscriptionFilter} className="w-full" />
+          </div>
+
+          <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
+            {paginatedApplications.map((app) => (
+              <div key={app.id} className="flex flex-col gap-5 bg-white p-5 transition-colors hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800/70 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-w-0 flex-1 gap-4">
+                  <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800">
+                    {app.logoUrl ? (
+                      <img
+                        src={getDisplayImageUrl(app.logoUrl)}
+                        alt={`${app.businessName || "Application"} logo`}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-gray-400">
+                        <Store className="h-7 w-7" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <h4 className="truncate text-lg font-bold tracking-tight text-gray-900 dark:text-white">{app.businessName}</h4>
+                      {app.subscriptionLevel && (
+                        <span className="rounded-lg border border-gray-300 bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#1b1b1b] dark:border-white/15 dark:bg-white/10 dark:text-white">
+                          {app.subscriptionLevel}
+                        </span>
+                      )}
+                      <span className="rounded-lg border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                        {app.status || "pending"}
+                      </span>
+                    </div>
+                    <p className="truncate text-sm text-gray-500 dark:text-gray-400">
+                      Applicant: {app.applicantName} - {app.email} {app.phoneNumber && `- ${app.phoneNumber}`}
+                    </p>
+                    <p className="mt-1 line-clamp-2 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
+                      {app.description}
+                    </p>
+                    {app.address && <p className="mt-2 truncate text-xs text-gray-400">Location: {app.address}</p>}
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
+                      <span>Applied {formatApplicationDate(app.createdAt)}</span>
+                      {app.approvedStoreId && storesById[app.approvedStoreId] && (
+                        <span className="rounded-full bg-green-50 px-2 py-0.5 font-medium text-green-700 dark:bg-green-950/40 dark:text-green-300">
+                          Store: {storesById[app.approvedStoreId].name || storesById[app.approvedStoreId].businessName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 rounded-xl bg-gray-50 p-3 dark:bg-gray-950 lg:shrink-0 lg:bg-transparent lg:p-0">
+                  {(app.status || "pending") === "pending" && (
+                    <>
+                      <button
+                        onClick={() => handleApproveApplication(app)}
+                        className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1b1b1b] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black dark:border dark:border-white/10 lg:flex-none"
+                      >
+                        Process Setup
+                      </button>
+                      <button
+                        onClick={() => handleRejectApplication(app.id)}
+                        className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-100 px-4 py-2 text-sm font-medium text-red-700 transition-colors dark:bg-red-900/30 dark:text-red-400 lg:flex-none lg:rounded-full lg:bg-transparent lg:p-2 lg:text-transparent lg:hover:bg-red-100 dark:lg:bg-transparent dark:lg:hover:bg-red-900/50"
+                        title="Reject Application"
+                      >
+                        <Ban className="h-5 w-5 lg:text-red-600 dark:lg:text-red-500" />
+                        <span className="lg:hidden">Reject</span>
+                      </button>
+                    </>
                   )}
                 </div>
-                <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-full">
-                  Applicant: {app.applicantName} • {app.email} {app.phoneNumber && `• ${app.phoneNumber}`}
-                </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-full mt-1 line-clamp-2">
-                  {app.description}
-                </p>
-                {app.address && (
-                  <p className="text-xs text-gray-400 mt-2">Location: {app.address}</p>
-                )}
               </div>
-              
-              <div className="flex items-center gap-3 sm:shrink-0 bg-gray-50 dark:bg-gray-900 sm:bg-transparent p-3 sm:p-0 rounded-xl sm:rounded-none">
-                <button 
-                  onClick={() => handleApproveApplication(app)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-white bg-[#1b1b1b] hover:bg-black transition-colors"
-                >
-                  Process Setup
-                </button>
-                <button 
-                  onClick={() => handleRejectApplication(app.id)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 sm:p-2 sm:rounded-full rounded-xl text-red-700 bg-red-100 sm:bg-transparent sm:hover:bg-red-100 dark:text-red-400 dark:bg-red-900/30 dark:sm:bg-transparent dark:sm:hover:bg-red-900/50 transition-colors font-medium text-sm sm:text-transparent"
-                  title="Reject Application"
-                >
-                  <Ban className="w-5 h-5 sm:text-red-600 dark:sm:text-red-500" />
-                  <span className="sm:hidden">Reject</span>
-                </button>
+            ))}
+
+            {filteredApplications.length === 0 && (
+              <div className="flex flex-col items-center p-16 text-center text-gray-400">
+                <FileText className="mb-4 h-16 w-16 text-gray-300 dark:text-gray-700" />
+                <p className="text-lg font-medium text-gray-500 dark:text-gray-400">No applications found</p>
+                <p className="mt-1 text-sm">Try changing the search text or filters.</p>
               </div>
-            </div>
-          ))}
-          {applications.filter((a: any) => a.status !== 'rejected').length === 0 && (
-            <div className="p-16 text-center text-gray-400 flex flex-col items-center">
-              <FileText className="w-16 h-16 mb-4 text-gray-300 dark:text-gray-700" />
-              <p className="text-lg font-medium text-gray-500 dark:text-gray-400">No pending applications</p>
-              <p className="text-sm mt-1">When someone applies to be a partner, it will appear here.</p>
-            </div>
-          )}
+            )}
+          </div>
+
+          <Pagination
+            page={currentPage}
+            pageSize={APPLICATIONS_PER_PAGE}
+            totalItems={filteredApplications.length}
+            itemLabel="applications"
+            onPageChange={setCurrentPage}
+          />
         </div>
       )}
 
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 pointer-events-auto">
-          <div className="bg-white dark:bg-gray-900 w-full max-w-150 max-h-[90vh] overflow-y-auto rounded-4xl shadow-xl relative border border-gray-100 dark:border-gray-800 transition-colors" onClick={e => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-900/50 sticky top-0 z-10 backdrop-blur-sm">
+        <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm animate-in fade-in duration-200 dark:bg-black/60">
+          <div className="relative max-h-[90vh] w-full max-w-150 overflow-y-auto rounded-4xl border border-gray-100 bg-white shadow-xl transition-colors dark:border-gray-800 dark:bg-gray-900" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-gray-50/50 p-6 backdrop-blur-sm dark:border-gray-800 dark:bg-gray-900/50">
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">New Store Setup</h3>
-              <button type="button" onClick={() => setShowAddModal(false)} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-full transition-colors border border-gray-200 dark:border-gray-700">
-                <X className="w-5 h-5" />
+              <button type="button" onClick={() => setShowAddModal(false)} className="rounded-full border border-gray-200 bg-gray-100 p-2 text-gray-400 transition-colors hover:text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:hover:text-gray-300">
+                <X className="h-5 w-5" />
               </button>
             </div>
-            
-            <form onSubmit={handleAddStore} className="p-6 space-y-6">
+
+            <form onSubmit={handleAddStore} className="space-y-6 p-6">
+              {selectedApplication && (
+                <div className="flex gap-4 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-950">
+                  <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800">
+                    {selectedApplication.logoUrl ? (
+                      <img
+                        src={getDisplayImageUrl(selectedApplication.logoUrl)}
+                        alt={`${selectedApplication.businessName || "Application"} logo`}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-gray-400">
+                        <ImageIcon className="h-5 w-5" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{selectedApplication.businessName}</p>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{selectedApplication.applicantName} - {selectedApplication.email}</p>
+                    <p className="mt-1 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">{selectedApplication.description}</p>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-4">
-                <h4 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-widest border-b border-gray-200 dark:border-gray-800 pb-2">Store Details</h4>
+                <h4 className="border-b border-gray-200 pb-2 text-sm font-semibold uppercase tracking-widest text-gray-900 dark:border-gray-800 dark:text-white">Store Details</h4>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Store Name</label>
-                  <input type="text" required value={storeName} onChange={e => setStoreName(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" placeholder="e.g. Downtown Coffee" />
+                  <input type="text" required value={storeName} onChange={(e) => setStoreName(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" placeholder="e.g. Downtown Coffee" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Location (Address)</label>
-                  <input type="text" value={storeLocation} onChange={e => setStoreLocation(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" placeholder="123 Main St, City" />
+                  <input type="text" value={storeLocation} onChange={(e) => setStoreLocation(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" placeholder="123 Main St, City" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Logo Image Upload</label>
                   <div className="flex items-center gap-4">
                     {storeLogo ? (
-                      <button
-                        type="button"
-                        onClick={() => pendingLogo && setLogoEditorFile(pendingLogo)}
-                        disabled={!pendingLogo}
-                        className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-gray-200 disabled:cursor-default"
-                        aria-label={pendingLogo ? "Edit selected logo" : "Logo preview"}
-                      >
-                        <img src={getDisplayImageUrl(storeLogo)} alt="Logo Preview" className="w-full h-full object-cover" />
+                      <button type="button" onClick={() => pendingLogo && setLogoEditorFile(pendingLogo)} disabled={!pendingLogo} className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-gray-200 disabled:cursor-default" aria-label={pendingLogo ? "Edit selected logo" : "Logo preview"}>
+                        <img src={getDisplayImageUrl(storeLogo)} alt="Logo Preview" loading="lazy" className="h-full w-full object-cover" />
                         {pendingLogo && (
                           <span className="absolute inset-0 flex scale-95 items-center justify-center bg-black/60 text-xs font-semibold text-white opacity-0 transition-all duration-200 group-hover:scale-100 group-hover:opacity-100 group-focus-visible:scale-100 group-focus-visible:opacity-100">
                             Edit
@@ -273,12 +430,12 @@ export default function AdminApplications() {
                       </button>
                     ) : (
                       <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-gray-100 text-gray-400">
-                       <ImageIcon className="w-5 h-5" />
+                        <ImageIcon className="h-5 w-5" />
                       </div>
                     )}
                     <label className="cursor-pointer">
                       <div className="flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100">
-                        <Upload className="w-4 h-4" />
+                        <Upload className="h-4 w-4" />
                         Choose File
                       </div>
                       <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
@@ -286,53 +443,41 @@ export default function AdminApplications() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Subscription Level</label>
-                    <CustomDropdown
-                       options={
-                          billingPlans.map(p => ({ label: p.name || "Unnamed Plan", value: p.name || p.id || "Standard" }))
-                       }
-                       value={subLevel}
-                       onChange={setSubLevel}
-                       className="w-full"
-                    />
+                    <CustomDropdown options={billingPlans.map((p) => ({ label: p.name || "Unnamed Plan", value: p.name || p.id || "Standard" }))} value={subLevel} onChange={setSubLevel} className="w-full" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Owed Amount</label>
-                    <div className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm font-medium">
+                    <div className="w-full rounded-xl border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm font-medium text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white">
                       {formatMoney(selectedOwedAmount)}
                     </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Subscription Start</label>
-                    <input type="date" required value={subStart} onChange={e => setSubStart(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" />
+                    <input type="date" required value={subStart} onChange={(e) => setSubStart(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Subscription End</label>
-                    <input type="date" required value={subEnd} onChange={e => setSubEnd(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" />
+                    <input type="date" required value={subEnd} onChange={(e) => setSubEnd(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Payment Schedule</label>
-                    <CustomDropdown
-                      options={PAYMENT_SCHEDULE_OPTIONS}
-                      value={paymentSchedule}
-                      onChange={setPaymentSchedule}
-                      className="w-full"
-                    />
+                    <CustomDropdown options={PAYMENT_SCHEDULE_OPTIONS} value={paymentSchedule} onChange={setPaymentSchedule} className="w-full" />
                   </div>
                 </div>
               </div>
 
               <div className="space-y-4">
-                <h4 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-widest border-b border-gray-200 dark:border-gray-800 pb-2">Owner Account</h4>
+                <h4 className="border-b border-gray-200 pb-2 text-sm font-semibold uppercase tracking-widest text-gray-900 dark:border-gray-800 dark:text-white">Owner Account</h4>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Owner Name</label>
-                  <input type="text" required value={ownerName} onChange={e => setOwnerName(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" placeholder="John Doe" />
+                  <input type="text" required value={ownerName} onChange={(e) => setOwnerName(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" placeholder="John Doe" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Owner Email</label>
-                  <input type="email" required value={ownerEmail} onChange={e => setOwnerEmail(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-[#1b1b1b] outline-none" placeholder="owner@store.com" />
+                  <input type="email" required value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" placeholder="owner@store.com" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Temporary Password</label>
@@ -350,13 +495,16 @@ export default function AdminApplications() {
               <footer className="sticky bottom-0 z-10 -mx-6 -mb-6 flex justify-end gap-2 border-t border-gray-200 bg-white/95 px-6 py-4 backdrop-blur-sm dark:border-gray-800 dark:bg-gray-900/95">
                 <button type="button" onClick={() => setShowAddModal(false)} className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700">Cancel</button>
                 <button type="submit" disabled={isSubmitting || !validateStrongPassword(ownerPassword, { name: ownerName, email: ownerEmail }).valid} className="rounded-lg bg-[#1b1b1b] px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-50 dark:bg-[#1b1b1b] dark:hover:bg-black">
-                  {isSubmitting ? 'Creating...' : 'Create Record'}
+                  {isSubmitting ? (
+                    <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Creating...</span>
+                  ) : "Create Record"}
                 </button>
               </footer>
             </form>
           </div>
         </div>
       )}
+
       {logoEditorFile && (
         <ImageCropEditor
           file={logoEditorFile}

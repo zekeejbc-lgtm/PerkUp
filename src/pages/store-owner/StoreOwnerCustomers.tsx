@@ -4,6 +4,48 @@ import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
 import { Search, User, Star, ArrowLeft, Minus, Plus, Users, Clock, MessageSquare, Heart, CheckCircle2, Gift } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
+import { getDisplayImageUrl } from "../../lib/imageStorage";
+import { Pagination } from "../../components/Pagination";
+
+const CUSTOMERS_PER_PAGE = 12;
+
+const toDate = (value: any) => {
+  if (!value) return null;
+  if (typeof value.toDate === "function") return value.toDate();
+  if (typeof value.seconds === "number") return new Date(value.seconds * 1000);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getInitial = (name?: string) => String(name || "C").trim().charAt(0).toUpperCase() || "C";
+
+const buildScanActivity = (scans: any[]) =>
+  scans
+    .map((scan) => {
+      const date = toDate(scan.timestamp) || toDate(scan.issuedAt) || toDate(scan.createdAt);
+      const points = Number(scan.points || 0);
+      return {
+        id: scan.id,
+        action: scan.promotionTitle ? `Earned stamp: ${scan.promotionTitle}` : "Earned points",
+        points: points > 0 ? `+${points}` : `${points}`,
+        date: date?.toISOString() || new Date().toISOString(),
+      };
+    })
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 8);
+
+const buildUsuals = (scans: any[]) => {
+  const counts = new Map<string, number>();
+  scans.forEach((scan) => {
+    const label = String(scan.promotionTitle || "").trim();
+    if (!label) return;
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 4)
+    .map(([label]) => label);
+};
 
 export default function StoreOwnerCustomers({ store }: { store: any }) {
   const [customers, setCustomers] = useState<any[]>([]);
@@ -11,6 +53,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const fetchPromotions = async () => {
     if (!store?.id) return;
@@ -27,10 +70,19 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
     if (!store?.id) return;
     setLoading(true);
     try {
-      const feedbackQuery = query(collection(db, "feedback"), where("storeId", "==", store.id));
-      const feedbackSnap = await getDocs(feedbackQuery);
-      const feedbackByCustomer = feedbackSnap.docs.reduce<Record<string, any[]>>((acc, feedbackDoc) => {
-        const item = { id: feedbackDoc.id, ...feedbackDoc.data() } as any;
+      const reviewQuery = query(collection(db, "store_reviews"), where("storeId", "==", store.id));
+      const reviewSnap = await getDocs(reviewQuery);
+      const feedbackByCustomer = reviewSnap.docs.reduce<Record<string, any[]>>((acc, reviewDoc) => {
+        const item = { id: reviewDoc.id, ...reviewDoc.data() } as any;
+        if (!item.customerId) return acc;
+        acc[item.customerId] = [...(acc[item.customerId] || []), item];
+        return acc;
+      }, {});
+
+      const scansQuery = query(collection(db, "promotions_scanned"), where("storeId", "==", store.id));
+      const scansSnap = await getDocs(scansQuery);
+      const scansByCustomer = scansSnap.docs.reduce<Record<string, any[]>>((acc, scanDoc) => {
+        const item = { id: scanDoc.id, ...scanDoc.data() } as any;
         if (!item.customerId) return acc;
         acc[item.customerId] = [...(acc[item.customerId] || []), item];
         return acc;
@@ -41,44 +93,60 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
       
       const custData = [];
       for (const d of snap.docs) {
-        let name = d.data().accountDeleted ? "Deleted account" : "Unknown";
+        const card = d.data() as any;
+        let name = card.accountDeleted ? "Deleted account" : (card.customerName || "Unknown");
         let email = "";
+        let username = "";
+        let avatarUrl = "";
         let joinedAt = null;
-        let lifetimeStars = 0;
-        let favorites = [];
-        let recentHistory = [];
-        let feedback = feedbackByCustomer[d.data().customerId] || [];
+        let lifetimeStars = Number(card.stars || 0);
+        const customerScans = scansByCustomer[card.customerId] || [];
+        let favorites = buildUsuals(customerScans);
+        let recentHistory = buildScanActivity(customerScans);
+        let feedback = (feedbackByCustomer[card.customerId] || []).sort((a, b) => {
+          const aTime = toDate(a.createdAt)?.getTime() ?? 0;
+          const bTime = toDate(b.createdAt)?.getTime() ?? 0;
+          return bTime - aTime;
+        });
         
         try {
-           const cSnap = await getDoc(doc(db, "customers", d.data().customerId));
-           if (cSnap.exists()) {
-               name = cSnap.data().accountDeleted ? "Deleted account" : (cSnap.data().name || "Unknown");
-               email = cSnap.data().email || "";
-               joinedAt = cSnap.data().createdAt;
-               lifetimeStars = cSnap.data().lifetimeStars || d.data().stars || 0;
-               // Mocking additional data for dashboard
-               favorites = cSnap.data().favorites || ["Iced Caramel Macchiato", "Blueberry Muffin"];
-               recentHistory = [
-                 { id: 1, action: "Earned points", points: "+2", date: new Date().toISOString() },
-                 { id: 2, action: "Redeemed free coffee", points: "-10", date: new Date(Date.now() - 86400000).toISOString() },
-               ];
+           const [userSnap, customerSnap] = await Promise.all([
+             getDoc(doc(db, "users", card.customerId)),
+             getDoc(doc(db, "customers", card.customerId)),
+           ]);
+           if (userSnap.exists()) {
+               const profile = userSnap.data() as any;
+               name = card.accountDeleted ? "Deleted account" : (profile.name || profile.displayName || name);
+               email = profile.email || "";
+               username = profile.username || "";
+               avatarUrl = profile.avatarUrl || profile.photoURL || profile.profilePic || "";
+               joinedAt = profile.createdAt || card.joinedAt || card.createdAt || null;
            }
-        } catch (e) {}
+           if (customerSnap.exists()) {
+               const customer = customerSnap.data() as any;
+               lifetimeStars = Number(customer.lifetimeStars ?? lifetimeStars);
+               joinedAt = joinedAt || customer.createdAt || null;
+           }
+        } catch (e) {
+          console.error("Failed to load customer profile", card.customerId, e);
+        }
 
         custData.push({
           id: d.id, // card id
-          customerId: d.data().customerId,
+          customerId: card.customerId,
           name,
           email,
+          username,
+          avatarUrl,
           joinedAt,
           lifetimeStars,
-          stars: d.data().stars || 0,
-          updatedAt: d.data().updatedAt,
+          stars: card.stars || 0,
+          updatedAt: card.updatedAt,
           favorites,
           recentHistory,
           feedback,
-          promoProgress: d.data().promoProgress || {},
-          accountDeleted: Boolean(d.data().accountDeleted),
+          promoProgress: card.promoProgress || {},
+          accountDeleted: Boolean(card.accountDeleted),
         });
       }
       setCustomers(custData.sort((a,b) => b.stars - a.stars));
@@ -149,6 +217,16 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
   };
 
   const filtered = customers.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || c.customerId.includes(search));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / CUSTOMERS_PER_PAGE));
+  const paginatedCustomers = filtered.slice((currentPage - 1) * CUSTOMERS_PER_PAGE, currentPage * CUSTOMERS_PER_PAGE);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   if (loading) return <PageSkeleton variant="table" />;
 
@@ -165,12 +243,16 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
          {/* Header Info */}
          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row items-center sm:items-start gap-6 shadow-sm">
             <div className="w-24 h-24 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center shrink-0 border-4 border-gray-100 dark:border-white/10">
-              <span className="text-3xl font-black text-[#1b1b1b] dark:text-white">{selectedCustomer.name.charAt(0).toUpperCase()}</span>
+              {selectedCustomer.avatarUrl && !selectedCustomer.accountDeleted ? (
+                <img src={getDisplayImageUrl(selectedCustomer.avatarUrl)} alt="" className="h-full w-full rounded-full object-cover" />
+              ) : (
+                <span className="text-3xl font-black text-[#1b1b1b] dark:text-white">{getInitial(selectedCustomer.name)}</span>
+              )}
             </div>
             <div className="flex-1 text-center sm:text-left">
                <h2 className="text-3xl font-black tracking-tight text-gray-900 dark:text-white">{selectedCustomer.name}</h2>
                <p className="text-gray-500 font-mono text-sm tracking-widest mt-1 uppercase mb-3 text-[#1b1b1b] dark:text-white">
-                 {selectedCustomer.accountDeleted ? "Customer identifier removed" : selectedCustomer.customerId}
+                 {selectedCustomer.accountDeleted ? "Customer identifier removed" : (selectedCustomer.username ? `@${selectedCustomer.username}` : selectedCustomer.customerId)}
                </p>
                
                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
@@ -211,6 +293,10 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                   <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest mb-4">Profile Details</h3>
                   <div className="space-y-4">
                     <div>
+                      <p className="text-xs text-gray-500 mb-0.5">Customer ID</p>
+                      <p className="font-mono text-xs font-semibold text-gray-900 dark:text-white break-all">{selectedCustomer.customerId}</p>
+                    </div>
+                    <div>
                       <p className="text-xs text-gray-500 mb-0.5">Email Address</p>
                       <p className="font-semibold text-gray-900 dark:text-white truncate">{selectedCustomer.email || 'No email provided'}</p>
                     </div>
@@ -223,7 +309,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                     <div>
                       <p className="text-xs text-gray-500 mb-0.5">Member Since</p>
                       <p className="font-semibold text-gray-900 dark:text-white">
-                        {selectedCustomer.joinedAt ? new Date(selectedCustomer.joinedAt?.toDate?.() || selectedCustomer.joinedAt).toLocaleDateString() : 'Unknown'}
+                        {selectedCustomer.joinedAt ? (toDate(selectedCustomer.joinedAt) || new Date(selectedCustomer.joinedAt)).toLocaleDateString() : 'Unknown'}
                       </p>
                     </div>
                   </div>
@@ -323,11 +409,14 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                            <p className="font-semibold text-gray-900 dark:text-white text-sm">{item.action}</p>
                            <p className="text-xs text-gray-500 mt-0.5">{new Date(item.date).toLocaleDateString()}</p>
                          </div>
-                         <span className={`font-black tracking-tight ${item.points.startsWith('+') ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                       <span className={`font-black tracking-tight ${String(item.points).startsWith('+') ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
                            {item.points}
                          </span>
                        </div>
                      ))}
+                     {(!selectedCustomer.recentHistory || selectedCustomer.recentHistory.length === 0) && (
+                       <p className="text-sm text-gray-500 italic p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl text-center">No scan activity yet.</p>
+                     )}
                    </div>
                  </div>
 
@@ -348,7 +437,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                            </div>
                            <p className="text-sm text-gray-700 dark:text-gray-300 font-medium italic">"{item.comment}"</p>
                            <p className="text-xs text-gray-500 mt-2">
-                             {new Date((item.createdAt?.seconds ? item.createdAt.seconds * 1000 : item.date) || Date.now()).toLocaleDateString()}
+                             {(toDate(item.createdAt) || toDate(item.date) || new Date()).toLocaleDateString()}
                            </p>
                          </div>
                        ))
@@ -391,7 +480,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
              <p className="font-bold text-gray-900 dark:text-white mb-2">No customers found.</p>
            </div>
         ) : (
-          filtered.map(c => (
+          paginatedCustomers.map(c => (
             <button 
               key={c.id} 
               onClick={() => setSelectedCustomer(c)}
@@ -399,7 +488,11 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
             >
               <div className="flex items-start justify-between w-full mb-4">
                 <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center shrink-0 border border-gray-200 dark:border-white/15 group-hover:scale-105 transition-transform">
-                  <User className="w-5 h-5 text-[#1b1b1b]" />
+                  {c.avatarUrl && !c.accountDeleted ? (
+                    <img src={getDisplayImageUrl(c.avatarUrl)} alt="" loading="lazy" className="h-full w-full rounded-full object-cover" />
+                  ) : (
+                    <User className="w-5 h-5 text-[#1b1b1b]" />
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded-xl border border-gray-100 dark:border-gray-700">
                   <Star className="w-3.5 h-3.5 text-[#1b1b1b] fill-[#1b1b1b]" />
@@ -420,6 +513,13 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
           ))
         )}
       </div>
+      <Pagination
+        page={currentPage}
+        pageSize={CUSTOMERS_PER_PAGE}
+        totalItems={filtered.length}
+        itemLabel="customers"
+        onPageChange={setCurrentPage}
+      />
     </div>
   );
 }

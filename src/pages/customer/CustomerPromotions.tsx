@@ -1,10 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { collection, query, getDocs, where } from "@/src/lib/dataCompat";
+import { collection, query, getDocs } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
 import { Gift, Calendar, Users, Search, Store, MapPin } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
+import { getCompletedPromotionCount, getRemainingPromotionClaims } from "../../lib/promotionProgress";
+import { Pagination } from "../../components/Pagination";
+
+const PROMOTIONS_PER_PAGE = 6;
 
 const formatDate = (value?: string) => {
   if (!value) return "";
@@ -13,9 +17,9 @@ const formatDate = (value?: string) => {
 };
 
 const getRemainingClaims = (promo: any) => {
-  const maxRedemptions = Number(promo.maxRedemptions || 0);
-  if (!maxRedemptions) return "Unlimited";
-  return `${Math.max(maxRedemptions - Number(promo.claimedCount || 0), 0)} left`;
+  const remaining = getRemainingPromotionClaims(promo);
+  if (remaining === null) return "Unlimited";
+  return `${remaining} left`;
 };
 
 const getPromotionAvailability = (promo: any) => {
@@ -69,7 +73,7 @@ const getPromotionAvailability = (promo: any) => {
     };
   }
 
-  if (promo.maxRedemptions && Number(promo.claimedCount || 0) >= Number(promo.maxRedemptions)) {
+  if (getRemainingPromotionClaims(promo) === 0) {
     return {
       active: false,
       label: "Fully claimed",
@@ -90,13 +94,15 @@ export default function CustomerPromotions() {
   const [promotions, setPromotions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     async function fetchPromotions() {
       try {
-        const [promotionsSnapshot, storesSnapshot] = await Promise.all([
+        const [promotionsSnapshot, storesSnapshot, cardsSnapshot] = await Promise.all([
           getDocs(query(collection(db, "promotions"))),
           getDocs(query(collection(db, "stores"))),
+          getDocs(query(collection(db, "cards"))),
         ]);
         const storesById = storesSnapshot.docs.reduce<Record<string, any>>((result, storeDoc) => {
           const store = storeDoc.data();
@@ -112,14 +118,23 @@ export default function CustomerPromotions() {
           return result;
         }, {});
 
-        const fetchedPromotions = await Promise.all(
-          promotionsSnapshot.docs.map(async doc => {
-            const promo = { id: doc.id, ...doc.data() };
-            const claimsQuery = query(collection(db, "promotions_scanned"), where("promotionId", "==", doc.id));
-            const claimsSnap = await getDocs(claimsQuery);
-            return { ...promo, store: storesById[String((promo as any).storeId || "")] || null, claimedCount: claimsSnap.size };
-          }),
-        );
+        const cardsByStoreId = cardsSnapshot.docs.reduce<Record<string, any[]>>((result, cardDoc) => {
+          const card = { id: cardDoc.id, ...cardDoc.data() };
+          const storeId = String((card as any).storeId || "");
+          if (!storeId) return result;
+          result[storeId] = [...(result[storeId] || []), card];
+          return result;
+        }, {});
+
+        const fetchedPromotions = promotionsSnapshot.docs.map(doc => {
+          const promo = { id: doc.id, ...doc.data() };
+          const storeId = String((promo as any).storeId || "");
+          return {
+            ...promo,
+            store: storesById[storeId] || null,
+            claimedCount: getCompletedPromotionCount(cardsByStoreId[storeId] || [], promo),
+          };
+        });
         setPromotions(fetchedPromotions.sort((first: any, second: any) => {
           const firstAvailability = getPromotionAvailability(first);
           const secondAvailability = getPromotionAvailability(second);
@@ -147,6 +162,7 @@ export default function CustomerPromotions() {
       return [
         promo.title,
         promo.description,
+        promo.linkedProductName,
         getPromotionAvailability(promo).label,
         store.name,
         store.category,
@@ -155,6 +171,19 @@ export default function CustomerPromotions() {
       ].some((value) => String(value || "").toLowerCase().includes(term));
     });
   }, [promotions, searchQuery]);
+  const totalPages = Math.max(1, Math.ceil(filteredPromotions.length / PROMOTIONS_PER_PAGE));
+  const paginatedPromotions = filteredPromotions.slice(
+    (currentPage - 1) * PROMOTIONS_PER_PAGE,
+    currentPage * PROMOTIONS_PER_PAGE,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   if (loading) return <PageSkeleton variant="promotions" />;
 
@@ -194,12 +223,12 @@ export default function CustomerPromotions() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {filteredPromotions.map(promo => {
+            {paginatedPromotions.map(promo => {
               const availability = getPromotionAvailability(promo);
               return (
               <div key={promo.id} className={`bg-white dark:bg-gray-900 rounded-3xl shadow-sm border transition-colors flex flex-col relative overflow-hidden group ${availability.active ? "border-gray-100 dark:border-gray-800" : "border-gray-200 dark:border-gray-700"}`}>
                 {promo.bannerImageUrl ? (
-                  <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className={`h-44 w-full object-cover ${availability.active ? "" : "grayscale"}`} />
+                  <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" className={`h-44 w-full object-cover ${availability.active ? "" : "grayscale"}`} />
                 ) : (
                   <div className="h-28 bg-gray-100 dark:bg-white/10" />
                 )}
@@ -207,7 +236,7 @@ export default function CustomerPromotions() {
                   <div className="mb-5 flex items-start gap-3 rounded-2xl bg-gray-50 p-3 dark:bg-white/5">
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-100 bg-white dark:border-white/10 dark:bg-gray-900">
                       {promo.store?.logoUrl ? (
-                        <img src={getDisplayImageUrl(promo.store.logoUrl)} alt={`${promo.store.name} logo`} className="h-full w-full object-cover" />
+                        <img src={getDisplayImageUrl(promo.store.logoUrl)} alt={`${promo.store.name} logo`} loading="lazy" className="h-full w-full object-cover" />
                       ) : (
                         <Store className="h-5 w-5 text-gray-400" />
                       )}
@@ -243,6 +272,11 @@ export default function CustomerPromotions() {
                       </div>
                     </div>
                     <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{promo.title || "Special Promotion"}</h3>
+                    {promo.linkedProductName && (
+                      <p className="mb-3 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                        Product: {promo.linkedProductName}
+                      </p>
+                    )}
                     <p className="text-gray-500 dark:text-gray-400 text-sm mb-6 line-clamp-3">
                         {promo.description || "Grab this amazing offer while it lasts! Visit our store to redeem your reward points for special discounts."}
                     </p>
@@ -268,6 +302,13 @@ export default function CustomerPromotions() {
             })}
         </div>
       )}
+      <Pagination
+        page={currentPage}
+        pageSize={PROMOTIONS_PER_PAGE}
+        totalItems={filteredPromotions.length}
+        itemLabel="promotions"
+        onPageChange={setCurrentPage}
+      />
     </div>
   );
 }

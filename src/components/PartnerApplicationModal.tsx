@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Store, User, Mail, PenTool, Image as ImageIcon, MapPin, Phone, Check, Upload, LoaderCircle } from 'lucide-react';
+import { X, Store, User, Mail, PenTool, Image as ImageIcon, MapPin, Phone, Check, Upload, LoaderCircle, Copy } from 'lucide-react';
 import { doc, getDoc } from '@/src/lib/dataCompat';
 import { db } from '../lib/backend';
 import 'leaflet/dist/leaflet.css';
@@ -8,6 +8,7 @@ import { MapContainer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { submitPartnerApplication } from '../lib/partnerApplication';
 import { MapBaseLayers } from './MapBaseLayers';
+import { ImageCropEditor } from './ImageCropEditor';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -65,6 +66,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
   const [phoneNumber, setPhoneNumber] = useState('');
   const [description, setDescription] = useState('');
   const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoEditFile, setLogoEditFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState('');
   const [address, setAddress] = useState('');
   const [coordinates, setCoordinates] = useState<[number, number] | null>(null);
@@ -77,6 +79,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [trackingNumber, setTrackingNumber] = useState('');
 
   useEffect(() => {
     async function loadPlans() {
@@ -154,6 +157,28 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
 
   if (!isOpen) return null;
 
+  const resetForm = () => {
+    setStep(1);
+    setBusinessName('');
+    setApplicantName('');
+    setEmail('');
+    setPhoneNumber('');
+    setDescription('');
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    setLogoFile(null);
+    setLogoEditFile(null);
+    setLogoPreview('');
+    setAddress('');
+    setCoordinates([7.4478, 125.8078]);
+    setIsSuccess(false);
+    setTrackingNumber('');
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
   const selectLocation = (suggestion: LocationSuggestion) => {
     const lat = Number(suggestion.lat);
     const lng = Number(suggestion.lon);
@@ -169,15 +194,20 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 2 * 1024 * 1024) {
       alert("Logo must be a PNG, JPEG, or WebP image no larger than 2 MB.");
-      e.target.value = "";
       return;
     }
-    if (logoPreview) URL.revokeObjectURL(logoPreview);
-    setLogoFile(file);
-    setLogoPreview(URL.createObjectURL(file));
+    setLogoEditFile(file);
+  };
+
+  const handlePhoneChange = (value: string) => {
+    const digits = value.replace(/\D/g, "");
+    const withoutCountryCode = digits.startsWith("63") ? digits.slice(2) : digits;
+    const localNumber = withoutCountryCode.startsWith("0") ? withoutCountryCode.slice(1) : withoutCountryCode;
+    setPhoneNumber(localNumber.slice(0, 10));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -188,32 +218,18 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     }
     setIsSubmitting(true);
     try {
-      await submitPartnerApplication({
+      const result = await submitPartnerApplication({
         businessName,
         applicantName,
         email,
-        phoneNumber,
+        phoneNumber: `+63${phoneNumber}`,
         description,
         address,
         coordinates,
         subscriptionLevel: selectedPlanId,
       }, logoFile);
+      setTrackingNumber(result.applicationId || '');
       setIsSuccess(true);
-      setTimeout(() => {
-        setIsSuccess(false);
-        onClose();
-        // reset manually
-        setStep(1);
-        setBusinessName('');
-        setApplicantName('');
-        setEmail('');
-        setPhoneNumber('');
-        setDescription('');
-        if (logoPreview) URL.revokeObjectURL(logoPreview);
-        setLogoFile(null);
-        setLogoPreview('');
-        setAddress('');
-      }, 3000);
     } catch (error) {
       alert("Failed to submit application");
     } finally {
@@ -228,7 +244,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
         onClick={e => e.stopPropagation()}
       >
         <button 
-          onClick={onClose}
+          onClick={handleClose}
           className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-full transition-colors z-10"
         >
           <X className="w-5 h-5" />
@@ -238,10 +254,10 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white transition-colors mb-2">
             Partner Application
           </h2>
-          <div className="flex items-center justify-center gap-4 text-sm font-medium">
-            <span className={step === 1 ? 'text-[#1b1b1b]' : 'text-gray-400'}>1. Business Details</span>
-            <span className="text-gray-300 dark:text-gray-700">|</span>
-            <span className={step === 2 ? 'text-[#1b1b1b]' : 'text-gray-400'}>2. Select Subscription</span>
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm font-medium">
+            <span className={step === 1 ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}>1. Business Details</span>
+            <span className="text-gray-300 dark:text-gray-600">|</span>
+            <span className={step === 2 ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}>2. Select Subscription</span>
           </div>
         </div>
 
@@ -252,6 +268,32 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
             </div>
             <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Application Received!</h3>
             <p className="text-gray-500 dark:text-gray-400">We'll review your details and contact you shortly to complete the setup process.</p>
+            {trackingNumber && (
+              <div className="mx-auto mt-6 max-w-md rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left dark:border-gray-700 dark:bg-gray-800">
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Tracking number</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <code className="min-w-0 flex-1 break-all rounded-xl bg-white px-3 py-2 text-sm font-semibold text-gray-900 dark:bg-gray-900 dark:text-white">
+                    {trackingNumber}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard?.writeText(trackingNumber)}
+                    className="shrink-0 rounded-xl border border-gray-200 bg-white p-2 text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-700"
+                    aria-label="Copy tracking number"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">This number is also sent to your email. Use it to track your application status.</p>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={handleClose}
+              className="mt-6 rounded-xl bg-[#1b1b1b] px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-black"
+            >
+              Done
+            </button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col min-h-0 overflow-hidden">
@@ -283,31 +325,48 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                     </div>
                     <div className="space-y-1 text-left">
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Phone Number</label>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Phone className="h-4 w-4" /></div>
-                        <input type="tel" required value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none text-sm" placeholder="(555) 123-4567" />
+                      <div className="flex overflow-hidden rounded-xl border border-gray-200 bg-gray-50 focus-within:ring-2 focus-within:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800">
+                        <div className="flex items-center gap-2 border-r border-gray-200 px-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
+                          <Phone className="h-4 w-4 text-gray-400" />
+                          +63
+                        </div>
+                        <input
+                          type="tel"
+                          required
+                          inputMode="numeric"
+                          value={phoneNumber}
+                          onChange={(e) => handlePhoneChange(e.target.value)}
+                          className="block min-w-0 flex-1 bg-transparent px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-white"
+                          placeholder="912 345 6789"
+                        />
                       </div>
                     </div>
                     <div className="space-y-1 text-left">
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Logo Image Upload</label>
                       <div className="flex items-center gap-4">
                         {logoPreview ? (
-                          <div className="w-12 h-12 rounded-xl border border-gray-200 overflow-hidden shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => logoFile && setLogoEditFile(logoFile)}
+                            className="w-12 h-12 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden shrink-0 focus:outline-none focus:ring-2 focus:ring-[#1b1b1b]"
+                            aria-label="Preview and edit logo image"
+                          >
                             <img src={logoPreview} alt="Logo Preview" className="w-full h-full object-cover" />
-                          </div>
+                          </button>
                         ) : (
-                          <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center shrink-0 border border-gray-200 text-gray-400">
+                          <div className="w-12 h-12 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 border border-gray-200 dark:border-gray-700 text-gray-400">
                            <ImageIcon className="w-5 h-5" />
                           </div>
                         )}
                         <label className="flex-1 cursor-pointer">
-                          <div className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700">
+                          <div className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700">
                             <Upload className="w-4 h-4" />
-                            Choose File
+                            {logoPreview ? "Change Image" : "Choose File"}
                           </div>
                           <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
                         </label>
                       </div>
+                      {logoPreview && <p className="text-xs text-gray-500 dark:text-gray-400">Tap the preview to adjust pinch/zoom crop.</p>}
                     </div>
                      <div className="space-y-1 text-left">
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Tell us about your business</label>
@@ -431,6 +490,18 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
               </button>
             </div>
           </form>
+        )}
+        {logoEditFile && (
+          <ImageCropEditor
+            file={logoEditFile}
+            onCancel={() => setLogoEditFile(null)}
+            onApply={(file, previewUrl) => {
+              if (logoPreview) URL.revokeObjectURL(logoPreview);
+              setLogoFile(file);
+              setLogoPreview(previewUrl);
+              setLogoEditFile(null);
+            }}
+          />
         )}
       </div>
     </div>

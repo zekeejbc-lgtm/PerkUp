@@ -4,10 +4,20 @@ import { db } from "../../lib/backend";
 import { Cake, Star, Users } from "lucide-react";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { getBirthdayStatus } from "@/src/lib/birthday";
+import { Pagination } from "../../components/Pagination";
+
+const CUSTOMERS_PER_PAGE = 10;
 
 export default function StaffCustomers({ store }: { store: any }) {
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(customers.length / CUSTOMERS_PER_PAGE));
+  const paginatedCustomers = customers.slice((currentPage - 1) * CUSTOMERS_PER_PAGE, currentPage * CUSTOMERS_PER_PAGE);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   useEffect(() => {
     if (!store?.id) return;
@@ -73,7 +83,7 @@ export default function StaffCustomers({ store }: { store: any }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                {customers.map(c => {
+                {paginatedCustomers.map(c => {
                   const birthday = getBirthdayStatus(c.customerProfile?.birthday);
 
                   return (
@@ -119,6 +129,13 @@ export default function StaffCustomers({ store }: { store: any }) {
               </tbody>
             </table>
           </div>
+          <Pagination
+            page={currentPage}
+            pageSize={CUSTOMERS_PER_PAGE}
+            totalItems={customers.length}
+            itemLabel="customers"
+            onPageChange={setCurrentPage}
+          />
         </div>
       )}
     </div>

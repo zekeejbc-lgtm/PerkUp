@@ -42,6 +42,7 @@ export type CustomerScanCard = {
   label: string;
   storeName: string;
   stars: number;
+  promoProgress?: Record<string, number>;
   status: string;
   joinedAt: unknown;
   updatedAt: unknown;

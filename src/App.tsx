@@ -4,10 +4,10 @@ import { useAuth, Role } from "./contexts/AuthContext";
 import { logOut } from "./lib/backend";
 import { supabase } from "./lib/supabase";
 import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
-import { getDisplayImageUrl } from "./lib/imageStorage";
 import { DashboardShellSkeleton, PageSkeleton } from "./components/LoadingSkeleton";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { BrandMark } from "./components/BrandMark";
+import { ProfileAvatarImage } from "./components/ProfileAvatarImage";
 import { findTrustedLoginDevice, getMfaPromptReason, trustCurrentDeviceForUser, TrustedLoginProfile } from "./lib/trustedDevice";
 import { FirstLoginPasswordChange } from "./components/FirstLoginPasswordChange";
 import { PublicSiteFooter } from "./components/PublicPageShell";
@@ -362,11 +362,16 @@ function Layout({ children }: { children: ReactNode }) {
                 className="flex items-center gap-3 sm:mr-4 rounded-2xl px-2 py-1.5 text-left transition-colors hover:bg-gray-100 dark:hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[#1b1b1b]/30 dark:focus:ring-white/40"
               >
                 <div className="h-8 w-8 min-w-8 shrink-0 aspect-square rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center overflow-hidden">
-                  {user?.avatarUrl || user?.photoURL ? (
-                    <img src={getDisplayImageUrl(user.avatarUrl || user.photoURL || "")} alt="" className="block h-full w-full object-cover" />
-                  ) : user?.name ? (
-                    <span className="text-xs font-bold text-gray-600 dark:text-gray-300">{user.name.charAt(0).toUpperCase()}</span>
-                  ) : null}
+                  <ProfileAvatarImage
+                    src={user?.avatarUrl || user?.photoURL || ""}
+                    alt=""
+                    className="block h-full w-full object-cover"
+                    fallback={
+                      user?.name ? (
+                        <span className="text-xs font-bold text-gray-600 dark:text-gray-300">{user.name.charAt(0).toUpperCase()}</span>
+                      ) : null
+                    }
+                  />
                 </div>
                 <div className="hidden sm:flex flex-col">
                   <span className="text-sm font-semibold text-gray-900 dark:text-white leading-tight">{user?.name || "User"}</span>

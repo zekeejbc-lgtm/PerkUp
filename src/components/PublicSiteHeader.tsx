@@ -1,13 +1,15 @@
 import { Link } from "react-router-dom";
+import { Search } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { ThemeToggle } from "./ThemeToggle";
 
 interface PublicSiteHeaderProps {
   onSignIn: () => void;
   onSignUp: () => void;
+  onTrack?: () => void;
 }
 
-export function PublicSiteHeader({ onSignIn, onSignUp }: PublicSiteHeaderProps) {
+export function PublicSiteHeader({ onSignIn, onSignUp, onTrack }: PublicSiteHeaderProps) {
   return (
     <header className="sticky top-0 z-50 border-b border-[#1b1b1b]/10 bg-white/85 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#1b1b1b]/85">
       <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
@@ -16,6 +18,16 @@ export function PublicSiteHeader({ onSignIn, onSignUp }: PublicSiteHeaderProps) 
         </Link>
         <div className="flex items-center gap-4">
           <ThemeToggle />
+          {onTrack && (
+            <button
+              type="button"
+              onClick={onTrack}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-[#1b1b1b] transition-opacity hover:opacity-70 dark:text-white"
+            >
+              <Search className="h-4 w-4" />
+              <span className="hidden sm:inline">Track</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={onSignIn}

@@ -1,36 +1,24 @@
 import React, { useState, useEffect } from "react";
-import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
+import { collection, deleteField, doc, getDoc, getDocs, setDoc, serverTimestamp, updateDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { CreditCard, Save, Loader2, Check, Plus, Trash2 } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { CustomDropdown } from "../../components/CustomDropdown";
+import {
+  DEFAULT_SUBSCRIPTION_PLANS,
+  SubscriptionPlan,
+  formatSubscriptionLimit,
+  getNextPaymentDate,
+  getSubscriptionDependencies,
+  getSubscriptionOwedAmount,
+  normalizeSubscriptionDependencies,
+} from "../../lib/subscriptionBilling";
 
 export default function AdminSubscriptions() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [plans, setPlans] = useState<any[]>([
-    {
-      id: "standard",
-      name: "Standard",
-      price: 99,
-      interval: "month",
-      features: ["Up to 1,000 customers", "Basic analytics", "Standard support", "1 Staff Account"]
-    },
-    {
-      id: "premium",
-      name: "Premium",
-      price: 199,
-      interval: "month",
-      features: ["Up to 10,000 customers", "Advanced analytics", "Priority support", "5 Staff Accounts", "Custom promotions"]
-    },
-    {
-      id: "enterprise",
-      name: "Enterprise",
-      price: 499,
-      interval: "month",
-      features: ["Unlimited customers", "Custom reporting", "24/7 Dedicated support", "Unlimited Staff Accounts", "White-label options"]
-    }
-  ]);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>(DEFAULT_SUBSCRIPTION_PLANS);
+  const [originalPlans, setOriginalPlans] = useState<SubscriptionPlan[]>(DEFAULT_SUBSCRIPTION_PLANS);
 
   useEffect(() => {
     async function loadPlans() {
@@ -38,7 +26,9 @@ export default function AdminSubscriptions() {
         const docRef = doc(db, "settings", "subscriptions");
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
-          setPlans(docSnap.data().plans || []);
+          const loadedPlans = docSnap.data().plans || [];
+          setPlans(loadedPlans);
+          setOriginalPlans(loadedPlans);
         } else {
           // Initialize if it doesn't exist
           await setDoc(docRef, { plans, updatedAt: serverTimestamp() });
@@ -55,7 +45,46 @@ export default function AdminSubscriptions() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const storeSnap = await getDocs(collection(db, "stores"));
+      const stores = storeSnap.docs.map((storeDoc) => ({ id: storeDoc.id, ...storeDoc.data() }));
       await setDoc(doc(db, "settings", "subscriptions"), { plans, updatedAt: serverTimestamp() }, { merge: true });
+
+      await Promise.all(stores.map(async (store) => {
+        const subscriptionLevel = String(store.subscriptionLevel || "");
+        const previousAmount = getSubscriptionOwedAmount(originalPlans, subscriptionLevel, Number(store.owedAmount || 0));
+        const nextAmount = getSubscriptionOwedAmount(plans, subscriptionLevel, previousAmount);
+        const dependencies = getSubscriptionDependencies(plans, subscriptionLevel);
+        const nextPaymentDate = getNextPaymentDate(store.paymentSchedule, store.subscriptionStart, store.subscriptionEnd);
+        const currentAmount = Number(store.owedAmount);
+        const updates: Record<string, unknown> = {
+          subscriptionDependencies: dependencies,
+          updatedAt: serverTimestamp(),
+        };
+
+        if (store.ownerId) {
+          await updateDoc(doc(db, "users", String(store.ownerId)), {
+            branchLimit: dependencies.branchLimit > 0 ? dependencies.branchLimit : 100,
+            updatedAt: serverTimestamp(),
+          }).catch(() => undefined);
+        }
+
+        if (nextAmount !== previousAmount || nextAmount !== currentAmount) {
+          if (nextPaymentDate) {
+            updates.owedAmount = Number.isFinite(currentAmount) ? currentAmount : previousAmount;
+            updates.pendingOwedAmount = nextAmount;
+            updates.pendingOwedAmountEffectiveAt = nextPaymentDate;
+          } else {
+            updates.pendingOwedAmount = nextAmount;
+            updates.pendingOwedAmountEffectiveAt = deleteField();
+          }
+        } else {
+          updates.pendingOwedAmount = deleteField();
+          updates.pendingOwedAmountEffectiveAt = deleteField();
+        }
+
+        await updateDoc(doc(db, "stores", store.id), updates);
+      }));
+      setOriginalPlans(plans);
       alert("Subscription plans saved successfully.");
     } catch (error) {
       console.error(error);
@@ -73,7 +102,8 @@ export default function AdminSubscriptions() {
         name: "New Plan",
         price: 0,
         interval: "month",
-        features: ["New feature"]
+        features: ["New feature"],
+        dependencies: { customerLimit: 0, staffLimit: 1, branchLimit: 1 },
       }
     ]);
   };
@@ -92,19 +122,35 @@ export default function AdminSubscriptions() {
 
   const handleFeatureChange = (planIndex: number, featureIndex: number, value: string) => {
     const newPlans = [...plans];
-    newPlans[planIndex].features[featureIndex] = value;
+    const features = [...(newPlans[planIndex].features || [])];
+    features[featureIndex] = value;
+    newPlans[planIndex] = { ...newPlans[planIndex], features };
     setPlans(newPlans);
   };
 
   const handleAddFeature = (planIndex: number) => {
     const newPlans = [...plans];
-    newPlans[planIndex].features.push("New Feature");
+    newPlans[planIndex].features = [...(newPlans[planIndex].features || []), "New Feature"];
     setPlans(newPlans);
   };
 
   const handleRemoveFeature = (planIndex: number, featureIndex: number) => {
     const newPlans = [...plans];
-    newPlans[planIndex].features.splice(featureIndex, 1);
+    const features = [...(newPlans[planIndex].features || [])];
+    features.splice(featureIndex, 1);
+    newPlans[planIndex] = { ...newPlans[planIndex], features };
+    setPlans(newPlans);
+  };
+
+  const handleDependencyChange = (planIndex: number, field: string, value: number) => {
+    const newPlans = [...plans];
+    newPlans[planIndex] = {
+      ...newPlans[planIndex],
+      dependencies: {
+        ...normalizeSubscriptionDependencies(newPlans[planIndex].dependencies),
+        [field]: Math.max(0, value),
+      },
+    };
     setPlans(newPlans);
   };
 
@@ -130,7 +176,7 @@ export default function AdminSubscriptions() {
 
       <div className="p-4 sm:p-6">
         <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-2xl">
-          Configure the public subscription plans offered to new partners on the landing page. Modifying these does not automatically update existing billing cycles, only the storefront offers.
+          Configure subscription offers and the limits each plan unlocks. Price changes are queued for existing stores and only apply on each store owner's next payment schedule.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
@@ -175,7 +221,7 @@ export default function AdminSubscriptions() {
                 </div>
 
                 <div className="space-y-2">
-                  {plan.features.map((feature: string, featureIndex: number) => (
+                  {(plan.features || []).map((feature: string, featureIndex: number) => (
                     <div key={featureIndex} className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-green-500 shrink-0" />
                       <input type="text" value={feature} onChange={e => handleFeatureChange(planIndex, featureIndex, e.target.value)} className="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-2 py-1.5 rounded-md text-sm" />
@@ -184,9 +230,21 @@ export default function AdminSubscriptions() {
                       </button>
                     </div>
                   ))}
-                  {plan.features.length === 0 && (
+                  {(plan.features || []).length === 0 && (
                     <p className="text-sm text-gray-500 italic">No features listed.</p>
                   )}
+                </div>
+
+                <div className="mt-5 border-t border-gray-200 pt-5 dark:border-gray-700">
+                  <h5 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-500">Dependencies</h5>
+                  <div className="grid grid-cols-1 gap-3">
+                    <DependencyInput label="Customers" value={normalizeSubscriptionDependencies(plan.dependencies).customerLimit} onChange={(value) => handleDependencyChange(planIndex, "customerLimit", value)} />
+                    <DependencyInput label="Staff accounts" value={normalizeSubscriptionDependencies(plan.dependencies).staffLimit} onChange={(value) => handleDependencyChange(planIndex, "staffLimit", value)} />
+                    <DependencyInput label="Branches" value={normalizeSubscriptionDependencies(plan.dependencies).branchLimit} onChange={(value) => handleDependencyChange(planIndex, "branchLimit", value)} />
+                  </div>
+                  <p className="mt-3 text-xs text-gray-500">
+                    {formatSubscriptionLimit(normalizeSubscriptionDependencies(plan.dependencies).customerLimit, "customers")} / {formatSubscriptionLimit(normalizeSubscriptionDependencies(plan.dependencies).staffLimit, "staff")} / {formatSubscriptionLimit(normalizeSubscriptionDependencies(plan.dependencies).branchLimit, "branches")}
+                  </p>
                 </div>
               </div>
 
@@ -203,6 +261,21 @@ export default function AdminSubscriptions() {
         </div>
       </div>
     </div>
+  );
+}
+
+function DependencyInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <label className="grid grid-cols-[1fr_6rem] items-center gap-3 text-sm">
+      <span className="font-medium text-gray-600 dark:text-gray-300">{label}</span>
+      <input
+        type="number"
+        min="0"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-right font-medium text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+      />
+    </label>
   );
 }
 

@@ -189,6 +189,42 @@ function sendStaffCreatedEmail(recipientEmail, userName, storeName, loginLink, r
   });
 }
 
+function sendApplicationReceivedEmail(recipientEmail, userName, application) {
+  validateEmailInput_(recipientEmail, userName);
+  application = application || {};
+
+  var trackingNumber = String(application.trackingNumber || "").trim();
+  var businessName = String(application.businessName || "your business").trim();
+  if (!trackingNumber) {
+    throw new Error("application.trackingNumber is required.");
+  }
+
+  var trackingLink = EMAIL_CONFIG.websiteLink.replace(/\/+$/, "") + "/?track=true";
+  var subscriptionLevel = String(application.subscriptionLevel || "").trim();
+
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: "We received your PerkUp partner application",
+    userName: userName,
+    heading: "Application received, " + userName + ".",
+    introText: "Thanks for applying to add " + businessName + " as a PerkUp partner store. Keep this tracking number for status updates.",
+    secondaryText: "We will review your application and contact you through this email when there is an update.",
+    application: {
+      trackingNumber: trackingNumber,
+      businessName: businessName,
+      subscriptionLevel: subscriptionLevel
+    },
+    buttonText: "Track Application",
+    buttonLink: trackingLink,
+    showButton: true,
+    plainText:
+      "We received your PerkUp partner application for " + businessName + ".\n" +
+      "Tracking number: " + trackingNumber + "\n" +
+      (subscriptionLevel ? "Subscription: " + subscriptionLevel + "\n" : "") +
+      "Track your application: " + trackingLink
+  });
+}
+
 function sendTestOtpEmail() {
   return sendOtpEmail("user@example.com", "John Doe", "123456");
 }
@@ -219,6 +255,18 @@ function sendTestStoreCreatedEmail() {
   );
 }
 
+function sendTestApplicationReceivedEmail() {
+  return sendApplicationReceivedEmail(
+    "user@example.com",
+    "John Doe",
+    {
+      trackingNumber: "sample-tracking-number",
+      businessName: "Downtown Coffee",
+      subscriptionLevel: "Standard"
+    }
+  );
+}
+
 function sendSystemEmail_(emailData) {
   var referenceId = createEmailReferenceId_();
   var template = HtmlService.createTemplateFromFile("email");
@@ -238,6 +286,7 @@ function sendSystemEmail_(emailData) {
   template.secondaryText = emailData.secondaryText;
   template.otpCode = emailData.otpCode || "";
   template.store = emailData.store || null;
+  template.application = emailData.application || null;
   template.buttonText = emailData.buttonText || "View Dashboard";
   template.buttonLink = emailData.buttonLink || EMAIL_CONFIG.websiteLink;
   template.showButton = emailData.showButton !== false;
