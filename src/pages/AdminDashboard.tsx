@@ -51,6 +51,14 @@ export default function AdminDashboard() {
     return !isAccountPage && activeTab === item.id;
   };
 
+  const fallbackVariant =
+    isAccountPage ? 'form' :
+    activeTab === 'applications' ? 'table' :
+    activeTab === 'homepage' ? 'homepage' :
+    activeTab === 'subscriptions' ? 'subscriptions' :
+    activeTab === 'legal' ? 'form' :
+    'table';
+
   return (
     <div className="flex flex-col md:flex-row gap-8 pb-24 md:pb-0 w-full relative">
       <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 h-max z-10 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
@@ -106,7 +114,7 @@ export default function AdminDashboard() {
       </nav>
 
       <div className="flex-1 min-w-0 bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-4 sm:p-6 md:p-8 shadow-sm transition-colors">
-        <Suspense fallback={<PageSkeleton variant="table" />}>
+        <Suspense fallback={<PageSkeleton variant={fallbackVariant} />}>
           {isAccountPage ? (
             <AdminAccount />
           ) : (

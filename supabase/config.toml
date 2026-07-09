@@ -21,3 +21,6 @@ verify_jwt = false
 
 [functions.partner-application]
 verify_jwt = false
+
+[functions.demo-login]
+verify_jwt = false

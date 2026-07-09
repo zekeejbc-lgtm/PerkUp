@@ -24,6 +24,7 @@ import {
 import { CustomerScanCard, isSecureCustomerQr, normalizeCustomerUsername, redeemCustomerScan } from "@/src/lib/secureQr";
 import { getDisplayImageUrl } from "@/src/lib/imageStorage";
 import { CustomDropdown } from "@/src/components/CustomDropdown";
+import { normalizeStampStyle, StoreStamp } from "@/src/components/StoreStamp";
 
 type ScannerLocation = {
   lat: number;
@@ -742,10 +743,10 @@ export default function StaffScanner({ store }: { store: any }) {
                               <p className="mt-1 truncate font-mono text-[11px] text-gray-400">{card.id}</p>
                             </div>
                             <div className="shrink-0 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2 text-center dark:border-gray-700 dark:bg-gray-800">
-                              <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Stars</p>
+                              <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{normalizeStampStyle(card).stampLabel}</p>
                               <p className="flex items-center justify-center gap-1 text-xl font-black text-gray-900 dark:text-white">
                                 {card.stars}
-                                <Star className="h-4 w-4 fill-[#1b1b1b] text-[#1b1b1b]" />
+                                <StoreStamp style={card} size="sm" />
                               </p>
                             </div>
                           </div>

@@ -28,6 +28,14 @@ export default function CustomerDashboard() {
     return location.pathname.startsWith(href);
   };
 
+  const fallbackVariant =
+    location.pathname === '/customer/cards' ? 'cards' :
+    location.pathname === '/customer/stores' ? 'map-list' :
+    location.pathname === '/customer/promotions' ? 'promotions' :
+    location.pathname === '/customer/tickets' ? 'tickets' :
+    location.pathname === '/customer/profile' ? 'form' :
+    'overview';
+
   return (
     <div className="flex flex-col md:flex-row gap-8 pb-24 md:pb-0 w-full relative">
       {/* Desktop Sidebar Navigation */}
@@ -84,7 +92,7 @@ export default function CustomerDashboard() {
 
       {/* Main Content Area */}
       <div className="flex-1 min-w-0">
-        <Suspense fallback={<PageSkeleton />}>
+        <Suspense fallback={<PageSkeleton variant={fallbackVariant} />}>
           <Routes>
             <Route path="/" element={<CustomerOverview />} />
             <Route path="/cards" element={<CustomerCards />} />

@@ -105,7 +105,7 @@ export default function CustomerTickets() {
         <div className="rounded-3xl border border-dashed border-gray-300 p-12 text-center dark:border-gray-700">
           <Ticket className="mx-auto h-12 w-12 text-gray-300" />
           <h2 className="mt-4 font-bold text-gray-900 dark:text-white">No scan tickets yet</h2>
-          <p className="mt-1 text-sm text-gray-500">Your first successful scan will appear here automatically.</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Your first successful scan will appear here automatically.</p>
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
@@ -113,16 +113,16 @@ export default function CustomerTickets() {
             <article key={ticket.id} className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="font-mono text-xs font-bold text-gray-500">{ticket.ticketNumber}</p>
+                  <p className="font-mono text-xs font-bold text-gray-500 dark:text-gray-400">{ticket.ticketNumber}</p>
                   <h2 className="mt-1 text-lg font-bold text-gray-900 dark:text-white">{ticket.storeName}</h2>
-                  {ticket.promotionTitle && <p className="text-sm text-gray-500">{ticket.promotionTitle}</p>}
+                  {ticket.promotionTitle && <p className="text-sm text-gray-500 dark:text-gray-400">{ticket.promotionTitle}</p>}
                 </div>
                 <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700 dark:bg-green-900/30 dark:text-green-300">
                   <CheckCircle2 className="h-3.5 w-3.5" /> Successful
                 </span>
               </div>
               <div className="mt-5 flex items-end justify-between border-t border-gray-100 pt-4 dark:border-gray-800">
-                <p className="text-xs text-gray-500">{new Date(ticket.issuedAt).toLocaleString()}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(ticket.issuedAt).toLocaleString()}</p>
                 <p className="flex items-center gap-1 text-lg font-black text-gray-900 dark:text-white">
                   +{ticket.points} <Star className="h-4 w-4 fill-current" />
                 </p>

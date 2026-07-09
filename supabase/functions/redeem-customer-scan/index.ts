@@ -68,6 +68,12 @@ const sha256Hex = async (value: string) => {
     .join("");
 };
 
+const base64Url = (bytes: Uint8Array) =>
+  btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+
 const base64UrlToBytes = (value: string) => {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalized.padEnd(normalized.length + (4 - normalized.length % 4) % 4, "=");
@@ -84,6 +90,12 @@ const signPayload = async (payload: string, secret: string) => {
     ["sign"],
   );
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload)));
+};
+
+const signedReceiptId = async (payload: string, secret: string) => {
+  const encodedPayload = base64Url(new TextEncoder().encode(payload));
+  const signature = base64Url(await signPayload(payload, secret));
+  return `perkstamp:v1:${encodedPayload}.${signature}`;
 };
 
 const timingSafeEqual = (left: Uint8Array, right: Uint8Array) => {
@@ -180,7 +192,19 @@ Deno.serve(async (req) => {
       .eq("id", storeId)
       .maybeSingle();
     if (storeError) throw storeError;
-    const store = storeRow?.data as { name?: string; lat?: number | string; lng?: number | string } | null;
+    const store = storeRow?.data as {
+      name?: string;
+      lat?: number | string;
+      lng?: number | string;
+      stampIcon?: string;
+      stampColor?: string;
+      stampLabel?: string;
+    } | null;
+    const storeStampStyle = {
+      stampIcon: String(store?.stampIcon || "star"),
+      stampColor: String(store?.stampColor || "#1b1b1b"),
+      stampLabel: String(store?.stampLabel || "Stamp"),
+    };
     let promotionTitle: string | null = null;
 
     if (promotionId) {
@@ -347,6 +371,7 @@ Deno.serve(async (req) => {
           label: String(cardRow.data?.cardName || cardRow.data?.title || cardRow.data?.storeName || "Loyalty Card"),
           storeName: String(cardRow.data?.storeName || store?.name || "Store"),
           stars: Number(cardRow.data?.stars || 0),
+          ...storeStampStyle,
           status,
           joinedAt: cardRow.data?.joinedAt || cardRow.data?.createdAt || null,
           updatedAt: cardRow.data?.updatedAt || null,
@@ -368,11 +393,26 @@ Deno.serve(async (req) => {
     const existingStars = Number(existingCard?.data?.stars || 0);
 
     if (!previewOnly) {
+      const ticketId = crypto.randomUUID();
+      const ticketNumber = `PK-${Date.now().toString(36).toUpperCase()}-${ticketId.slice(0, 4).toUpperCase()}`;
+      const issuedAt = new Date().toISOString();
+      const receiptPayload = [
+        ticketId,
+        customerId,
+        storeId,
+        authData.user.id,
+        String(points),
+        issuedAt,
+        promotionId || "store-visit",
+      ].join(".");
+      const cryptographicId = await signedReceiptId(receiptPayload, serviceKey);
+
       if (existingCard) {
         const { error: updateError } = await admin.rpc("increment_loyalty_totals", {
           p_customer_id: customerId,
           p_card_id: existingCard.id,
           p_points: points,
+          p_stamp_receipt_id: cryptographicId,
         });
         if (updateError) throw updateError;
       } else {
@@ -383,6 +423,8 @@ Deno.serve(async (req) => {
             customerId,
             storeName: String(store?.name || "Store"),
             stars: points,
+            ...storeStampStyle,
+            lastStampReceiptId: cryptographicId,
             joinedAt: {
               seconds: Math.floor(Date.now() / 1000),
               nanoseconds: 0,
@@ -395,15 +437,14 @@ Deno.serve(async (req) => {
           p_customer_id: customerId,
           p_card_id: null,
           p_points: points,
+          p_stamp_receipt_id: cryptographicId,
         });
         if (totalError) throw totalError;
       }
 
-      const ticketId = crypto.randomUUID();
-      const ticketNumber = `PK-${Date.now().toString(36).toUpperCase()}-${ticketId.slice(0, 4).toUpperCase()}`;
-      const issuedAt = new Date().toISOString();
       const scanLog = {
         ticketNumber,
+        cryptographicId,
         status: "issued",
         customerId,
         staffId: authData.user.id,
@@ -449,6 +490,7 @@ Deno.serve(async (req) => {
         ticket: {
           id: ticketId,
           ticketNumber,
+          cryptographicId,
           status: "issued",
           storeId,
           storeName: String(store?.name || "Store"),

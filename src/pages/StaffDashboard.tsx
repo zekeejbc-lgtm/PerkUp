@@ -79,6 +79,14 @@ export default function StaffDashboard() {
     return false;
   };
 
+  const fallbackVariant =
+    location.pathname === '/staff/scanner' ? 'scanner' :
+    location.pathname.startsWith('/staff/promotions/') ? 'scanner' :
+    location.pathname === '/staff/promotions' ? 'promotions' :
+    location.pathname === '/staff/customers' ? 'table' :
+    location.pathname === '/staff/account' ? 'form' :
+    'form';
+
   return (
     <div className="flex flex-col md:flex-row gap-8 pb-24 md:pb-0 w-full relative">
       {/* Desktop Sidebar Navigation */}
@@ -150,7 +158,7 @@ export default function StaffDashboard() {
 
       {/* Main Content Area */}
       <div className="flex-1 min-w-0 bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-4 sm:p-6 md:p-8 shadow-sm">
-        <Suspense fallback={<PageSkeleton />}>
+        <Suspense fallback={<PageSkeleton variant={fallbackVariant} />}>
           <Routes>
             <Route path="/" element={<StaffStore store={store} />} />
             <Route path="/scanner" element={<StaffScanner store={store} />} />

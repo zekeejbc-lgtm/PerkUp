@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { doc, updateDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Save, MapPin, Clock, Image as ImageIcon, CheckCircle2, Upload, X, Store } from "lucide-react";
+import { Save, MapPin, Clock, Image as ImageIcon, CheckCircle2, Upload, X, Store, BadgeCheck } from "lucide-react";
 import { MapContainer, Marker, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, isTemporaryObjectUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { MapBaseLayers } from "../../components/MapBaseLayers";
 import { TimeInput } from "../../components/TimeInput";
 import { formatStoreHours } from "../../lib/dateTime";
+import { STAMP_COLOR_OPTIONS, STAMP_ICON_OPTIONS, StoreStamp } from "../../components/StoreStamp";
+import { CustomDropdown } from "../../components/CustomDropdown";
 
 function LocationPicker({ setPosition }: { position: [number, number], setPosition: (p: [number, number]) => void }) {
   useMapEvents({
@@ -35,10 +37,31 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
     openingHours: store?.openingHours || store?.hours || "Mon-Sun: 9AM - 9PM",
     openingTime: store?.openingTime || "09:00",
     closingTime: store?.closingTime || "21:00",
+    stampIcon: store?.stampIcon || "star",
+    stampColor: store?.stampColor || "#1b1b1b",
+    stampLabel: store?.stampLabel || "Stamp",
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
+
+  const getFileFromTemporaryPreview = async (url: string, purpose: string) => {
+    if (!isTemporaryObjectUrl(url)) return null;
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Preview fetch failed with ${response.status}`);
+      const blob = await response.blob();
+      const mimeType = blob.type || "image/png";
+      if (!mimeType.startsWith("image/")) throw new Error("Preview is not an image.");
+      const extension = mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "png";
+      return new File([blob], `${purpose}-preview.${extension}`, { type: mimeType });
+    } catch (error) {
+      console.error("Failed to recover temporary preview for upload", error);
+      throw new Error("Please re-upload the logo, menu, or store photos before saving. The current preview is temporary and cannot be shown to customers.");
+    }
+  };
 
   // Parse coords
   const lat = parseFloat(formData.latitude) || 7.4478; // Default to Tagum City
@@ -62,6 +85,9 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
         openingHours: store?.openingHours || store?.hours || "Mon-Sun: 9AM - 9PM",
         openingTime: store?.openingTime || "09:00",
         closingTime: store?.closingTime || "21:00",
+        stampIcon: store?.stampIcon || "star",
+        stampColor: store?.stampColor || "#1b1b1b",
+        stampLabel: store?.stampLabel || "Stamp",
       });
       const storeLat = Number(store.lat ?? store.latitude);
       const storeLng = Number(store.lng ?? store.longitude);
@@ -76,15 +102,31 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
     if (!store?.id) return;
     setSaving(true);
     setSaved(false);
+    setUploadProgress("");
     try {
+      const imageUploadCount = [formData.logoUrl, formData.menuUrl, ...formData.images]
+        .filter((url: string) => pendingFiles[url] || isTemporaryObjectUrl(url))
+        .length;
+      let completedImageUploads = 0;
+
       const uploadPending = async (url: string, purpose: string) => {
-        const file = pendingFiles[url];
-        return file
-          ? uploadImageFileToDriveSecure(file, {
-              owner: formData.name || store?.id,
-              purpose,
-            })
-          : url;
+        const file = pendingFiles[url] || await getFileFromTemporaryPreview(url, purpose);
+        if (file) {
+          const label = purpose === "store-logo" ? "logo" : purpose === "store-menu" ? "menu" : "store photo";
+          if (imageUploadCount > 0) {
+            setUploadProgress(`Uploading ${label} ${completedImageUploads + 1}/${imageUploadCount}...`);
+          }
+          const uploadedUrl = await uploadImageFileToDriveSecure(file, {
+            owner: formData.name || store?.id,
+            purpose,
+          });
+          completedImageUploads += 1;
+          if (imageUploadCount > 0) {
+            setUploadProgress(`Uploaded images ${completedImageUploads}/${imageUploadCount}...`);
+          }
+          return uploadedUrl;
+        }
+        return url;
       };
       const logoUrl = await uploadPending(formData.logoUrl, "store-logo");
       const menuUrl = await uploadPending(formData.menuUrl, "store-menu");
@@ -102,6 +144,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
         hours: formatStoreHours(formData.openingTime, formData.closingTime),
         openingHours: formatStoreHours(formData.openingTime, formData.closingTime),
       };
+      setUploadProgress("Saving branch information...");
       await updateDoc(doc(db, "stores", store.id), nextStoreData);
       const previousImages = [store.logoUrl, store.menuUrl, ...(store.images || [])].filter(Boolean);
       const retainedImages = new Set([logoUrl, menuUrl, ...images].filter(Boolean));
@@ -120,6 +163,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
       alert("Failed to update store info");
     } finally {
       setSaving(false);
+      setUploadProgress("");
     }
   };
 
@@ -186,7 +230,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
         {/* Core Info */}
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
-            <Store className="w-5 h-5 text-[#1b1b1b]" /> Basic Details
+            <Store className="w-5 h-5 text-[#1b1b1b] dark:text-white" /> Basic Details
           </h3>
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-2 sm:col-span-2">
@@ -221,7 +265,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
 
             <div className="space-y-2 sm:col-span-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2">
-                 <Clock className="w-4 h-4 text-gray-400" /> Opening Hours
+                 <Clock className="w-4 h-4 text-gray-400 dark:text-gray-500" /> Opening Hours
                </label>
               <div className="grid grid-cols-2 gap-4">
                 <TimeInput aria-label="Opening time (Philippine time)" required value={formData.openingTime} onChange={openingTime => setFormData({...formData, openingTime})} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
@@ -231,10 +275,58 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
           </div>
         </div>
 
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
+            <BadgeCheck className="w-5 h-5 text-[#1b1b1b] dark:text-white" /> Loyalty Stamp
+          </h3>
+          <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Stamp Name</label>
+                <input
+                  type="text"
+                  maxLength={24}
+                  value={formData.stampLabel}
+                  onChange={e => setFormData({...formData, stampLabel: e.target.value})}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Icon</label>
+                <CustomDropdown
+                  value={formData.stampIcon}
+                  onChange={stampIcon => setFormData({...formData, stampIcon})}
+                  options={STAMP_ICON_OPTIONS}
+                  className="w-full [&>button]:min-h-[42px] [&>button]:rounded-xl [&>button]:bg-gray-50 [&>button]:px-4 [&>button]:py-2.5 [&>button]:text-sm [&>button]:dark:bg-gray-800"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Color</label>
+                <div className="flex flex-wrap gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-800">
+                  {STAMP_COLOR_OPTIONS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setFormData({...formData, stampColor: color})}
+                      className={`h-8 w-8 rounded-full border-2 ${formData.stampColor === color ? "border-gray-900 dark:border-white" : "border-white/80 dark:border-gray-700"}`}
+                      style={{ backgroundColor: color }}
+                      aria-label={`Use stamp color ${color}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800">
+              <StoreStamp style={formData} />
+              <span className="text-sm font-bold text-gray-900 dark:text-white">{formData.stampLabel || "Stamp"}</span>
+            </div>
+          </div>
+        </div>
+
         {/* Location & Map */}
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
-            <MapPin className="w-5 h-5 text-[#1b1b1b]" /> Location
+            <MapPin className="w-5 h-5 text-[#1b1b1b] dark:text-white" /> Location
           </h3>
 
           <div className="space-y-2 mb-4">
@@ -248,7 +340,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
 
           <div className="space-y-2">
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-200">Pinpoint on Map</p>
-            <p className="text-xs text-gray-500 mb-2">Click on the map to set your exact store location.</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Click on the map to set your exact store location.</p>
             <div className="h-[300px] w-full rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 z-0 relative">
                <MapContainer center={mapCenter} zoom={13} scrollWheelZoom={false} style={{ height: '100%', width: '100%', zIndex: 0 }}>
                <MapBaseLayers />
@@ -263,8 +355,8 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
                </MapContainer>
             </div>
             <div className="flex gap-4 mt-2">
-              <div className="text-xs text-gray-500">Lat: {lat.toFixed(6)}</div>
-              <div className="text-xs text-gray-500">Lng: {lng.toFixed(6)}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">Lat: {lat.toFixed(6)}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">Lng: {lng.toFixed(6)}</div>
             </div>
           </div>
         </div>
@@ -272,8 +364,15 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
         {/* Media & Images */}
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
-            <ImageIcon className="w-5 h-5 text-[#1b1b1b]" /> Media & Images
+            <ImageIcon className="w-5 h-5 text-[#1b1b1b] dark:text-white" /> Media & Images
           </h3>
+
+          {uploadProgress && (
+            <div role="status" aria-live="polite" className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
+              <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900 dark:border-gray-600 dark:border-t-white" />
+              <span>{uploadProgress}</span>
+            </div>
+          )}
 
           <div className="grid gap-6 sm:grid-cols-2">
             {/* Store Logo */}
@@ -284,13 +383,13 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
                   {formData.logoUrl ? (
                     <img src={getDisplayImageUrl(formData.logoUrl)} alt="Logo" className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-6 h-6 text-gray-300" /></div>
+                    <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-6 h-6 text-gray-300 dark:text-gray-600" /></div>
                   )}
                 </div>
                 <div className="flex-1">
-                  <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                  <label className={`inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-800 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 ${saving ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
                     <Upload className="w-4 h-4" /> Upload Logo
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'logoUrl')} />
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'logoUrl')} disabled={saving} />
                   </label>
                 </div>
               </div>
@@ -304,13 +403,13 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
                   {formData.menuUrl ? (
                     <img src={getDisplayImageUrl(formData.menuUrl)} alt="Menu" className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-6 h-6 text-gray-300" /></div>
+                    <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-6 h-6 text-gray-300 dark:text-gray-600" /></div>
                   )}
                 </div>
                 <div className="flex-1">
-                  <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                  <label className={`inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-800 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 ${saving ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
                     <Upload className="w-4 h-4" /> Upload Menu
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'menuUrl')} />
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'menuUrl')} disabled={saving} />
                   </label>
                 </div>
               </div>
@@ -322,9 +421,9 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
              <div className="flex items-center justify-between">
                 <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Store Photos ({formData.images.length}/3)</label>
                 {formData.images.length < 3 && (
-                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white rounded-lg text-xs font-bold hover:bg-gray-100 transition-colors">
+                  <label className={`inline-flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-bold text-[#1b1b1b] transition-colors hover:bg-gray-100 dark:bg-white/10 dark:text-white ${saving ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
                     <Upload className="w-3 h-3" /> Add Photos
-                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileUpload(e, 'images')} />
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileUpload(e, 'images')} disabled={saving} />
                   </label>
                 )}
              </div>
@@ -333,14 +432,14 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
                    {formData.images.map((img: string, i: number) => (
                       <div key={i} className="relative aspect-video rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 group">
                         <img src={getDisplayImageUrl(img)} alt={`Store ${i+1}`} className="w-full h-full object-cover" />
-                        <button type="button" onClick={() => removeImage(i)} className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button type="button" onClick={() => removeImage(i)} disabled={saving} className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed disabled:opacity-50">
                            <X className="w-4 h-4" />
                         </button>
                       </div>
                    ))}
                  </div>
              ) : (
-                <div className="p-8 text-center bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 text-gray-500 text-sm">
+                <div className="p-8 text-center bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 text-sm">
                    Upload 2-3 photos showing the interior and exterior of your store.
                 </div>
              )}
@@ -354,7 +453,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
             className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-8 py-3 rounded-xl font-bold hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors disabled:opacity-50"
           >
             {saving ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save className="w-5 h-5" />}
-            Save Branch Information
+            {saving ? (uploadProgress || "Saving...") : "Save Branch Information"}
           </button>
 
           {saved && (

@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router-dom";
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "@/src/lib/dataCompat";
 import { db } from "../lib/backend";
 import { ArrowLeft, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send, Image as ImageIcon, Store as StoreIcon, Utensils, Gift, CalendarDays, X } from "lucide-react";
@@ -13,7 +13,7 @@ import { DirectionsButton } from "../components/DirectionsButton";
 import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { MapBaseLayers } from "../components/MapBaseLayers";
-import { getDisplayImageUrl } from "../lib/imageStorage";
+import { getDisplayImageUrl, uploadImageFileToDriveSecure } from "../lib/imageStorage";
 import { PublicSiteFooter } from "../components/PublicPageShell";
 
 interface StoreContent {
@@ -63,16 +63,35 @@ interface StorePromotion {
 interface StoreReview {
   id: string;
   customerName?: string;
+  customerAvatarUrl?: string;
+  customerInitials?: string;
+  anonymous?: boolean;
   rating?: number;
   comment?: string;
+  imageUrls?: string[];
   ownerReply?: string;
   createdAt?: string;
+  ownerRepliedAt?: string;
+  ownerReplyUpdatedAt?: string;
 }
 
-const reviewDate = (value?: string) => {
+const toDate = (value?: any) => {
   if (!value) return "";
+  if (typeof value.toDate === "function") return value.toDate();
+  if (typeof value.seconds === "number") return new Date(value.seconds * 1000);
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString();
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const reviewDate = (value?: any) => {
+  const date = toDate(value);
+  return date ? date.toLocaleDateString() : "";
+};
+
+const getInitials = (name?: string) => {
+  const parts = String(name || "Customer").trim().split(/\s+/).filter(Boolean);
+  const initials = parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+  return initials || "C";
 };
 
 const promotionDate = (value?: string) => {
@@ -140,9 +159,17 @@ export default function StorePage() {
   const [loading, setLoading] = useState(true);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
+  const [anonymousReview, setAnonymousReview] = useState(false);
+  const [reviewImageFiles, setReviewImageFiles] = useState<File[]>([]);
+  const [reviewImagePreviews, setReviewImagePreviews] = useState<string[]>([]);
+  const reviewImagePreviewsRef = useRef<string[]>([]);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [shareStatus, setShareStatus] = useState("");
+
+  useEffect(() => () => {
+    reviewImagePreviewsRef.current.forEach((previewUrl) => URL.revokeObjectURL(previewUrl));
+  }, []);
 
   const fetchReviews = useCallback(async () => {
     if (!storeId) return;
@@ -182,6 +209,25 @@ export default function StorePage() {
       setShareStatus("Unable to share");
       window.setTimeout(() => setShareStatus(""), 2500);
     }
+  };
+
+  const handleReviewImageChange = (files: FileList | null) => {
+    const selectedFiles = Array.from(files || []).filter((file) => file.type.startsWith("image/")).slice(0, 3);
+    reviewImagePreviewsRef.current.forEach((previewUrl) => URL.revokeObjectURL(previewUrl));
+    const nextPreviews = selectedFiles.map((file) => URL.createObjectURL(file));
+    reviewImagePreviewsRef.current = nextPreviews;
+    setReviewImageFiles(selectedFiles);
+    setReviewImagePreviews(nextPreviews);
+  };
+
+  const removeReviewImage = (index: number) => {
+    setReviewImageFiles((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setReviewImagePreviews((current) => {
+      current[index] && URL.revokeObjectURL(current[index]);
+      const nextPreviews = current.filter((_, itemIndex) => itemIndex !== index);
+      reviewImagePreviewsRef.current = nextPreviews;
+      return nextPreviews;
+    });
   };
 
   useEffect(() => {
@@ -290,18 +336,34 @@ export default function StorePage() {
     setFeedbackSent(false);
     try {
       const feedbackRef = doc(collection(db, "store_reviews"));
+      const imageUrls = await Promise.all(
+        reviewImageFiles.map((file, index) => uploadImageFileToDriveSecure(file, {
+          owner: user.username || user.email || user.id,
+          purpose: `store-review-${storeId}-${index + 1}`,
+        })),
+      );
+      const customerInitials = getInitials(user.name);
       await setDoc(feedbackRef, {
         storeId,
         storeName: store.name,
         customerId: user.id,
-        customerName: user.name || "Customer",
+        customerName: anonymousReview ? "Anonymous Customer" : user.name || "Customer",
+        customerAvatarUrl: anonymousReview ? "" : user.avatarUrl || user.photoURL || "",
+        customerInitials,
+        anonymous: anonymousReview,
         rating,
         comment: comment.trim(),
+        imageUrls,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
       setComment("");
       setRating(5);
+      setAnonymousReview(false);
+      reviewImagePreviewsRef.current.forEach((previewUrl) => URL.revokeObjectURL(previewUrl));
+      reviewImagePreviewsRef.current = [];
+      setReviewImageFiles([]);
+      setReviewImagePreviews([]);
       setFeedbackSent(true);
       await fetchReviews();
     } catch (error) {
@@ -751,9 +813,18 @@ export default function StorePage() {
               {reviews.map((review) => (
                 <article key={review.id} className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                   <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="font-bold text-gray-900 dark:text-white">{review.customerName || "Customer"}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{reviewDate(review.createdAt) || "Recent review"}</p>
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 text-sm font-black text-gray-600 dark:bg-white/10 dark:text-gray-200">
+                        {!review.anonymous && review.customerAvatarUrl ? (
+                          <img src={getDisplayImageUrl(review.customerAvatarUrl)} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <span>{review.customerInitials || getInitials(review.customerName)}</span>
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-bold text-gray-900 dark:text-white">{review.customerName || "Customer"}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{reviewDate(review.createdAt) || "Recent review"}</p>
+                      </div>
                     </div>
                     <div className="flex text-[#1b1b1b] dark:text-white" aria-label={`${review.rating || 0} star rating`}>
                       {[1, 2, 3, 4, 5].map((value) => (
@@ -762,9 +833,31 @@ export default function StorePage() {
                     </div>
                   </div>
                   <p className="mt-4 text-sm leading-6 text-gray-700 dark:text-gray-300">{review.comment}</p>
+                  {Array.isArray(review.imageUrls) && review.imageUrls.length > 0 && (
+                    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {review.imageUrls.filter(Boolean).map((imageUrl, index) => (
+                        <a
+                          key={`${review.id}-${imageUrl}-${index}`}
+                          href={getDisplayImageUrl(imageUrl)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block aspect-square overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800"
+                        >
+                          <img src={getDisplayImageUrl(imageUrl)} alt={`Review photo ${index + 1}`} className="h-full w-full object-cover" loading="lazy" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                   {review.ownerReply && (
                     <div className="mt-4 rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/70">
-                      <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Response from {store.name}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Response from {store.name}</p>
+                        {review.ownerReplyUpdatedAt && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                            Updated {reviewDate(review.ownerReplyUpdatedAt)}
+                          </span>
+                        )}
+                      </div>
                       <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-300">{review.ownerReply}</p>
                     </div>
                   )}
@@ -807,6 +900,21 @@ export default function StorePage() {
 
           {user?.role === "customer" ? (
             <form onSubmit={handleFeedbackSubmit} className="p-6 space-y-5">
+              <label className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm dark:border-gray-700 dark:bg-gray-800/60">
+                <input
+                  type="checkbox"
+                  checked={anonymousReview}
+                  onChange={(event) => setAnonymousReview(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900 dark:border-gray-600"
+                />
+                <span>
+                  <span className="block font-semibold text-gray-900 dark:text-gray-100">Stay anonymous</span>
+                  <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                    Your review will show initials instead of your profile photo.
+                  </span>
+                </span>
+              </label>
+
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Rating</label>
                 <div className="flex items-center gap-2">
@@ -836,6 +944,45 @@ export default function StorePage() {
                   placeholder="Share your experience with this store..."
                 />
                 <p className="text-xs text-gray-400">{comment.length}/500</p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-sm font-semibold text-gray-900 dark:text-gray-200" htmlFor="review-images">Review photos</label>
+                  <span className="text-xs font-medium text-gray-400">{reviewImageFiles.length}/3</span>
+                </div>
+                <label
+                  htmlFor="review-images"
+                  className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-4 text-sm font-semibold text-gray-600 transition hover:border-gray-500 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500 dark:hover:text-white"
+                >
+                  <ImageIcon className="h-5 w-5" />
+                  Add images
+                </label>
+                <input
+                  id="review-images"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(event) => handleReviewImageChange(event.target.files)}
+                  className="sr-only"
+                />
+                {reviewImagePreviews.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {reviewImagePreviews.map((previewUrl, index) => (
+                      <div key={previewUrl} className="relative aspect-square overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
+                        <img src={previewUrl} alt={`Selected review photo ${index + 1}`} className="h-full w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removeReviewImage(index)}
+                          className="absolute right-1.5 top-1.5 rounded-full bg-black/70 p-1 text-white transition hover:bg-black"
+                          aria-label={`Remove review photo ${index + 1}`}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">

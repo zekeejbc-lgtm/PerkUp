@@ -70,6 +70,18 @@ const DEMO_ACCOUNTS: Array<{ role: DemoRole; label: string }> = [
 
 const DEMO_PASSWORD = 'password123';
 
+const ensureDemoAccount = async (role: DemoRole) => {
+  const { data, error } = await supabase.functions.invoke<{ email: string }>('demo-login', {
+    body: { role },
+  });
+
+  if (error) {
+    throw new Error(`Demo account setup failed for ${role.replace('_', ' ')}. Deploy the demo-login Supabase function and enable DEMO_LOGIN_ENABLED for demos.`);
+  }
+
+  return data?.email || `demo_${role}@perkup.local`;
+};
+
 export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModalProps) {
   const toast = useToast();
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(initialMode);
@@ -477,7 +489,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     setMessage('');
 
     try {
-      const email = `demo_${role}@perkup.local`;
+      const email = await ensureDemoAccount(role);
       const creds = await signInWithEmailAndPassword(auth, email, DEMO_PASSWORD);
       const mfaRequired = await prepareMfaChallengeIfNeeded(creds.user.uid);
       if (mfaRequired) {

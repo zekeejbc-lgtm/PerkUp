@@ -35,6 +35,8 @@ const LOGOS = [
   { icon: Anchor, name: "Sea Catch" },
 ];
 
+const DEFAULT_MAP_CENTER: [number, number] = [7.4478, 125.8078];
+
 const getStoreIcon = (name: string) => {
   const logo = LOGOS.find(l => l.name.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(l.name.toLowerCase()));
   return logo ? logo.icon : StoreIcon;
@@ -188,6 +190,9 @@ export default function LandingPage() {
   const filteredStores = stores.filter((store) =>
     storeMatchesFilters(store, searchQuery, selectedCategory, openNowOnly)
   );
+  const mapCenter: [number, number] = stores[0]?.lat !== undefined && stores[0]?.lng !== undefined
+    ? [stores[0].lat, stores[0].lng]
+    : DEFAULT_MAP_CENTER;
   const categories = getStoreCategories(stores);
   const hasActiveFilters = selectedCategory !== "All" || openNowOnly || Boolean(normalizedQuery);
   const trustedBusinesses = config.usePartnerStores && stores.length > 0
@@ -416,9 +421,9 @@ export default function LandingPage() {
             </div>
 
             <div className="rounded-[2rem] overflow-hidden border border-[#1b1b1b]/10 dark:border-white/10 shadow-sm h-[400px] sm:h-[600px] relative z-0 transition-colors">
-               {mapLoaded && stores.length > 0 ? (
+               {mapLoaded ? (
                  <MapContainer
-                   center={[stores[0].lat!, stores[0].lng!]}
+                   center={mapCenter}
                    zoom={14}
                    scrollWheelZoom={false}
                    style={{ height: "100%", width: "100%", zIndex: 1 }}

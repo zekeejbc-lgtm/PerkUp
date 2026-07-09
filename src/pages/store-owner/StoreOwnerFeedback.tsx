@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Inbox, MessageSquare, Star, User } from "lucide-react";
+import { Inbox, MessageSquare, Star } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
+import { getDisplayImageUrl } from "../../lib/imageStorage";
 
 const toDate = (value: any) => {
   if (!value) return null;
@@ -10,6 +11,12 @@ const toDate = (value: any) => {
   if (typeof value.seconds === "number") return new Date(value.seconds * 1000);
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getInitials = (name?: string) => {
+  const parts = String(name || "Customer").trim().split(/\s+/).filter(Boolean);
+  const initials = parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+  return initials || "C";
 };
 
 export default function StoreOwnerFeedback({ store }: { store: any }) {
@@ -48,12 +55,22 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
     if (!reply) return;
     setSavingReplyId(review.id);
     try {
-      await updateDoc(doc(db, "store_reviews", review.id), {
+      const isUpdatingExistingReply = Boolean(review.ownerReply) && reply !== review.ownerReply;
+      const replyPatch = {
         ownerReply: reply,
         ownerRepliedAt: serverTimestamp(),
-      });
+        ...(isUpdatingExistingReply ? { ownerReplyUpdatedAt: serverTimestamp() } : {}),
+      };
+      await updateDoc(doc(db, "store_reviews", review.id), replyPatch);
       setFeedback((current) => current.map((item) => (
-        item.id === review.id ? { ...item, ownerReply: reply, ownerRepliedAt: new Date().toISOString() } : item
+        item.id === review.id
+          ? {
+              ...item,
+              ownerReply: reply,
+              ownerRepliedAt: new Date().toISOString(),
+              ...(isUpdatingExistingReply ? { ownerReplyUpdatedAt: new Date().toISOString() } : {}),
+            }
+          : item
       )));
       setReplyDrafts((current) => ({ ...current, [review.id]: reply }));
     } catch (error) {
@@ -100,12 +117,17 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
         <div className="grid gap-4">
           {feedback.map((item) => {
             const createdAt = toDate(item.createdAt);
+            const replyUpdatedAt = toDate(item.ownerReplyUpdatedAt);
             return (
               <article key={item.id} className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex items-start gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-300">
-                      <User className="h-5 w-5" />
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 text-sm font-black text-gray-600 dark:bg-white/10 dark:text-gray-200">
+                      {!item.anonymous && item.customerAvatarUrl ? (
+                        <img src={getDisplayImageUrl(item.customerAvatarUrl)} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <span>{item.customerInitials || getInitials(item.customerName)}</span>
+                      )}
                     </div>
                     <div>
                       <p className="font-bold text-gray-900 dark:text-white">{item.customerName || "Customer"}</p>
@@ -122,9 +144,31 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
                   <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
                   <p className="text-sm font-medium leading-6 text-gray-700 dark:text-gray-300">{item.comment}</p>
                 </div>
+                {Array.isArray(item.imageUrls) && item.imageUrls.length > 0 && (
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {item.imageUrls.filter(Boolean).map((imageUrl: string, index: number) => (
+                      <a
+                        key={`${item.id}-${imageUrl}-${index}`}
+                        href={getDisplayImageUrl(imageUrl)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block aspect-square overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800"
+                      >
+                        <img src={getDisplayImageUrl(imageUrl)} alt={`Review photo ${index + 1}`} className="h-full w-full object-cover" loading="lazy" />
+                      </a>
+                    ))}
+                  </div>
+                )}
                 {item.ownerReply && (
                   <div className="mt-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
-                    <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Your public response</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Your public response</p>
+                      {replyUpdatedAt && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                          Updated {replyUpdatedAt.toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
                     <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-300">{item.ownerReply}</p>
                   </div>
                 )}

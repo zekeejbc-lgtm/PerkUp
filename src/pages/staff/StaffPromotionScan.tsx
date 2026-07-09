@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { doc, getDoc, collection, query, where, getDocs } from "@/src/lib/dataCompat";
+import { doc, getDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Scanner } from "@yudiel/react-qr-scanner";
-import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2, Search, Cake } from "lucide-react";
+import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2, Search, Cake, Sparkles, Trophy } from "lucide-react";
 import { isSecureCustomerQr, normalizeCustomerUsername, redeemCustomerScan } from "@/src/lib/secureQr";
 import { getBirthdayStatus } from "@/src/lib/birthday";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
+import { supabase } from "@/src/lib/supabase";
 
 type OfflineScan = {
   id: string;
@@ -82,6 +83,28 @@ const getPromotionGeofence = (promo: any, store: any) => {
 
   return null;
 };
+
+const getCardProgress = (card: any, promo: any) => {
+  const required = Math.max(Number(promo?.requiredStamps || 10), 1);
+  const stars = Math.max(Number(card?.stars || 0), 0);
+  return {
+    required,
+    stars,
+    percent: Math.min((stars / required) * 100, 100),
+    remaining: Math.max(required - stars, 0),
+    complete: stars >= required,
+  };
+};
+
+const getCustomerLabel = (card: any) => {
+  const username = String(card?.customerUsername || card?.username || "").trim();
+  if (username) return `@${username}`;
+  const customerId = String(card?.customerId || card?.id || "").trim();
+  return customerId ? `${customerId.slice(0, 8)}...` : "Customer";
+};
+
+const normalizeCardRows = (rows: { id: string; data: Record<string, unknown> | null }[]) =>
+  rows.map((row) => ({ id: row.id, ...(row.data || {}) }));
 
 const normalizeOfflineQueue = (
   value: unknown,
@@ -171,6 +194,18 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   // Promotion Customers state
   const [promoCustomers, setPromoCustomers] = useState<any[]>([]);
 
+  const loadPromoCustomers = useCallback(async () => {
+    if (!store?.id) return;
+
+    const { data, error } = await supabase
+      .from("cards")
+      .select("id,data")
+      .eq("data->>storeId", store.id);
+
+    if (error) throw error;
+    setPromoCustomers(normalizeCardRows((data || []) as { id: string; data: Record<string, unknown> | null }[]));
+  }, [store?.id]);
+
   useEffect(() => {
     if (!store?.id || !id) {
       setOfflineQueueKey("");
@@ -199,9 +234,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
           setPromo({ id: promoSnap.id, ...promoSnap.data() });
         }
 
-        const q = query(collection(db, "cards"), where("storeId", "==", store.id));
-        const customSnap = await getDocs(q);
-        setPromoCustomers(customSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        await loadPromoCustomers();
       } catch (err) {
         console.error("Failed to load promotion data", err);
       } finally {
@@ -209,7 +242,53 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       }
     }
     init();
-  }, [id, store]);
+  }, [id, store, loadPromoCustomers]);
+
+  useEffect(() => {
+    if (!store?.id) return;
+
+    const channel = supabase
+      .channel(`staff-promotion-cards:${store.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cards" },
+        (payload) => {
+          const newRow = payload.new as { id?: string; data?: Record<string, unknown> } | null;
+          const oldRow = payload.old as { id?: string; data?: Record<string, unknown> } | null;
+          const rowData = newRow?.data || oldRow?.data || {};
+
+          if (String(rowData.storeId || "") !== store.id) return;
+
+          if (payload.eventType === "DELETE") {
+            setPromoCustomers((current) => current.filter((card) => card.id !== oldRow?.id));
+            return;
+          }
+
+          if (!newRow?.id) return;
+          const nextCard = { id: newRow.id, ...(newRow.data || {}) };
+          setPromoCustomers((current) => {
+            const existingIndex = current.findIndex((card) => card.id === nextCard.id);
+            if (existingIndex === -1) return [nextCard, ...current];
+            const next = [...current];
+            next[existingIndex] = nextCard;
+            return next;
+          });
+        },
+      )
+      .subscribe((status, error) => {
+        if (status === "SUBSCRIBED") {
+          void loadPromoCustomers();
+        }
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("Customer progress realtime subscription failed", error);
+          void loadPromoCustomers();
+        }
+      });
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [store?.id, loadPromoCustomers]);
 
   useEffect(() => {
     const handleOnline = async () => {
@@ -231,18 +310,13 @@ export default function StaffPromotionScan({ store }: { store: any }) {
             setOfflineQueue(prev => normalizeOfflineQueue([...prev, ...failed], store.id, id));
         }
         
-        // Refresh local list
-        if (store?.id) {
-           const q = query(collection(db, "cards"), where("storeId", "==", store.id));
-           const customSnap = await getDocs(q);
-           setPromoCustomers(customSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        }
+        await loadPromoCustomers();
       }
     };
     
     window.addEventListener('online', handleOnline);
     return () => window.removeEventListener('online', handleOnline);
-  }, [offlineQueue, store?.id, id]);
+  }, [offlineQueue, store?.id, id, loadPromoCustomers]);
 
   useEffect(() => {
     const checkLocation = () => {
@@ -451,9 +525,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       setManualUsername("");
       setPointsToAdd(1);
       
-      const q = query(collection(db, "cards"), where("storeId", "==", store.id));
-      const customSnap = await getDocs(q);
-      setPromoCustomers(customSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      await loadPromoCustomers();
       setIsScannerActive(true);
       
     } catch (err) {
@@ -484,9 +556,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
         setBatchQueue([]);
         setShowBatchModal(false);
         
-        const q = query(collection(db, "cards"), where("storeId", "==", store.id));
-        const customSnap = await getDocs(q);
-        setPromoCustomers(customSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        await loadPromoCustomers();
         
     } catch(e) {
         console.error(e);
@@ -526,6 +596,16 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       </div>
     );
   }
+
+  const customerProgress = [...promoCustomers]
+    .map((card) => ({ card, progress: getCardProgress(card, promo) }))
+    .sort((a, b) => {
+      if (a.progress.complete !== b.progress.complete) return a.progress.complete ? -1 : 1;
+      return b.progress.stars - a.progress.stars;
+    });
+  const completedCustomers = customerProgress.filter((item) => item.progress.complete).length;
+  const closeCustomers = customerProgress.filter((item) => !item.progress.complete && item.progress.remaining <= 2).length;
+  const topProgress = customerProgress[0]?.progress.percent || 0;
 
   return (
     <div className="max-w-5xl space-y-8">
@@ -728,25 +808,66 @@ export default function StaffPromotionScan({ store }: { store: any }) {
              )}
           </div>
 
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <Gift className="w-5 h-5 text-gray-400" /> Customer Progress
-            </h3>
+          <div className="overflow-hidden bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem]">
+            <div className="border-b border-gray-100 bg-gray-50 p-6 dark:border-gray-800 dark:bg-white/5 sm:p-8">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-amber-500" /> Customer Progress
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Live leaderboard for this store.</p>
+                </div>
+                <div className="rounded-2xl border border-gray-200 bg-white px-3 py-2 text-right shadow-sm dark:border-gray-700 dark:bg-gray-900">
+                  <p className="text-xl font-black text-gray-900 dark:text-white">{completedCustomers}</p>
+                  <p className="text-[11px] font-bold uppercase text-gray-500">Claim ready</p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-3 gap-2">
+                <div className="rounded-2xl bg-white p-3 text-center shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700">
+                  <p className="text-lg font-black text-gray-900 dark:text-white">{promoCustomers.length}</p>
+                  <p className="text-[11px] font-bold uppercase text-gray-500">Players</p>
+                </div>
+                <div className="rounded-2xl bg-white p-3 text-center shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700">
+                  <p className="text-lg font-black text-gray-900 dark:text-white">{closeCustomers}</p>
+                  <p className="text-[11px] font-bold uppercase text-gray-500">Close</p>
+                </div>
+                <div className="rounded-2xl bg-white p-3 text-center shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-gray-700">
+                  <p className="text-lg font-black text-gray-900 dark:text-white">{Math.round(topProgress)}%</p>
+                  <p className="text-[11px] font-bold uppercase text-gray-500">Top</p>
+                </div>
+              </div>
+            </div>
             
             {promoCustomers.length === 0 ? (
-               <p className="text-sm text-gray-500">No customers have participated in this store's program yet.</p>
+               <div className="p-6 sm:p-8">
+                 <p className="text-sm text-gray-500">No customers have participated in this store's program yet.</p>
+               </div>
             ) : (
-               <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
-                 {promoCustomers.slice(0, 50).map(c => (
-                   <div key={c.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700">
-                     <div className="flex items-center gap-3">
-                       <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center border border-gray-300 dark:border-white/15">
-                         <User className="w-4 h-4 text-[#1b1b1b] dark:text-white" />
+               <div className="max-h-[360px] space-y-3 overflow-y-auto p-4 sm:p-5">
+                 {customerProgress.slice(0, 50).map(({ card: c, progress }, index) => (
+                   <div key={c.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/70">
+                     <div className="flex items-center justify-between gap-3">
+                       <div className="flex min-w-0 items-center gap-3">
+                         <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${progress.complete ? "border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300" : "border-gray-300 bg-white text-gray-700 dark:border-white/15 dark:bg-white/10 dark:text-white"}`}>
+                           {progress.complete || index === 0 ? <Trophy className="h-4 w-4" /> : <User className="h-4 w-4" />}
+                         </div>
+                         <div className="min-w-0">
+                           <p className="truncate text-sm font-bold text-gray-900 dark:text-white">{getCustomerLabel(c)}</p>
+                           <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                             {progress.complete ? "Reward ready" : `${progress.remaining} point${progress.remaining === 1 ? "" : "s"} to go`}
+                           </p>
+                         </div>
                        </div>
-                       <span className="text-sm font-semibold text-gray-900 dark:text-white font-mono">{c.customerId.slice(0,8)}...</span>
+                       <div className="rounded-xl bg-white px-3 py-1.5 text-sm font-black text-gray-900 shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:text-white dark:ring-gray-700">
+                         {progress.stars} / {progress.required}
+                       </div>
                      </div>
-                     <div className="text-sm font-bold text-gray-900 dark:text-white bg-white dark:bg-gray-900 px-3 py-1.5 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                       {c.stars || 0} / {promo.requiredStamps || 10}
+                     <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                       <div
+                         className={`h-full rounded-full transition-all duration-500 ${progress.complete ? "bg-amber-500" : "bg-emerald-500"}`}
+                         style={{ width: `${progress.percent}%` }}
+                       />
                      </div>
                    </div>
                  ))}

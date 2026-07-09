@@ -6,4 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+.mcp.json
 supabase/.temp/

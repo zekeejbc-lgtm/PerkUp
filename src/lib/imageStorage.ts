@@ -49,6 +49,10 @@ export function getDisplayImageUrl(url: string): string {
   return normalizeDriveImageUrl(url);
 }
 
+export function isTemporaryObjectUrl(url: string): boolean {
+  return String(url || "").trim().startsWith("blob:");
+}
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

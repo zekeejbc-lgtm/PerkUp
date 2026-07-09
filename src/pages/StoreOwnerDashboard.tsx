@@ -132,6 +132,14 @@ export default function StoreOwnerDashboard() {
     { name: 'Subscription', href: '/owner/subscription', icon: CreditCard, requiresBranch: false },
   ];
   const visibleNavigation = navigation.filter((item) => activeStore || !item.requiresBranch);
+  const fallbackVariant =
+    location.pathname === '/owner/products' ? 'products' :
+    location.pathname === '/owner/promotions' ? 'promotions' :
+    location.pathname === '/owner/customers' ? 'table' :
+    location.pathname === '/owner/feedback' ? 'feedback' :
+    location.pathname === '/owner/staff' ? 'table' :
+    location.pathname === '/owner/subscription' ? 'subscriptions' :
+    'form';
 
   if (loading) {
     return <DashboardShellSkeleton navigationItems={9} />;
@@ -151,9 +159,9 @@ export default function StoreOwnerDashboard() {
 
         {stores.length === 0 ? (
           <div className="bg-white dark:bg-gray-900 p-12 rounded-[2rem] border border-dashed border-gray-300 dark:border-gray-700 text-center flex flex-col items-center">
-            <Store className="w-16 h-16 text-gray-400 mb-6" />
+            <Store className="w-16 h-16 text-gray-400 dark:text-gray-500 mb-6" />
             <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">No branches assigned</h3>
-            <p className="text-gray-500 max-w-sm mb-8">Request a branch below. An admin must confirm it before it is added to your account.</p>
+            <p className="text-gray-500 dark:text-gray-400 max-w-sm mb-8">Request a branch below. An admin must confirm it before it is added to your account.</p>
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -161,7 +169,7 @@ export default function StoreOwnerDashboard() {
               <button
                 key={store.id}
                 onClick={() => selectStore(store)}
-                className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 text-left hover:border-[#1b1b1b] dark:hover:border-[#1b1b1b] hover:shadow-lg transition-all group relative overflow-hidden"
+                className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 text-left hover:border-[#1b1b1b] dark:hover:border-white hover:shadow-lg transition-all group relative overflow-hidden"
               >
                 <div className="absolute top-0 right-0 w-32 h-32 bg-gray-100 dark:bg-[#1b1b1b]/10 rounded-bl-full -z-10 transition-transform group-hover:scale-110" />
                 <div className="w-12 h-12 bg-gray-100 dark:bg-white/15 rounded-2xl flex items-center justify-center mb-6">
@@ -180,7 +188,7 @@ export default function StoreOwnerDashboard() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h3 className="font-bold text-gray-900 dark:text-white">Request another branch</h3>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 {pendingBranchRequest
                   ? `Your request for ${pendingBranchRequest.branchName} is awaiting admin review.`
                   : remainingBranchSlots > 0
@@ -196,14 +204,14 @@ export default function StoreOwnerDashboard() {
             <div className="mt-6 space-y-4 border-t border-gray-200 pt-6 dark:border-gray-800">
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="text-sm font-semibold text-gray-700 dark:text-gray-200">Branch label
-                  <input value={requestName} onChange={(event) => setRequestName(event.target.value)} placeholder="e.g. Tagum" className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 font-normal dark:border-gray-700 dark:bg-gray-800" />
+                  <input value={requestName} onChange={(event) => setRequestName(event.target.value)} placeholder="e.g. Tagum" className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
                 </label>
                 <label className="text-sm font-semibold text-gray-700 dark:text-gray-200">Branch address
-                  <input value={requestAddress} onChange={(event) => setRequestAddress(event.target.value)} placeholder="Street, barangay, city" className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 font-normal dark:border-gray-700 dark:bg-gray-800" />
+                  <input value={requestAddress} onChange={(event) => setRequestAddress(event.target.value)} placeholder="Street, barangay, city" className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
                 </label>
               </div>
               <div>
-                <p className="mb-2 text-sm text-gray-500">Click the map to set the exact branch location.</p>
+                <p className="mb-2 text-sm text-gray-500 dark:text-gray-400">Click the map to set the exact branch location.</p>
                 <StoreLocationPicker latitude={requestLatitude} longitude={requestLongitude} onChange={(latitude, longitude) => {
                   setRequestLatitude(latitude);
                   setRequestLongitude(longitude);
@@ -319,7 +327,7 @@ export default function StoreOwnerDashboard() {
             Back to branches
           </button>
         )}
-        <Suspense fallback={<PageSkeleton />}>
+        <Suspense fallback={<PageSkeleton variant={fallbackVariant} />}>
           <Routes>
             <Route path="/" element={<StoreOwnerInfo store={activeStore} setStore={(updatedStore: any) => {
               setSelectedStore(updatedStore);

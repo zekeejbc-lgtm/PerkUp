@@ -84,6 +84,31 @@ const serializeValue = (value: unknown): unknown => {
   return value;
 };
 
+const findTemporaryObjectUrlPath = (value: unknown, path = "data"): string | null => {
+  if (typeof value === "string") return value.trim().startsWith("blob:") ? path : null;
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const result = findTemporaryObjectUrlPath(value[index], `${path}[${index}]`);
+      if (result) return result;
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, entry] of Object.entries(value)) {
+      const result = findTemporaryObjectUrlPath(entry, `${path}.${key}`);
+      if (result) return result;
+    }
+  }
+  return null;
+};
+
+const assertNoTemporaryObjectUrls = (value: unknown) => {
+  const path = findTemporaryObjectUrlPath(value);
+  if (path) {
+    throw new Error(`Cannot save temporary image preview URL at ${path}. Re-upload the image and save again.`);
+  }
+};
+
 const ensureKnownTable = (collectionName: string) => {
   if (!tableNames.has(collectionName)) {
     console.warn(`Supabase table "${collectionName}" is not listed in the generated migration.`);
@@ -296,6 +321,7 @@ export async function setDoc(
     const existing = await getDoc(ref);
     if (existing.exists()) {
       const data = resolveUpdate(existing.data(), incoming);
+      assertNoTemporaryObjectUrls(data);
       const { error } = await dataApi(ref.collectionName)
         .update({ data })
         .eq("id", ref.id);
@@ -305,6 +331,7 @@ export async function setDoc(
       return;
     }
 
+    assertNoTemporaryObjectUrls(incoming);
     const { error } = await dataApi(ref.collectionName).insert({
       id: ref.id,
       data: incoming,
@@ -315,6 +342,7 @@ export async function setDoc(
     return;
   }
 
+  assertNoTemporaryObjectUrls(incoming);
   const { error } = await dataApi(ref.collectionName).upsert({
     id: ref.id,
     data: incoming,
@@ -331,6 +359,7 @@ export async function updateDoc(ref: DocumentRef, value: Record<string, unknown>
   }
 
   const next = resolveUpdate(existing.data(), value);
+  assertNoTemporaryObjectUrls(next);
   const { error } = await dataApi(ref.collectionName)
     .update({ data: next })
     .eq("id", ref.id);

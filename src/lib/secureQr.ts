@@ -27,6 +27,7 @@ export type RedeemedCustomerScan = {
 export type ScanTicket = {
   id: string;
   ticketNumber: string;
+  cryptographicId?: string;
   status: "issued";
   storeId: string;
   storeName: string;
@@ -44,6 +45,9 @@ export type CustomerScanCard = {
   status: string;
   joinedAt: unknown;
   updatedAt: unknown;
+  stampIcon?: string;
+  stampColor?: string;
+  stampLabel?: string;
 };
 
 export type ScannerLocation = {

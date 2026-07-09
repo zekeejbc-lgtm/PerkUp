@@ -21,7 +21,10 @@ type PageSkeletonVariant =
   | "feedback"
   | "scanner"
   | "homepage"
-  | "subscriptions";
+  | "subscriptions"
+  | "overview"
+  | "map-list"
+  | "tickets";
 
 const Lines = ({ widths = ["w-full", "w-5/6", "w-2/3"] }: { widths?: string[] }) => (
   <div className="space-y-3">
@@ -146,6 +149,52 @@ export function PageSkeleton({ variant = "dashboard" }: { variant?: PageSkeleton
 
   if (variant === "feedback") return <div className="space-y-6"><PageHeading /><div className="grid gap-6 lg:grid-cols-3">{[0, 1, 2].map(i => <SkeletonBlock key={i} className="h-56 rounded-3xl" />)}</div></div>;
   if (variant === "scanner") return <div className="mx-auto max-w-3xl space-y-6"><PageHeading /><SkeletonBlock className="aspect-square max-h-[520px] w-full rounded-[2rem]" /><SkeletonBlock className="h-16 rounded-2xl" /></div>;
+  if (variant === "map-list") {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+          <PageHeading />
+          <SkeletonBlock className="h-10 w-full rounded-xl sm:w-64" />
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <SkeletonBlock className="h-[400px] rounded-[2rem]" />
+          <div className="space-y-4">
+            {[0, 1, 2].map(i => <SkeletonBlock key={i} className="h-24 rounded-2xl" />)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (variant === "tickets") {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-end justify-between gap-4">
+          <PageHeading />
+          <SkeletonBlock className="h-10 w-28 rounded-xl" />
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {[0, 1, 2, 3].map(i => <SkeletonBlock key={i} className="h-36 rounded-3xl" />)}
+        </div>
+      </div>
+    );
+  }
+  if (variant === "overview") {
+    return (
+      <div className="space-y-8">
+        <PageHeading />
+        <div className="grid gap-4 sm:grid-cols-3">
+          {[0, 1, 2].map(i => <SkeletonBlock key={i} className="h-28 rounded-3xl" />)}
+        </div>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <SkeletonBlock className="h-[420px] rounded-[2rem]" />
+          <div className="space-y-4">
+            <SkeletonBlock className="h-52 rounded-[2rem]" />
+            <SkeletonBlock className="h-40 rounded-[2rem]" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full space-y-8">
