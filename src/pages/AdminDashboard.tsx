@@ -16,8 +16,10 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
   const isAccountPage = location.pathname === '/admin/account';
   const requestedTab = new URLSearchParams(location.search).get('tab');
+  
   const activeTab =
     requestedTab === 'applications' ||
     requestedTab === 'homepage' ||
@@ -31,7 +33,6 @@ export default function AdminDashboard() {
       navigate('/admin/account');
       return;
     }
-
     navigate(`/admin?tab=${item.id}`);
   };
 
@@ -60,7 +61,7 @@ export default function AdminDashboard() {
     'table';
 
   return (
-    <div className="flex min-h-0 flex-col gap-8 pb-24 md:h-[calc(100dvh-10rem)] md:flex-row md:pb-0 w-full relative">
+    <div className="flex min-h-0 flex-col gap-8 pb-24 md:flex-row md:pb-0 w-full relative">
       <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 h-max z-10 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
         <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} mb-2`}>
           {isSidebarOpen && <span className="font-bold text-gray-900 dark:text-white px-2 text-xs tracking-widest uppercase">Navigation</span>}
@@ -113,7 +114,7 @@ export default function AdminDashboard() {
         })}
       </nav>
 
-      <div className="flex-1 min-w-0 overflow-y-auto overscroll-contain bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-0 shadow-sm transition-colors">
+      <div className="flex-1 min-w-0 bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-4 sm:p-6 md:p-8 shadow-sm transition-colors">
         <Suspense fallback={<PageSkeleton variant={fallbackVariant} />}>
           {isAccountPage ? (
             <AdminAccount />
