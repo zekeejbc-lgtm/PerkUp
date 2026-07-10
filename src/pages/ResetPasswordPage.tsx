@@ -3,7 +3,7 @@ import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2, Lock, ShieldCheck } fr
 import { useNavigate } from "react-router-dom";
 import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
-import { getPasswordStrength } from "../lib/passwordStrength";
+import { getPasswordStrength, sanitizePasswordInput } from "../lib/passwordStrength";
 import { initialRecoveryCallbackDetected, supabase } from "../lib/supabase";
 
 type RecoveryStatus = "checking" | "ready" | "invalid" | "success";
@@ -75,6 +75,10 @@ export default function ResetPasswordPage() {
     event.preventDefault();
     setError("");
 
+    if (/\s/.test(password)) {
+      setError("Password cannot contain spaces.");
+      return;
+    }
     if (password.length < 8) {
       setError("Use a password with at least 8 characters.");
       return;
@@ -240,7 +244,7 @@ function PasswordField({
           id={id}
           type={visible ? "text" : "password"}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange(sanitizePasswordInput(event.target.value))}
           autoComplete="new-password"
           required
           minLength={8}

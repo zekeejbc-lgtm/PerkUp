@@ -9,27 +9,32 @@ export type PasswordStrength = {
   }[];
 };
 
+export function sanitizePasswordInput(value: string): string {
+  return value.replace(/\s/g, "");
+}
+
 export function getPasswordStrength(password: string): PasswordStrength {
   const checks = [
     { label: "8+ characters", met: password.length >= 8 },
     { label: "Upper and lowercase", met: /[a-z]/.test(password) && /[A-Z]/.test(password) },
     { label: "Number", met: /\d/.test(password) },
-    { label: "Symbol", met: /[^A-Za-z0-9]/.test(password) },
+    { label: "Symbol", met: /[^A-Za-z0-9\s]/.test(password) },
+    { label: "No spaces", met: !/\s/.test(password) },
     { label: "12+ characters", met: password.length >= 12 },
   ];
 
   const score = checks.filter((check) => check.met).length;
   const percent = Math.max(12, (score / checks.length) * 100);
 
-  if (score >= 5) {
+  if (score >= checks.length) {
     return { label: "Strong", score, percent, tone: "bg-green-600", checks };
   }
 
-  if (score >= 4) {
+  if (score >= checks.length - 1) {
     return { label: "Good", score, percent, tone: "bg-[#1b1b1b]", checks };
   }
 
-  if (score >= 3) {
+  if (score >= checks.length - 2) {
     return { label: "Fair", score, percent, tone: "bg-amber-500", checks };
   }
 
@@ -78,7 +83,8 @@ export function validateStrongPassword(
     { label: "12+ characters", met: password.length >= 12 },
     { label: "Upper and lowercase", met: /[a-z]/.test(password) && /[A-Z]/.test(password) },
     { label: "At least one number", met: /\d/.test(password) },
-    { label: "At least one symbol", met: /[^A-Za-z0-9]/.test(password) },
+    { label: "At least one symbol", met: /[^A-Za-z0-9\s]/.test(password) },
+    { label: "No spaces", met: !/\s/.test(password) },
     {
       label: "Does not contain personal information",
       met: [...personalTerms].every((term) => !normalizedPassword.replace(/[^a-z0-9]/g, "").includes(term)),

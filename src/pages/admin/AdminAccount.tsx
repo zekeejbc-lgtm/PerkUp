@@ -8,6 +8,8 @@ import AccountSecurity from "@/src/components/AccountSecurity";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
+import { sanitizePasswordInput } from "../../lib/passwordStrength";
+import { sanitizeUsernameInput } from "../../lib/username";
 
 export default function AdminAccount() {
   const { user, refreshUser } = useAuth();
@@ -270,7 +272,7 @@ export default function AdminAccount() {
                 </label>
                 <label className="space-y-2">
                   <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><AtSign className="w-4 h-4 text-gray-400" /> Username</span>
-                  <input type="text" value={myUsername} onChange={e => setMyUsername(e.target.value)} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
+                  <input type="text" value={myUsername} onChange={e => setMyUsername(sanitizeUsernameInput(e.target.value))} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
                 </label>
                 <label className="space-y-2">
                   <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Phone className="w-4 h-4 text-gray-400" /> Number</span>
@@ -371,7 +373,7 @@ export default function AdminAccount() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">Password</label>
-                <input type="password" required value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} minLength={6} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" placeholder="Min 6 characters" />
+                <input type="password" required value={newAdminPassword} onChange={e => setNewAdminPassword(sanitizePasswordInput(e.target.value))} minLength={6} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" placeholder="Min 6 characters, no spaces" />
               </div>
               
               <div className="flex justify-end gap-2 pt-2">

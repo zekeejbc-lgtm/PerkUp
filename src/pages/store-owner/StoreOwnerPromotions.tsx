@@ -21,6 +21,7 @@ type PromotionFormData = {
   active: boolean;
   bannerImageUrl: string;
   maxRedemptions: number | "";
+  claimExpiryDays: number;
   linkedProductId: string;
   linkedProductName: string;
   geofenceEnabled: boolean;
@@ -76,6 +77,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     active: true,
     bannerImageUrl: "",
     maxRedemptions: "",
+    claimExpiryDays: 7,
     linkedProductId: "",
     linkedProductName: "",
     geofenceEnabled: false,
@@ -174,6 +176,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
       active: true,
       bannerImageUrl: "",
       maxRedemptions: "",
+      claimExpiryDays: 7,
       linkedProductId: "",
       linkedProductName: "",
       geofenceEnabled: false,
@@ -196,6 +199,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
         active: promo.active ?? true,
         bannerImageUrl: promo.bannerImageUrl || "",
         maxRedemptions: promo.maxRedemptions ? Number(promo.maxRedemptions) : "",
+        claimExpiryDays: Math.max(Number(promo.claimExpiryDays || 7), 1),
         linkedProductId: promo.linkedProductId || "",
         linkedProductName: promo.linkedProductName || "",
         geofenceEnabled: Boolean(promo.geofenceEnabled),
@@ -391,8 +395,25 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                       placeholder="Unlimited"
                       className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
                     />
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Counts customers who complete the promo card.</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Counts active reservations and redeemed rewards. Expired reservations release their slot.</p>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Claim reservation period</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      max="365"
+                      value={formData.claimExpiryDays}
+                      onChange={(event) => setFormData({ ...formData, claimExpiryDays: Math.min(Math.max(parseInt(event.target.value) || 1, 1), 365) })}
+                      className="w-28 px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
+                    />
+                    <span className="text-sm text-gray-600 dark:text-gray-300">days after the customer presses Claim</span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">The reward is reserved during this period. If unused, it expires and the slot becomes available again.</p>
                 </div>
 
                 <div className="space-y-2">

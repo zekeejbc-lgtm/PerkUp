@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { collection, query, where, getDocs, doc, getDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { Search, User, Star, ArrowLeft, Minus, Plus, Users, Clock, MessageSquare, Heart, CheckCircle2, Gift } from "lucide-react";
+import { Search, User, Star, ArrowLeft, Minus, Plus, Users, Clock, MessageSquare, Heart, CheckCircle2, Gift, Loader2 } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { Pagination } from "../../components/Pagination";
@@ -10,6 +10,7 @@ import { formatCustomerCode } from "../../lib/customerId";
 
 const CUSTOMERS_PER_PAGE = 12;
 const SCROLL_PANEL_CLASS = "overflow-y-auto pr-1";
+const STAMP_COOLDOWN_MS = 2000;
 
 const toDate = (value: any) => {
   if (!value) return null;
@@ -56,6 +57,8 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
   const [search, setSearch] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [updatingPromotionId, setUpdatingPromotionId] = useState<string | null>(null);
+  const [promotionCooldowns, setPromotionCooldowns] = useState<Record<string, boolean>>({});
 
   const fetchPromotions = async () => {
     if (!store?.id) return;
@@ -188,8 +191,12 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
     }
   };
 
-  const updatePromoProgress = async (promoId: string, promoTitle: string, delta: number) => {
-    if (!selectedCustomer) return;
+  const updatePromoProgress = async (promoId: string, promoTitle: string, delta: number, requiredStamps: number) => {
+    if (!selectedCustomer || updatingPromotionId || promotionCooldowns[promoId]) return;
+    const currentProgress = Number(selectedCustomer.promoProgress?.[promoId] || 0);
+    if (delta > 0 && currentProgress >= requiredStamps) return;
+
+    setUpdatingPromotionId(promoId);
     try {
       const result = await invokeAdminBackend<{ progress: number }>({
         action: "adjust_card_promotion",
@@ -212,9 +219,22 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
       };
       setSelectedCustomer(updatedCustomer);
       setCustomers(customers.map(c => c.id === selectedCustomer.id ? updatedCustomer : c));
+
+      if (delta > 0 && savedProgress < requiredStamps) {
+        setPromotionCooldowns(current => ({ ...current, [promoId]: true }));
+        window.setTimeout(() => {
+          setPromotionCooldowns(current => {
+            const next = { ...current };
+            delete next[promoId];
+            return next;
+          });
+        }, STAMP_COOLDOWN_MS);
+      }
     } catch (e) {
       console.error(e);
       alert("Failed to update stamp card.");
+    } finally {
+      setUpdatingPromotionId(null);
     }
   };
 
@@ -340,6 +360,9 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                      {promotions.map((promo: any) => {
                        const progress = selectedCustomer.promoProgress?.[promo.id] || 0;
                        const isClaimable = progress >= promo.requiredStamps;
+                       const isUpdating = updatingPromotionId === promo.id;
+                       const isCoolingDown = Boolean(promotionCooldowns[promo.id]);
+                       const controlsDisabled = Boolean(updatingPromotionId);
 
                        return (
                          <div key={promo.id} className={`p-5 rounded-3xl border ${isClaimable ? 'border-[#1b1b1b] bg-gray-100 dark:bg-white/10 shadow-sm' : 'border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50'} relative overflow-hidden transition-all flex flex-col`}>
@@ -367,11 +390,12 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                                {progress} / {promo.requiredStamps} Stamps
                              </span>
                              <div className="flex items-center gap-2">
-                                <button onClick={() => updatePromoProgress(promo.id, promo.title, -1)} className="w-8 h-8 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-red-50 hover:text-red-500 hover:border-red-200 dark:hover:bg-red-900/30 dark:hover:border-red-800 transition-colors shadow-sm">
+                                <button disabled={controlsDisabled || progress <= 0} onClick={() => updatePromoProgress(promo.id, promo.title, -1, promo.requiredStamps)} className="w-8 h-8 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-red-50 hover:text-red-500 hover:border-red-200 dark:hover:bg-red-900/30 dark:hover:border-red-800 transition-colors shadow-sm disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-inherit dark:disabled:hover:bg-gray-800">
                                    <Minus className="w-4 h-4" />
                                 </button>
-                                <button onClick={() => updatePromoProgress(promo.id, promo.title, 1)} className="px-4 h-8 rounded-full bg-[#1b1b1b] text-white text-sm font-bold flex items-center gap-1 hover:bg-black transition-colors shadow-sm">
-                                   <Plus className="w-4 h-4" /> Stamp
+                                <button disabled={controlsDisabled || isCoolingDown || isClaimable} onClick={() => updatePromoProgress(promo.id, promo.title, 1, promo.requiredStamps)} className="min-w-[102px] px-4 h-8 rounded-full bg-[#1b1b1b] text-white text-sm font-bold flex items-center justify-center gap-1 hover:bg-black transition-colors shadow-sm disabled:cursor-not-allowed disabled:bg-gray-400 dark:disabled:bg-gray-700">
+                                   {isUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : isClaimable ? <CheckCircle2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                                   {isUpdating ? "Adding..." : isClaimable ? "Complete" : isCoolingDown ? "Wait..." : "Stamp"}
                                 </button>
                              </div>
                            </div>

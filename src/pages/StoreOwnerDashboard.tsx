@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useCallback, useState, useEffect } from "react";
 import { Routes, Route, Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Store, ShoppingBag, Gift, Users, BadgeCheck, UserCircle, CreditCard, ChevronRight, Building, Menu, ArrowLeft, MessageSquare, Plus, Loader2, RefreshCw, CheckCircle2, XCircle, Clock3 } from "lucide-react";
+import { Store, ShoppingBag, Gift, Users, BadgeCheck, UserCircle, CreditCard, ChevronRight, ChevronDown, Building, Menu, ArrowLeft, MessageSquare, Plus, Loader2, RefreshCw, CheckCircle2, XCircle, Clock3 } from "lucide-react";
 import { DashboardShellSkeleton, PageSkeleton } from "../components/LoadingSkeleton";
 
 const StoreOwnerInfo = lazy(() => import("./store-owner/StoreOwnerInfo"));
@@ -17,6 +17,9 @@ import { db, handleDataError, OperationType } from "../lib/backend";
 import { getDisplayImageUrl } from "../lib/imageStorage";
 import { StoreLocationPicker } from "../components/StoreLocationPicker";
 import { supabase } from "../lib/supabase";
+import { getSubscriptionBranchLimit } from "../lib/subscriptionBilling";
+import { getEffectiveSubscriptionStatus } from "../lib/subscriptionAccess";
+import { SubscriptionAccessBanner, SubscriptionFrozenScreen } from "../components/SubscriptionAccessGate";
 
 const normalizeDataRows = (rows: { id: string; data: Record<string, unknown> | null }[] | null | undefined) =>
   (rows || []).map((row) => ({ id: row.id, ...(row.data || {}) }));
@@ -63,6 +66,7 @@ export default function StoreOwnerDashboard() {
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [branchRequests, setBranchRequests] = useState<any[]>([]);
+  const [isBranchRequestSectionExpanded, setIsBranchRequestSectionExpanded] = useState(false);
   const [showBranchRequest, setShowBranchRequest] = useState(false);
   const [requestLookupBusy, setRequestLookupBusy] = useState(false);
   const [requestName, setRequestName] = useState("");
@@ -140,7 +144,10 @@ export default function StoreOwnerDashboard() {
     setSelectedStore(null);
     navigate('/owner');
   };
-  const branchLimit = Math.max(1, Number(user?.branchLimit || 1));
+  const subscriptionStore = stores.find((store) => store.isPrimaryBranch === true) ||
+    stores.find((store) => store.subscriptionLevel || store.subscriptionDependencies) ||
+    stores[0] || null;
+  const branchLimit = getSubscriptionBranchLimit(subscriptionStore?.subscriptionDependencies);
   const remainingBranchSlots = Math.max(0, branchLimit - stores.length);
   const pendingBranchRequest = branchRequests.find((request) => request.status === "pending");
   const visibleBranchRequests = [...branchRequests]
@@ -207,9 +214,15 @@ export default function StoreOwnerDashboard() {
     return <DashboardShellSkeleton navigationItems={9} />;
   }
 
+  if (subscriptionStore && getEffectiveSubscriptionStatus(subscriptionStore.subscriptionAccess) === "frozen") {
+    return <SubscriptionFrozenScreen store={subscriptionStore} />;
+  }
+
   // Branch Selector View
   if (!activeStore && !isAccountOnlyRoute) {
     return (
+      <>
+      {subscriptionStore && <SubscriptionAccessBanner store={subscriptionStore} />}
       <div className="max-w-4xl mx-auto space-y-8">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">Your Branches</h2>
@@ -266,35 +279,50 @@ export default function StoreOwnerDashboard() {
                     : "You have used all branch slots. Contact an admin to increase your limit."}
               </p>
             </div>
-            <button type="button" disabled={remainingBranchSlots < 1 || Boolean(pendingBranchRequest)} onClick={() => setShowBranchRequest(!showBranchRequest)} className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900">
+            <button type="button" disabled={remainingBranchSlots < 1 || Boolean(pendingBranchRequest)} onClick={() => {
+              setIsBranchRequestSectionExpanded(true);
+              setShowBranchRequest(!showBranchRequest);
+            }} className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900">
               <Plus className="h-4 w-4" /> Request a branch
             </button>
             <button type="button" disabled={requestLookupBusy} onClick={() => loadOwnerData()} className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
               <RefreshCw className={`h-4 w-4 ${requestLookupBusy ? "animate-spin" : ""}`} /> Check status
             </button>
+            <button
+              type="button"
+              aria-expanded={isBranchRequestSectionExpanded}
+              aria-controls="branch-request-details"
+              aria-label={isBranchRequestSectionExpanded ? "Collapse branch requests" : "Expand branch requests"}
+              title={isBranchRequestSectionExpanded ? "Collapse requests" : "Expand requests"}
+              onClick={() => setIsBranchRequestSectionExpanded((expanded) => !expanded)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isBranchRequestSectionExpanded ? "rotate-180" : ""}`} />
+            </button>
           </div>
-          {visibleBranchRequests.length > 0 && (
-            <div className="mt-5 space-y-3">
-              {visibleBranchRequests.map((request) => {
-                const status = branchRequestStatus(String(request.status || "pending"));
-                const StatusIcon = status.icon;
-                return (
-                  <div key={request.id} className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-950/40 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-gray-900 dark:text-white">{request.branchName || "Branch request"}</p>
-                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{request.address || "No address provided"}</p>
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{status.message}</p>
+          <div id="branch-request-details" hidden={!isBranchRequestSectionExpanded}>
+            {visibleBranchRequests.length > 0 && (
+              <div className="mt-5 space-y-3">
+                {visibleBranchRequests.map((request) => {
+                  const status = branchRequestStatus(String(request.status || "pending"));
+                  const StatusIcon = status.icon;
+                  return (
+                    <div key={request.id} className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-950/40 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-gray-900 dark:text-white">{request.branchName || "Branch request"}</p>
+                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{request.address || "No address provided"}</p>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{status.message}</p>
+                      </div>
+                      <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold ${status.className}`}>
+                        <StatusIcon className="h-3.5 w-3.5" /> {status.label}
+                      </span>
                     </div>
-                    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold ${status.className}`}>
-                      <StatusIcon className="h-3.5 w-3.5" /> {status.label}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {showBranchRequest && (
-            <div className="mt-6 space-y-4 border-t border-gray-200 pt-6 dark:border-gray-800">
+                  );
+                })}
+              </div>
+            )}
+            {showBranchRequest && (
+              <div className="mt-6 space-y-4 border-t border-gray-200 pt-6 dark:border-gray-800">
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="text-sm font-semibold text-gray-700 dark:text-gray-200">Branch label
                   <input value={requestName} onChange={(event) => setRequestName(event.target.value)} placeholder="e.g. Tagum" className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
@@ -318,14 +346,18 @@ export default function StoreOwnerDashboard() {
                   {requestBusy && <Loader2 className="h-4 w-4 animate-spin" />} Submit request
                 </button>
               </div>
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
+      </>
     );
   }
 
   return (
+    <>
+    {subscriptionStore && <SubscriptionAccessBanner store={subscriptionStore} />}
     <div className="flex flex-col md:flex-row gap-8 pb-24 md:pb-0 w-full relative">
       {/* Desktop Sidebar Navigation */}
       <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 h-max z-10 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
@@ -441,5 +473,6 @@ export default function StoreOwnerDashboard() {
         </Suspense>
       </div>
     </div>
+    </>
   );
 }

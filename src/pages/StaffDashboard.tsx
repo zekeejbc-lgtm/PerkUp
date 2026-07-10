@@ -2,8 +2,10 @@ import { Routes, Route, Link, useLocation } from "react-router-dom";
 import { Store, Gift, Users, UserCircle, Menu, QrCode } from "lucide-react";
 import { lazy, Suspense, useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { doc, getDoc } from "@/src/lib/dataCompat";
+import { doc, getDocFromServer } from "@/src/lib/dataCompat";
 import { db } from "../lib/backend";
+import { getEffectiveSubscriptionStatus } from "../lib/subscriptionAccess";
+import { SubscriptionAccessBanner, SubscriptionFrozenScreen } from "../components/SubscriptionAccessGate";
 
 import { DashboardShellSkeleton, PageSkeleton } from "../components/LoadingSkeleton";
 
@@ -18,6 +20,7 @@ export default function StaffDashboard() {
   const location = useLocation();
   const { user } = useAuth();
   const [store, setStore] = useState<any>(null);
+  const [subscriptionStore, setSubscriptionStore] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
@@ -31,18 +34,27 @@ export default function StaffDashboard() {
       }
       try {
         const storeRef = doc(db, "stores", activeStoreId);
-        const storeSnap = await getDoc(storeRef);
+        const storeSnap = await getDocFromServer(storeRef);
         if (storeSnap.exists()) {
-          setStore({ id: storeSnap.id, ...storeSnap.data() });
+          const assignedStore = { id: storeSnap.id, ...storeSnap.data() };
+          setStore(assignedStore);
+          const primaryStoreId = assignedStore.parentStoreId || assignedStore.id;
+          const primarySnap = primaryStoreId === assignedStore.id
+            ? storeSnap
+            : await getDocFromServer(doc(db, "stores", primaryStoreId));
+          setSubscriptionStore(primarySnap.exists() ? { id: primarySnap.id, ...primarySnap.data() } : assignedStore);
         }
       } catch (err) {
         console.error("Failed to load store assignment", err);
         setStore(null);
+        setSubscriptionStore(null);
       } finally {
         setLoading(false);
       }
     }
     loadAssignment();
+    const refreshId = window.setInterval(loadAssignment, 15_000);
+    return () => window.clearInterval(refreshId);
   }, [user]);
 
   const navigation = [
@@ -55,6 +67,10 @@ export default function StaffDashboard() {
 
   if (loading) {
     return <DashboardShellSkeleton navigationItems={4} />;
+  }
+
+  if (subscriptionStore && getEffectiveSubscriptionStatus(subscriptionStore.subscriptionAccess) === "frozen") {
+    return <SubscriptionFrozenScreen store={subscriptionStore} />;
   }
 
   if (!store && location.pathname !== '/staff/account') {
@@ -88,6 +104,8 @@ export default function StaffDashboard() {
     'form';
 
   return (
+    <>
+    {subscriptionStore && <SubscriptionAccessBanner store={subscriptionStore} />}
     <div className="flex flex-col md:flex-row gap-8 pb-24 md:pb-0 w-full relative">
       {/* Desktop Sidebar Navigation */}
       <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 h-max z-10 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
@@ -170,5 +188,6 @@ export default function StaffDashboard() {
         </Suspense>
       </div>
     </div>
+    </>
   );
 }

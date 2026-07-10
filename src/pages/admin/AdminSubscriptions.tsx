@@ -50,6 +50,21 @@ export default function AdminSubscriptions() {
       await setDoc(doc(db, "settings", "subscriptions"), { plans, updatedAt: serverTimestamp() }, { merge: true });
 
       await Promise.all(stores.map(async (store) => {
+        if (store.isPrimaryBranch === false) {
+          await updateDoc(doc(db, "stores", store.id), {
+            subscriptionLevel: deleteField(),
+            subscriptionDependencies: deleteField(),
+            subscriptionStart: deleteField(),
+            subscriptionEnd: deleteField(),
+            paymentSchedule: deleteField(),
+            owedAmount: deleteField(),
+            pendingOwedAmount: deleteField(),
+            pendingOwedAmountEffectiveAt: deleteField(),
+            updatedAt: serverTimestamp(),
+          });
+          return;
+        }
+
         const subscriptionLevel = String(store.subscriptionLevel || "");
         const previousAmount = getSubscriptionOwedAmount(originalPlans, subscriptionLevel, Number(store.owedAmount || 0));
         const nextAmount = getSubscriptionOwedAmount(plans, subscriptionLevel, previousAmount);

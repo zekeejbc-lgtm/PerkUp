@@ -3,7 +3,10 @@ export const RESERVED_USERNAMES = new Set(["admin", "administrator", "api", "hel
 
 export const normalizeUsername = (value: string) => value.trim().toLowerCase();
 
+export const sanitizeUsernameInput = (value: string) => value.replace(/\s/g, "").toLowerCase();
+
 export const getUsernameValidationMessage = (value: string) => {
+  if (/\s/.test(value)) return "Username cannot contain spaces.";
   const username = normalizeUsername(value);
   if (!username) return "Username is required for QR and staff manual lookup.";
   if (username.length < 4) return "Use at least 4 characters.";

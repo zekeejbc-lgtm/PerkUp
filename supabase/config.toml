@@ -13,6 +13,9 @@ verify_jwt = false
 [functions.store-referrals]
 verify_jwt = false
 
+[functions.promotion-claims]
+verify_jwt = false
+
 [functions.check-signup-availability]
 verify_jwt = false
 

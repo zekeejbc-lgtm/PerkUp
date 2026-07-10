@@ -10,6 +10,7 @@ import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { supabase } from "@/src/lib/supabase";
 import { formatPhilippineDate } from "@/src/lib/dateTime";
 import { formatCustomerCode } from "@/src/lib/customerId";
+import { PROMOTION_REDEEM_QR_PREFIX, redeemPromotionClaim } from "@/src/lib/promotionClaims";
 
 type OfflineScan = {
   id: string;
@@ -171,6 +172,8 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [manualUsername, setManualUsername] = useState("");
   const [manualError, setManualError] = useState("");
+  const [rewardCode, setRewardCode] = useState("");
+  const [rewardCodeError, setRewardCodeError] = useState("");
 
   // Batch & Feedback state
   const [isBatchMode, setIsBatchMode] = useState(false);
@@ -359,6 +362,27 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
     if (!scannedId || isProcessing || !isWithinGeofence) return;
 
+    if (scannedId.startsWith(PROMOTION_REDEEM_QR_PREFIX)) {
+      if (!navigator.onLine) {
+        alert("Reward redemption requires an internet connection.");
+        return;
+      }
+      setIsProcessing(true);
+      setIsScannerActive(false);
+      try {
+        const claim = await redeemPromotionClaim({ storeId: store.id, lookup: scannedId, method: "qr" });
+        setShowScanSuccess(true);
+        setTimeout(() => setShowScanSuccess(false), 1000);
+        alert(`Reward redeemed successfully. Claim ${claim.redeemCode} is now marked as used.`);
+      } catch (error) {
+        alert(error instanceof Error ? error.message : "Could not redeem this reward QR.");
+      } finally {
+        setIsProcessing(false);
+        setIsScannerActive(true);
+      }
+      return;
+    }
+
     if (!isValidCustomerQr(scannedId)) {
       alert("Invalid PerkUp QR code. Ask the customer to open or download their QR from the PerkUp app.");
       return;
@@ -451,6 +475,24 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       points: safePoints,
       scannerLocation,
     });
+  };
+
+  const handleRewardRedemption = async (method: "code" | "manual") => {
+    const lookup = rewardCode.trim();
+    if (!lookup || !store?.id || isProcessing) return;
+    if (!navigator.onLine) return setRewardCodeError("Reward redemption requires an internet connection.");
+    if (!window.confirm(method === "manual" ? "Manually mark this claim as redeemed? This cannot be undone." : "Redeem this one-time reward code?")) return;
+    setIsProcessing(true);
+    setRewardCodeError("");
+    try {
+      const claim = await redeemPromotionClaim({ storeId: store.id, lookup, method });
+      setRewardCode("");
+      alert(`Reward ${claim.redeemCode} redeemed successfully.`);
+    } catch (error) {
+      setRewardCodeError(error instanceof Error ? error.message : "Could not redeem this claim.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const processPointsForCustomer = async (scannedId: string, points: number) => {
@@ -706,6 +748,23 @@ export default function StaffPromotionScan({ store }: { store: any }) {
           </div>
 
           <div className="w-full max-w-sm">
+            <div className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-900/20">
+              <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Reward redeem code</label>
+              <input
+                value={rewardCode}
+                onChange={(event) => { setRewardCode(event.target.value.toUpperCase()); setRewardCodeError(""); }}
+                onKeyDown={(event) => { if (event.key === "Enter") handleRewardRedemption("code"); }}
+                placeholder="Enter the customer’s one-time code"
+                disabled={!isWithinGeofence || isProcessing}
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-bold uppercase tracking-wider outline-none focus:ring-2 focus:ring-emerald-600 disabled:opacity-50 dark:border-emerald-800 dark:bg-gray-900"
+              />
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => handleRewardRedemption("code")} disabled={!rewardCode.trim() || !isWithinGeofence || isProcessing} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Redeem code</button>
+                <button type="button" onClick={() => handleRewardRedemption("manual")} disabled={!rewardCode.trim() || !isWithinGeofence || isProcessing} className="rounded-xl border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 disabled:opacity-50 dark:border-emerald-700 dark:bg-gray-900 dark:text-emerald-200">Manual confirm</button>
+              </div>
+              <p className="mt-2 text-[11px] leading-4 text-emerald-700 dark:text-emerald-300">Use the code if QR scanning fails. Manual confirmation records the staff account and remains one-time only.</p>
+              {rewardCodeError && <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">{rewardCodeError}</p>}
+            </div>
             <div className="mb-5 rounded-2xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60">
               <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2 block">
                 Manual Username

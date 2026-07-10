@@ -29,6 +29,7 @@ import { CustomDropdown } from "@/src/components/CustomDropdown";
 import { normalizeStampStyle, StoreStamp } from "@/src/components/StoreStamp";
 import { getPhilippineDateTimeMillis } from "@/src/lib/dateTime";
 import { formatCustomerCode } from "@/src/lib/customerId";
+import { PROMOTION_REDEEM_QR_PREFIX, redeemPromotionClaim } from "@/src/lib/promotionClaims";
 
 type ScannerLocation = {
   lat: number;
@@ -288,6 +289,32 @@ export default function StaffScanner({ store }: { store: any }) {
   const handleScan = async (rawValue: string) => {
     const scanToken = String(rawValue || "").trim();
     if (!scanToken || isProcessing || scannedCustomer || !isWithinGeofence) return;
+
+    if (scanToken.startsWith(PROMOTION_REDEEM_QR_PREFIX)) {
+      if (isBatchMode) {
+        setMessage({ type: "error", text: "Reward claims must be redeemed in Single Scan mode." });
+        return;
+      }
+      if (!navigator.onLine) {
+        setMessage({ type: "error", text: "Reward redemption requires an internet connection." });
+        return;
+      }
+      setIsProcessing(true);
+      setIsScannerActive(false);
+      setMessage(null);
+      try {
+        const claim = await redeemPromotionClaim({ storeId: store.id, lookup: scanToken, method: "qr" });
+        setShowScanSuccess(true);
+        setTimeout(() => setShowScanSuccess(false), 1000);
+        setMessage({ type: "success", text: `Reward ${claim.redeemCode} redeemed successfully and marked as used.` });
+      } catch (error) {
+        setMessage({ type: "error", text: error instanceof Error ? error.message : "Could not redeem this reward QR." });
+      } finally {
+        setIsProcessing(false);
+        setIsScannerActive(true);
+      }
+      return;
+    }
 
     if (!isSecureCustomerQr(scanToken)) {
       setMessage({ type: "error", text: "Invalid PerkUp QR code. Ask the customer to open their Identity QR." });

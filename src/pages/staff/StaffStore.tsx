@@ -1,9 +1,29 @@
-import { Clock, ExternalLink, Globe2, Image as ImageIcon, Mail, MapPin, Phone, Store, UserCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, Clock, Copy, ExternalLink, Globe2, Image as ImageIcon, Mail, MapPin, Phone, Store, Ticket, UserCircle } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 
+const getReferralExpiry = (store: any) => {
+  const explicitExpiry = store?.referralCodeExpiresAt;
+  const expirySeconds = Number(explicitExpiry?.seconds || 0);
+  if (expirySeconds) return new Date(expirySeconds * 1000);
+
+  if (typeof explicitExpiry === "string" || typeof explicitExpiry === "number") {
+    const parsedExpiry = new Date(explicitExpiry);
+    if (!Number.isNaN(parsedExpiry.getTime())) return parsedExpiry;
+  }
+
+  const createdSeconds = Number(store?.referralCodeCreatedAt?.seconds || 0);
+  return createdSeconds ? new Date(createdSeconds * 1000 + 30 * 24 * 60 * 60 * 1000) : null;
+};
+
 export default function StaffStore({ store }: { store: any }) {
   const { user } = useAuth();
+  const [referralCopied, setReferralCopied] = useState(false);
+
+  useEffect(() => {
+    setReferralCopied(false);
+  }, [store?.referralCode]);
 
   if (!store) return null;
 
@@ -16,6 +36,20 @@ export default function StaffStore({ store }: { store: any }) {
   const hours = store.openingHours || store.hours || store.operatingHours || "";
   const website = store.website || "";
   const category = store.category || "Partner store";
+  const referralCode = String(store.referralCode || "").trim();
+  const referralExpiry = getReferralExpiry(store);
+  const referralExpired = Boolean(referralExpiry && referralExpiry.getTime() <= Date.now());
+
+  const copyReferralCode = async () => {
+    if (!referralCode) return;
+    try {
+      await navigator.clipboard.writeText(referralCode);
+      setReferralCopied(true);
+      window.setTimeout(() => setReferralCopied(false), 2000);
+    } catch {
+      setReferralCopied(false);
+    }
+  };
 
   return (
     <div className="max-w-5xl space-y-8">
@@ -87,6 +121,43 @@ export default function StaffStore({ store }: { store: any }) {
                 <span className="truncate">View menu image</span>
                 <ExternalLink className="ml-auto h-4 w-4 shrink-0 text-gray-400" />
               </a>
+            )}
+
+            {referralCode && (
+              <div className="rounded-2xl border border-gray-100 bg-white p-4 dark:border-gray-800/50 dark:bg-gray-900 sm:col-span-2">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    <Ticket className="mt-0.5 h-5 w-5 shrink-0 text-gray-400" />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">Store referral code</p>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        Share this owner-issued code with new customers.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="sm:text-right">
+                    <div className="flex items-center gap-2">
+                      <code className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-bold tracking-widest text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+                        {referralCode}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={copyReferralCode}
+                        className="rounded-xl border border-gray-200 p-2.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:border-gray-700 dark:hover:bg-white/10 dark:hover:text-white"
+                        aria-label={referralCopied ? "Referral code copied" : "Copy referral code"}
+                        title={referralCopied ? "Copied" : "Copy referral code"}
+                      >
+                        {referralCopied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    {referralExpiry && (
+                      <p className={`mt-1.5 text-xs ${referralExpired ? "font-medium text-red-500" : "text-gray-500 dark:text-gray-400"}`}>
+                        {referralExpired ? "Expired" : "Expires"} {referralExpiry.toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 

@@ -11,6 +11,7 @@ import { ProfileAvatarImage } from "./components/ProfileAvatarImage";
 import { findTrustedLoginDevice, getMfaPromptReason, trustCurrentDeviceForUser, TrustedLoginProfile } from "./lib/trustedDevice";
 import { FirstLoginPasswordChange } from "./components/FirstLoginPasswordChange";
 import { PublicSiteFooter } from "./components/PublicPageShell";
+import { GlobalImageViewer } from "./components/GlobalImageViewer";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
@@ -397,6 +398,7 @@ export default function App() {
   return (
     <>
       <ScrollPositionManager />
+      <GlobalImageViewer />
       <Routes>
       <Route path="/" element={<Suspense fallback={<PageSkeleton variant="landing" />}><LandingPage /></Suspense>} />
       <Route path="/reset-password" element={<Suspense fallback={<PageSkeleton variant="auth" />}><ResetPasswordPage /></Suspense>} />

@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, CalendarClock, CheckCircle2, KeyRound, Loader2, Lock, Mail, QrCode, ShieldCheck, Smartphone, Trash2, X } from "lucide-react";
 import { auth, db } from "@/src/lib/backend";
 import { supabase } from "@/src/lib/supabase";
-import { getPasswordStrength } from "@/src/lib/passwordStrength";
+import { getPasswordStrength, sanitizePasswordInput } from "@/src/lib/passwordStrength";
+import { sanitizeUsernameInput } from "@/src/lib/username";
 import { requestEmailOtp, verifyEmailOtp } from "@/src/lib/emailOtp";
 import { SkeletonBlock } from "@/src/components/LoadingSkeleton";
 import { updateEmail } from "@/src/lib/supabaseAuthCompat";
@@ -541,7 +542,7 @@ export default function AccountSecurity() {
                 type="password"
                 required
                 value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
+                onChange={(event) => setCurrentPassword(sanitizePasswordInput(event.target.value))}
                 className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
               />
             </div>
@@ -552,7 +553,7 @@ export default function AccountSecurity() {
                 required
                 minLength={6}
                 value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
+                onChange={(event) => setNewPassword(sanitizePasswordInput(event.target.value))}
                 className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
               />
               {newPassword && (
@@ -591,7 +592,7 @@ export default function AccountSecurity() {
                 required
                 minLength={6}
                 value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
+                onChange={(event) => setConfirmPassword(sanitizePasswordInput(event.target.value))}
                 className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
               />
             </div>
@@ -1037,14 +1038,14 @@ export default function AccountSecurity() {
                   <input
                     type="password"
                     value={deletionPassword}
-                    onChange={(event) => setDeletionPassword(event.target.value)}
+                    onChange={(event) => setDeletionPassword(sanitizePasswordInput(event.target.value))}
                     autoComplete="current-password"
                     placeholder="Current password"
                     className="w-full rounded-xl border border-red-200 bg-white px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-red-500 dark:border-red-900 dark:bg-gray-900 dark:text-white"
                   />
                   <input
                     value={deletionUsername}
-                    onChange={(event) => setDeletionUsername(event.target.value)}
+                    onChange={(event) => setDeletionUsername(sanitizeUsernameInput(event.target.value))}
                     autoComplete="username"
                     placeholder="Exact username"
                     className="w-full rounded-xl border border-red-200 bg-white px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-red-500 dark:border-red-900 dark:bg-gray-900 dark:text-white"

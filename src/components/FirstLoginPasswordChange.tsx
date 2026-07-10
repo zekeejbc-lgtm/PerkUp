@@ -2,7 +2,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { AlertTriangle, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { validateStrongPassword } from "../lib/passwordStrength";
+import { sanitizePasswordInput, validateStrongPassword } from "../lib/passwordStrength";
 import { invokeAdminBackend } from "../lib/adminBackend";
 
 export function FirstLoginPasswordChange() {
@@ -61,7 +61,7 @@ export function FirstLoginPasswordChange() {
         <div className="space-y-2">
           <label htmlFor="first-login-password" className="text-sm font-semibold text-gray-900 dark:text-white">New password</label>
           <div className="relative">
-            <input id="first-login-password" type={showPassword ? "text" : "password"} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 pr-12 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+            <input id="first-login-password" type={showPassword ? "text" : "password"} autoComplete="new-password" value={password} onChange={(event) => setPassword(sanitizePasswordInput(event.target.value))} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 pr-12 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
             <button type="button" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? "Hide new password" : "Show new password"} aria-pressed={showPassword} className="absolute inset-y-0 right-0 flex items-center px-4 text-gray-400 hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1b1b1b] dark:hover:text-gray-200">
               {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
@@ -77,7 +77,7 @@ export function FirstLoginPasswordChange() {
         <div className="space-y-2">
           <label htmlFor="first-login-password-confirmation" className="text-sm font-semibold text-gray-900 dark:text-white">Confirm new password</label>
           <div className="relative">
-            <input id="first-login-password-confirmation" type={showConfirmation ? "text" : "password"} autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 pr-12 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+            <input id="first-login-password-confirmation" type={showConfirmation ? "text" : "password"} autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(sanitizePasswordInput(event.target.value))} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 pr-12 text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
             <button type="button" onClick={() => setShowConfirmation((visible) => !visible)} aria-label={showConfirmation ? "Hide confirmation password" : "Show confirmation password"} aria-pressed={showConfirmation} className="absolute inset-y-0 right-0 flex items-center px-4 text-gray-400 hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1b1b1b] dark:hover:text-gray-200">
               {showConfirmation ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>

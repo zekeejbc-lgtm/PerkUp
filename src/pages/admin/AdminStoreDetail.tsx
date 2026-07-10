@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { deleteField, doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { AlertTriangle, ArrowLeft, Building2, Check, Edit, Key, Loader2, Plus, Save, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BellRing, Building2, Check, Clock3, Edit, Key, Loader2, Plus, RotateCcw, Save, Snowflake, Trash2, Upload, X } from "lucide-react";
 
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
@@ -18,6 +18,7 @@ import {
   formatPredictedPaymentDate,
   getSubscriptionOwedAmount,
   getNextPaymentDate,
+  getSubscriptionBranchLimit,
   getSubscriptionDependencies,
   PAYMENT_SCHEDULE_OPTIONS,
   predictPaymentDates,
@@ -27,6 +28,8 @@ import {
 import { TimeInput } from "../../components/TimeInput";
 import { formatPhilippineDateTime, formatStoreHours, formatTime12Hour } from "../../lib/dateTime";
 import { Pagination } from "../../components/Pagination";
+import { sanitizePasswordInput } from "../../lib/passwordStrength";
+import { getEffectiveSubscriptionStatus, normalizeSubscriptionAccess } from "../../lib/subscriptionAccess";
 
 const ACTIVITY_LOGS_PER_PAGE = 8;
 
@@ -70,7 +73,6 @@ export default function AdminStoreDetail({
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<any>({});
   const [pendingLogo, setPendingLogo] = useState<File | null>(null);
-  const [branchLimit, setBranchLimit] = useState(1);
   const [newBranchName, setNewBranchName] = useState("");
   const [newBranchAddress, setNewBranchAddress] = useState("");
   const [newBranchLatitude, setNewBranchLatitude] = useState(7.4478);
@@ -83,9 +85,19 @@ export default function AdminStoreDetail({
   const [deleteError, setDeleteError] = useState("");
   const [deleteNameConfirmation, setDeleteNameConfirmation] = useState("");
   const [deleteWordConfirmation, setDeleteWordConfirmation] = useState("");
-  const predictedPaymentDates = store
-    ? predictPaymentDates(store.paymentSchedule, store.subscriptionStart, store.subscriptionEnd, 6)
+  const [subscriptionAccessForm, setSubscriptionAccessForm] = useState(() => normalizeSubscriptionAccess(null));
+  const [subscriptionAccessBusy, setSubscriptionAccessBusy] = useState(false);
+  const [subscriptionAccessMessage, setSubscriptionAccessMessage] = useState("");
+  const [subscriptionAccessError, setSubscriptionAccessError] = useState("");
+  const subscriptionStore = (store?.isPrimaryBranch !== false ? store : null) ||
+    branches.find(branch => branch.isPrimaryBranch === true) ||
+    branches.find(branch => branch.subscriptionLevel || branch.subscriptionDependencies) || null;
+  const canEditSubscription = Boolean(store && subscriptionStore && store.id === subscriptionStore.id);
+  const branchLimit = getSubscriptionBranchLimit(subscriptionStore?.subscriptionDependencies);
+  const predictedPaymentDates = subscriptionStore
+    ? predictPaymentDates(subscriptionStore.paymentSchedule, subscriptionStore.subscriptionStart, subscriptionStore.subscriptionEnd, 6)
     : [];
+  const subscriptionAccessStatus = getEffectiveSubscriptionStatus(subscriptionStore?.subscriptionAccess);
   
   // Password reset state
   const [resetModalUser, setResetModalUser] = useState<any>(null);
@@ -198,7 +210,6 @@ export default function AdminStoreDetail({
                 ...current,
                 ownerName: String(ownerData.name || ""),
               }));
-              setBranchLimit(Math.max(1, Number(ownerData.branchLimit || 1)));
             }
             const branchSnap = await getDocs(query(collection(db, "stores"), where("ownerId", "==", storeData.ownerId)));
             setBranches(branchSnap.docs
@@ -261,6 +272,46 @@ export default function AdminStoreDetail({
     setActivityPage((page) => Math.min(page, activityTotalPages));
   }, [activityTotalPages]);
 
+  useEffect(() => {
+    setSubscriptionAccessForm(normalizeSubscriptionAccess(subscriptionStore?.subscriptionAccess));
+  }, [subscriptionStore?.id, subscriptionStore?.subscriptionAccess]);
+
+  useEffect(() => {
+    setSubscriptionAccessMessage("");
+    setSubscriptionAccessError("");
+  }, [storeId]);
+
+  const updateSubscriptionAccess = async (status: "active" | "warning" | "grace" | "frozen") => {
+    if (!subscriptionStore || !canEditSubscription) return;
+    setSubscriptionAccessBusy(true);
+    setSubscriptionAccessMessage("");
+    setSubscriptionAccessError("");
+    try {
+      const result = await invokeAdminBackend<{ storeId: string; subscriptionAccess: any }>({
+        action: "update_subscription_access",
+        storeId: subscriptionStore.id,
+        subscriptionAccess: { ...subscriptionAccessForm, status },
+      });
+      setSubscriptionAccessForm(normalizeSubscriptionAccess(result.subscriptionAccess));
+      if (store?.id === result.storeId) {
+        setStore({ ...store, subscriptionAccess: result.subscriptionAccess });
+      }
+      setBranches((current) => current.map((branch) => (
+        branch.id === result.storeId ? { ...branch, subscriptionAccess: result.subscriptionAccess } : branch
+      )));
+      setSubscriptionAccessMessage(
+        status === "active" ? "Store access restored." :
+        status === "warning" ? "Subscription warning published." :
+        status === "grace" ? `Grace access started for ${subscriptionAccessForm.gracePeriodDays} day${subscriptionAccessForm.gracePeriodDays === 1 ? "" : "s"}.` :
+        "Store owner and staff access frozen.",
+      );
+    } catch (error) {
+      setSubscriptionAccessError((error as Error).message);
+    } finally {
+      setSubscriptionAccessBusy(false);
+    }
+  };
+
   const handleUpdateStore = async () => {
     try {
       const logoUrl = pendingLogo
@@ -269,6 +320,7 @@ export default function AdminStoreDetail({
             purpose: "admin-store-logo",
           })
         : editData.logoUrl;
+      const isPrimaryBranch = store.isPrimaryBranch !== false;
       const dependencies = getSubscriptionDependencies(plans, editData.subscriptionLevel);
       const currentAmount = Number(store.owedAmount || 0);
       const nextPlanAmount = getSubscriptionOwedAmount(plans, editData.subscriptionLevel, currentAmount);
@@ -278,9 +330,17 @@ export default function AdminStoreDetail({
         dateInputToDate(editData.subscriptionEnd),
       );
       const priceChangesNextCycle = nextPlanAmount !== currentAmount && Boolean(nextPaymentDate);
-      const { ownerName: rawOwnerName, ...storeEditData } = editData;
+      const {
+        ownerName: rawOwnerName,
+        subscriptionLevel,
+        owedAmount: _owedAmount,
+        subscriptionStart,
+        subscriptionEnd,
+        paymentSchedule,
+        ...storeEditData
+      } = editData;
       const nextOwnerName = String(rawOwnerName || "").trim();
-      const nextData = {
+      const nextData: Record<string, any> = {
         ...storeEditData,
         logoUrl,
         address: storeEditData.address || "",
@@ -289,27 +349,42 @@ export default function AdminStoreDetail({
         description: storeEditData.description || "",
         hours: formatStoreHours(storeEditData.openingTime, storeEditData.closingTime),
         openingHours: formatStoreHours(storeEditData.openingTime, storeEditData.closingTime),
-        owedAmount: priceChangesNextCycle ? currentAmount : nextPlanAmount,
-        subscriptionDependencies: dependencies,
-        pendingOwedAmount: priceChangesNextCycle ? nextPlanAmount : deleteField(),
-        pendingOwedAmountEffectiveAt: priceChangesNextCycle ? nextPaymentDate : deleteField(),
-        subscriptionStart: dateInputToDate(storeEditData.subscriptionStart),
-        subscriptionEnd: dateInputToDate(storeEditData.subscriptionEnd),
-        paymentSchedule: storeEditData.paymentSchedule,
         updatedAt: serverTimestamp(),
       };
 
+      if (isPrimaryBranch) {
+        Object.assign(nextData, {
+          subscriptionLevel,
+          owedAmount: priceChangesNextCycle ? currentAmount : nextPlanAmount,
+          subscriptionDependencies: dependencies,
+          pendingOwedAmount: priceChangesNextCycle ? nextPlanAmount : deleteField(),
+          pendingOwedAmountEffectiveAt: priceChangesNextCycle ? nextPaymentDate : deleteField(),
+          subscriptionStart: dateInputToDate(subscriptionStart),
+          subscriptionEnd: dateInputToDate(subscriptionEnd),
+          paymentSchedule,
+        });
+      } else {
+        Object.assign(nextData, {
+          subscriptionLevel: deleteField(),
+          subscriptionDependencies: deleteField(),
+          subscriptionStart: deleteField(),
+          subscriptionEnd: deleteField(),
+          paymentSchedule: deleteField(),
+          owedAmount: deleteField(),
+          pendingOwedAmount: deleteField(),
+          pendingOwedAmountEffectiveAt: deleteField(),
+        });
+      }
+
       await updateDoc(doc(db, "stores", storeId), nextData);
       if (owner) {
-        const nextBranchLimit = dependencies.branchLimit > 0 ? dependencies.branchLimit : 100;
         const nextOwnerData = {
           ...(nextOwnerName ? { name: nextOwnerName } : {}),
-          branchLimit: nextBranchLimit,
+          ...(isPrimaryBranch ? { branchLimit: getSubscriptionBranchLimit(dependencies) } : {}),
           updatedAt: serverTimestamp(),
         };
         await updateDoc(doc(db, "users", owner.id), nextOwnerData);
-        setBranchLimit(nextBranchLimit);
-        setOwner({ ...owner, ...nextOwnerData, branchLimit: nextBranchLimit });
+        setOwner({ ...owner, ...nextOwnerData });
       }
       setStore({
         ...store,
@@ -320,7 +395,7 @@ export default function AdminStoreDetail({
       setEditData({
         ...editData,
         ownerName: nextOwnerName,
-        owedAmount: nextData.owedAmount,
+        ...(isPrimaryBranch ? { owedAmount: nextData.owedAmount } : {}),
       });
       setIsEditing(false);
       setPendingLogo(null);
@@ -361,25 +436,6 @@ export default function AdminStoreDetail({
     setPendingLogo(null);
   };
 
-  const handleSaveBranchLimit = async () => {
-    if (!owner) return;
-    setBranchBusy(true);
-    setBranchError("");
-    try {
-      const result = await invokeAdminBackend<{ branchLimit: number }>({
-        action: "set_branch_limit",
-        ownerId: owner.id,
-        branchLimit,
-      });
-      setBranchLimit(result.branchLimit);
-      setOwner({ ...owner, branchLimit: result.branchLimit });
-    } catch (error) {
-      setBranchError((error as Error).message);
-    } finally {
-      setBranchBusy(false);
-    }
-  };
-
   const openBranchDashboard = (branchId: string) => {
     if (branchId === storeId) {
       setActiveTab("overview");
@@ -408,10 +464,6 @@ export default function AdminStoreDetail({
           status: "active",
           logoUrl: store.logoUrl || "",
           category: store.category || "",
-          subscriptionLevel: store.subscriptionLevel || "",
-          subscriptionStart: store.subscriptionStart || null,
-          subscriptionEnd: store.subscriptionEnd || null,
-          paymentSchedule: store.paymentSchedule || "",
         },
       });
       setBranches([...branches, result.store]);
@@ -668,31 +720,36 @@ export default function AdminStoreDetail({
 
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
               <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-4">Subscription & Billing</h4>
+              {!canEditSubscription && (
+                <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-300">
+                  This branch uses the store owner's subscription. Billing can only be changed from the primary branch.
+                </div>
+              )}
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-1">Subscription Level</label>
-                  {isEditing ? (
+                  {isEditing && canEditSubscription ? (
                     <CustomDropdown
                       options={plans.map(p => ({ label: p.name, value: p.name }))}
                       value={editData.subscriptionLevel}
                       onChange={handleSubscriptionLevelChange}
                     />
                   ) : (
-                    <p className="text-gray-900 dark:text-white font-medium">{store.subscriptionLevel || 'Standard'}</p>
+                    <p className="text-gray-900 dark:text-white font-medium">{subscriptionStore?.subscriptionLevel || 'Standard'}</p>
                   )}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-1">Owed Amount</label>
-                  {isEditing ? (
+                  {isEditing && canEditSubscription ? (
                     <div className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm font-medium text-gray-900 dark:text-white">
                       {formatMoney(editData.owedAmount)}
                     </div>
                   ) : (
                     <div>
-                      <p className="text-red-600 font-medium">{formatMoney(Number(store.owedAmount || 0))}</p>
-                      {Number.isFinite(Number(store.pendingOwedAmount)) && Number(store.pendingOwedAmount) !== Number(store.owedAmount || 0) && (
+                      <p className="text-red-600 font-medium">{formatMoney(Number(subscriptionStore?.owedAmount || 0))}</p>
+                      {Number.isFinite(Number(subscriptionStore?.pendingOwedAmount)) && Number(subscriptionStore?.pendingOwedAmount) !== Number(subscriptionStore?.owedAmount || 0) && (
                         <p className="mt-1 text-xs text-gray-500">
-                          {formatMoney(Number(store.pendingOwedAmount))} starts on {formatBillingDate(store.pendingOwedAmountEffectiveAt)}.
+                          {formatMoney(Number(subscriptionStore?.pendingOwedAmount))} starts on {formatBillingDate(subscriptionStore?.pendingOwedAmountEffectiveAt)}.
                         </p>
                       )}
                     </div>
@@ -701,23 +758,23 @@ export default function AdminStoreDetail({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 mb-1">Subscription Start</label>
-                    {isEditing ? (
+                    {isEditing && canEditSubscription ? (
                       <input type="date" value={editData.subscriptionStart || ""} onChange={e => setEditData({...editData, subscriptionStart: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
                     ) : (
-                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatBillingDate(store.subscriptionStart)}</p>
+                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatBillingDate(subscriptionStore?.subscriptionStart)}</p>
                     )}
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 mb-1">Subscription End</label>
-                    {isEditing ? (
+                    {isEditing && canEditSubscription ? (
                       <input type="date" value={editData.subscriptionEnd || ""} onChange={e => setEditData({...editData, subscriptionEnd: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
                     ) : (
-                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatBillingDate(store.subscriptionEnd)}</p>
+                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatBillingDate(subscriptionStore?.subscriptionEnd)}</p>
                     )}
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 mb-1">Payment Schedule</label>
-                    {isEditing ? (
+                    {isEditing && canEditSubscription ? (
                       <CustomDropdown
                         options={PAYMENT_SCHEDULE_OPTIONS}
                         value={editData.paymentSchedule || ""}
@@ -725,7 +782,7 @@ export default function AdminStoreDetail({
                         className="w-full"
                       />
                     ) : (
-                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatPaymentSchedule(store.paymentSchedule)}</p>
+                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatPaymentSchedule(subscriptionStore?.paymentSchedule)}</p>
                     )}
                   </div>
                 </div>
@@ -749,6 +806,109 @@ export default function AdminStoreDetail({
               </div>
             </div>
 
+            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-800/50">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Subscription access control</h4>
+                  <p className="mt-1 text-sm text-gray-500">Warn the store team, allow a timed grace period, or block owner and staff portal access.</p>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${
+                  subscriptionAccessStatus === "frozen" ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300" :
+                  subscriptionAccessStatus === "grace" ? "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300" :
+                  subscriptionAccessStatus === "warning" ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300" :
+                  "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300"
+                }`}>{subscriptionAccessStatus}</span>
+              </div>
+
+              {!canEditSubscription ? (
+                <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-300">
+                  Access controls are shared by all branches. Open the primary branch to change them.
+                </div>
+              ) : (
+                <div className="mt-5 space-y-4">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                    Warning shown at the top of the owner and staff screens
+                    <textarea
+                      rows={3}
+                      maxLength={500}
+                      value={subscriptionAccessForm.warningMessage}
+                      onChange={(event) => setSubscriptionAccessForm({ ...subscriptionAccessForm, warningMessage: event.target.value })}
+                      className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    />
+                  </label>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                      Grace period (days)
+                      <input
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={subscriptionAccessForm.gracePeriodDays || ""}
+                        onChange={(event) => setSubscriptionAccessForm({ ...subscriptionAccessForm, gracePeriodDays: Math.max(0, Math.min(365, Math.trunc(Number(event.target.value) || 0))) })}
+                        placeholder="e.g. 7"
+                        className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                      Payment contact
+                      <input
+                        type="text"
+                        maxLength={254}
+                        value={subscriptionAccessForm.paymentContact}
+                        onChange={(event) => setSubscriptionAccessForm({ ...subscriptionAccessForm, paymentContact: event.target.value })}
+                        placeholder="Email address or phone number"
+                        className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                    Where and how to pay
+                    <textarea
+                      rows={4}
+                      maxLength={2000}
+                      value={subscriptionAccessForm.paymentInstructions}
+                      onChange={(event) => setSubscriptionAccessForm({ ...subscriptionAccessForm, paymentInstructions: event.target.value })}
+                      placeholder="Add the payment channel, account name/number, reference instructions, and proof-of-payment steps."
+                      className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    />
+                  </label>
+
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                    Payment page (optional)
+                    <input
+                      type="url"
+                      maxLength={2000}
+                      value={subscriptionAccessForm.paymentLink}
+                      onChange={(event) => setSubscriptionAccessForm({ ...subscriptionAccessForm, paymentLink: event.target.value })}
+                      placeholder="https://..."
+                      className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    />
+                  </label>
+
+                  {subscriptionAccessMessage && <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-300">{subscriptionAccessMessage}</p>}
+                  {subscriptionAccessError && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{subscriptionAccessError}</p>}
+
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                    <button type="button" disabled={subscriptionAccessBusy || !subscriptionAccessForm.warningMessage.trim()} onClick={() => updateSubscriptionAccess("warning")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-bold text-amber-950 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50">
+                      <BellRing className="h-4 w-4" /> Publish warning
+                    </button>
+                    <button type="button" disabled={subscriptionAccessBusy || subscriptionAccessForm.gracePeriodDays < 1} onClick={() => updateSubscriptionAccess("grace")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50">
+                      <Clock3 className="h-4 w-4" /> Start grace period
+                    </button>
+                    <button type="button" disabled={subscriptionAccessBusy} onClick={() => updateSubscriptionAccess("frozen")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50">
+                      <Snowflake className="h-4 w-4" /> Freeze now
+                    </button>
+                    <button type="button" disabled={subscriptionAccessBusy || subscriptionAccessStatus === "active"} onClick={() => updateSubscriptionAccess("active")} className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-bold text-gray-800 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:hover:bg-gray-800">
+                      {subscriptionAccessBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Restore access
+                    </button>
+                  </div>
+                  <p className="text-xs leading-5 text-gray-500">Starting a grace period restarts its countdown. When it expires, the owner and staff screens freeze automatically until you restore access.</p>
+                </div>
+              )}
+            </div>
+
           </div>
         )}
 
@@ -758,14 +918,7 @@ export default function AdminStoreDetail({
               <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Branch Management</h4>
-                  <p className="mt-1 text-sm text-gray-500">{branches.length} of {branchLimit} branch slots used for this owner.</p>
-                </div>
-                <div className="flex items-end gap-2">
-                  <label className="text-xs font-semibold text-gray-500">
-                    Branch limit
-                    <input type="number" min="1" max="100" value={branchLimit} onChange={e => setBranchLimit(Number(e.target.value))} className="mt-1 block w-24 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
-                  </label>
-                  <button type="button" disabled={branchBusy} onClick={handleSaveBranchLimit} className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-gray-900">Save limit</button>
+                  <p className="mt-1 text-sm text-gray-500">{branches.length} of {branchLimit} branch slots used under the {subscriptionStore?.subscriptionLevel || "current"} subscription.</p>
                 </div>
               </div>
               <div className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -1081,7 +1234,7 @@ export default function AdminStoreDetail({
               {newPasswordType === 'custom' && (
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-2">Custom Password</label>
-                  <input type="password" value={customPassword} onChange={e => setCustomPassword(e.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" placeholder="Enter new password" />
+                  <input type="password" value={customPassword} onChange={e => setCustomPassword(sanitizePasswordInput(e.target.value))} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" placeholder="Enter new password (no spaces)" />
                 </div>
               )}
 

@@ -1,6 +1,6 @@
 import { Check, Copy, Eye, EyeOff, RefreshCw, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { generateStrongPassword, validateStrongPassword } from "../lib/passwordStrength";
+import { generateStrongPassword, sanitizePasswordInput, validateStrongPassword } from "../lib/passwordStrength";
 
 type Props = {
   value: string;
@@ -40,7 +40,7 @@ export function TemporaryPasswordField({ value, onChange, name, email, className
             required
             minLength={12}
             value={value}
-            onChange={(event) => onChange(event.target.value)}
+            onChange={(event) => onChange(sanitizePasswordInput(event.target.value))}
             className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 pr-11 font-mono text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             placeholder="12+ characters"
             aria-describedby="temporary-password-requirements"

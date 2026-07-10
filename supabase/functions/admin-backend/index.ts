@@ -19,6 +19,15 @@ const timestamp = () => ({
   nanoseconds: 0,
 });
 
+const getSubscriptionBranchLimit = (dependencies: unknown) => {
+  const value = dependencies && typeof dependencies === "object"
+    ? Number((dependencies as Record<string, unknown>).branchLimit ?? 1)
+    : 1;
+  const configuredLimit = Math.trunc(value);
+  if (!Number.isFinite(configuredLimit)) return 1;
+  return configuredLimit <= 0 ? 100 : Math.min(100, configuredLimit);
+};
+
 const isStrongPassword = (password: string, name: string, email: string) => {
   const normalized = password.toLowerCase();
   const personalTerms = [
@@ -26,10 +35,11 @@ const isStrongPassword = (password: string, name: string, email: string) => {
     email.toLowerCase().split("@")[0],
   ].filter((term) => term.length >= 3);
   return password.length >= 12 &&
+    !/\s/.test(password) &&
     /[a-z]/.test(password) &&
     /[A-Z]/.test(password) &&
     /\d/.test(password) &&
-    /[^A-Za-z0-9]/.test(password) &&
+    /[^A-Za-z0-9\s]/.test(password) &&
     personalTerms.every((term) => !normalized.includes(term));
 };
 
@@ -76,6 +86,58 @@ Deno.serve(async (req) => {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const action = cleanText(body.action, 40);
 
+    if (action === "update_subscription_access") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const storeId = cleanText(body.storeId, 100);
+      const input = body.subscriptionAccess && typeof body.subscriptionAccess === "object"
+        ? body.subscriptionAccess as Record<string, unknown>
+        : {};
+      const status = cleanText(input.status, 20).toLowerCase();
+      if (!storeId || !["active", "warning", "grace", "frozen"].includes(status)) {
+        return jsonResponse({ error: "A valid store and subscription access status are required." }, 400);
+      }
+
+      const gracePeriodDays = Math.trunc(Number(input.gracePeriodDays || 0));
+      if (!Number.isFinite(gracePeriodDays) || gracePeriodDays < 0 || gracePeriodDays > 365 || (status === "grace" && gracePeriodDays < 1)) {
+        return jsonResponse({ error: "Grace period must be between 1 and 365 days when grace access is enabled." }, 400);
+      }
+      const { data: selectedStore, error: selectedStoreError } = await admin
+        .from("stores")
+        .select("id,data")
+        .eq("id", storeId)
+        .maybeSingle();
+      if (selectedStoreError) throw selectedStoreError;
+      if (!selectedStore) return jsonResponse({ error: "Store was not found." }, 404);
+
+      const ownerId = cleanText(selectedStore.data?.ownerId, 100);
+      const primaryStore = ownerId ? await getPrimaryStoreForOwner(admin, ownerId) : selectedStore;
+      if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
+
+      const now = new Date();
+      const existingAccess = primaryStore.data?.subscriptionAccess && typeof primaryStore.data.subscriptionAccess === "object"
+        ? primaryStore.data.subscriptionAccess as Record<string, unknown>
+        : {};
+      const subscriptionAccess = {
+        ...existingAccess,
+        status,
+        warningMessage: cleanText(input.warningMessage, 500) || "Your PerkUp subscription is almost ending. Please settle your balance to avoid an interruption.",
+        gracePeriodDays,
+        graceStartedAt: status === "grace" ? now.toISOString() : "",
+        graceEndsAt: status === "grace" ? new Date(now.getTime() + gracePeriodDays * 86_400_000).toISOString() : "",
+        paymentInstructions: cleanText(input.paymentInstructions, 2000) || "Contact PerkUp support for payment instructions and send your proof of payment for verification.",
+        paymentLink: cleanText(input.paymentLink, 2000),
+        paymentContact: cleanText(input.paymentContact, 254) || "perkup.shop@youthserviceph.org",
+        updatedAt: now.toISOString(),
+        updatedBy: authData.user.id,
+      };
+      const { error: updateError } = await admin.from("stores").update({
+        data: { ...primaryStore.data, subscriptionAccess, updatedAt: timestamp() },
+      }).eq("id", primaryStore.id);
+      if (updateError) throw updateError;
+
+      return jsonResponse({ updated: true, storeId: primaryStore.id, subscriptionAccess });
+    }
+
     if (action === "create_store") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
       const email = cleanText(body.email, 254).toLowerCase();
@@ -86,7 +148,7 @@ Deno.serve(async (req) => {
         : {};
       const storeName = cleanText(storeInput.name, 120);
       if (!email || !name || !storeName || !isStrongPassword(password, name, email)) {
-        return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, and no owner name or email." }, 400);
+        return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, no spaces, and no owner name or email." }, 400);
       }
 
       const { data: created, error: createError } = await admin.auth.admin.createUser({
@@ -228,22 +290,32 @@ Deno.serve(async (req) => {
       if (!ownerProfile || ownerProfile.role !== "store_owner") {
         return jsonResponse({ error: "Store owner was not found." }, 404);
       }
+      const primaryStore = await getPrimaryStoreForOwner(admin, ownerId);
+      if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
       const { count, error: countError } = await admin
         .from("stores")
         .select("id", { count: "exact", head: true })
         .eq("data->>ownerId", ownerId);
       if (countError) throw countError;
-      const branchLimit = Math.max(1, Math.min(100, Math.trunc(Number(ownerProfile.branchLimit || 1))));
+      const branchLimit = getSubscriptionBranchLimit(primaryStore.data?.subscriptionDependencies);
       if ((count || 0) >= branchLimit) {
-        return jsonResponse({ error: `This owner has reached the ${branchLimit}-branch limit.` }, 409);
+        return jsonResponse({ error: `This subscription allows up to ${branchLimit} branch${branchLimit === 1 ? "" : "es"}.` }, 409);
       }
-      const primaryStore = await getPrimaryStoreForOwner(admin, ownerId);
-      if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
       const businessName = cleanText(primaryStore.data?.businessName || primaryStore.data?.name, 120);
       const storeName = `${businessName} - ${branchName}`;
       const storeId = crypto.randomUUID();
+      const branchInput = { ...storeInput };
+      delete branchInput.subscriptionLevel;
+      delete branchInput.subscriptionDependencies;
+      delete branchInput.subscriptionStart;
+      delete branchInput.subscriptionEnd;
+      delete branchInput.paymentSchedule;
+      delete branchInput.owedAmount;
+      delete branchInput.pendingOwedAmount;
+      delete branchInput.pendingOwedAmountEffectiveAt;
+      delete branchInput.branchLimit;
       const store = {
-        ...storeInput,
+        ...branchInput,
         name: storeName,
         businessName,
         branchName,
@@ -321,18 +393,17 @@ Deno.serve(async (req) => {
       if (!ownerProfile || ownerProfile.role !== "store_owner") {
         return jsonResponse({ error: "Store owner was not found." }, 404);
       }
+      const primaryStore = await getPrimaryStoreForOwner(admin, ownerId);
+      if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
       const { count, error: countError } = await admin
         .from("stores")
         .select("id", { count: "exact", head: true })
         .eq("data->>ownerId", ownerId);
       if (countError) throw countError;
-      const branchLimit = Math.max(1, Math.min(100, Math.trunc(Number(ownerProfile.branchLimit || 1))));
+      const branchLimit = getSubscriptionBranchLimit(primaryStore.data?.subscriptionDependencies);
       if ((count || 0) >= branchLimit) {
-        return jsonResponse({ error: `This owner has reached the ${branchLimit}-branch limit.` }, 409);
+        return jsonResponse({ error: `This subscription allows up to ${branchLimit} branch${branchLimit === 1 ? "" : "es"}.` }, 409);
       }
-
-      const primaryStore = await getPrimaryStoreForOwner(admin, ownerId);
-      if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
 
       const primaryData = (primaryStore.data || {}) as Record<string, unknown>;
       const businessName = cleanText(primaryData.businessName || primaryData.name, 120);
@@ -366,10 +437,6 @@ Deno.serve(async (req) => {
         status: "active",
         logoUrl: primaryData.logoUrl || "",
         category: primaryData.category || "",
-        subscriptionLevel: primaryData.subscriptionLevel || "",
-        subscriptionStart: primaryData.subscriptionStart || null,
-        subscriptionEnd: primaryData.subscriptionEnd || null,
-        paymentSchedule: primaryData.paymentSchedule || "",
         createdAt: reviewedAt,
         updatedAt: reviewedAt,
       };
@@ -400,21 +467,6 @@ Deno.serve(async (req) => {
         request: { id: requestId, ...approvedRequest },
         store: { id: storeId, ...store },
       });
-    }
-
-    if (action === "set_branch_limit") {
-      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
-      const ownerId = cleanText(body.ownerId, 100);
-      const branchLimit = Math.trunc(Number(body.branchLimit));
-      if (!ownerId || !Number.isInteger(branchLimit) || branchLimit < 1 || branchLimit > 100) {
-        return jsonResponse({ error: "Branch limit must be between 1 and 100." }, 400);
-      }
-      const ownerProfile = await getUserProfile(admin, ownerId);
-      if (!ownerProfile || ownerProfile.role !== "store_owner") {
-        return jsonResponse({ error: "Store owner was not found." }, 404);
-      }
-      await mergeUserData(admin, ownerId, { branchLimit });
-      return jsonResponse({ updated: true, branchLimit });
     }
 
     if (action === "reject_application") {
@@ -469,7 +521,7 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "You are not allowed to create this account." }, 403);
       }
       if (!email || !name || !isStrongPassword(password, name, email)) {
-        return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, and no account name or email." }, 400);
+        return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, no spaces, and no account name or email." }, 400);
       }
       if (role === "staff" && storeId) {
         const { data: storeRow, error: storeLimitError } = await admin
@@ -569,6 +621,7 @@ Deno.serve(async (req) => {
           await ownsStore(admin, String(target.storeId), authData.user.id));
       if (!canReset) return jsonResponse({ error: "You are not allowed to reset this password." }, 403);
       if (password.length < 8) return jsonResponse({ error: "Password must be at least 8 characters." }, 400);
+      if (/\s/.test(password)) return jsonResponse({ error: "Password cannot contain spaces." }, 400);
 
       const { error } = await admin.auth.admin.updateUserById(userId, { password });
       if (error) throw error;
@@ -587,7 +640,7 @@ Deno.serve(async (req) => {
       const accountName = cleanText(actor.name, 80);
       const accountEmail = cleanText(actor.email || authData.user.email, 254).toLowerCase();
       if (!isStrongPassword(password, accountName, accountEmail)) {
-        return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, and no account name or email." }, 400);
+        return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, no spaces, and no account name or email." }, 400);
       }
       const { error: passwordError } = await admin.auth.admin.updateUserById(authData.user.id, { password });
       if (passwordError) throw passwordError;
@@ -797,10 +850,15 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (promotionError) throw promotionError;
       if (!promotionRow) return jsonResponse({ error: "Promotion was not found for this store." }, 404);
+      const requiredStamps = Math.max(1, Math.trunc(Number(promotionRow.data?.requiredStamps || 0)));
       const progress = cardRow.data?.promoProgress && typeof cardRow.data.promoProgress === "object"
         ? { ...cardRow.data.promoProgress as Record<string, unknown> }
         : {};
-      const nextProgress = Math.max(0, Number(progress[promotionId] || 0) + delta);
+      const currentProgress = Math.max(0, Number(progress[promotionId] || 0));
+      if (delta > 0 && currentProgress >= requiredStamps) {
+        return jsonResponse({ error: "This stamp card is already complete." }, 409);
+      }
+      const nextProgress = Math.min(requiredStamps, Math.max(0, currentProgress + delta));
       progress[promotionId] = nextProgress;
       const { error: updateError } = await admin.from("cards").update({
         data: { ...cardRow.data, promoProgress: progress, updatedAt: timestamp() },

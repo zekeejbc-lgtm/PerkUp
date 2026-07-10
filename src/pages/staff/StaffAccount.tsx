@@ -6,6 +6,7 @@ import { AtSign, Calendar, CheckCircle2, FileText, ImagePlus, LogOut, Mail, Phon
 import React, { useEffect, useState } from "react";
 import { deleteImageFromDriveSecure, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { ProfileAvatarImage } from "@/src/components/ProfileAvatarImage";
+import { sanitizeUsernameInput } from "@/src/lib/username";
 
 export default function StaffAccount() {
   const { user, refreshUser } = useAuth();
@@ -195,7 +196,7 @@ export default function StaffAccount() {
             </label>
             <label className="space-y-2">
               <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><AtSign className="w-4 h-4 text-gray-400" /> Username</span>
-              <input type="text" value={formData.username} onChange={(event) => setFormData({ ...formData, username: event.target.value })} className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
+              <input type="text" value={formData.username} onChange={(event) => setFormData({ ...formData, username: sanitizeUsernameInput(event.target.value) })} className="w-full px-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white" />
             </label>
             <label className="space-y-2">
               <span className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><Phone className="w-4 h-4 text-gray-400" /> Number</span>

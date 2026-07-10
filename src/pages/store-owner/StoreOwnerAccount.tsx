@@ -6,6 +6,7 @@ import { UserCircle, Mail, Phone, MapPin, AtSign, Save, CheckCircle2, X, Calenda
 import { deleteImageFromDriveSecure, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import AccountSecurity from "@/src/components/AccountSecurity";
 import { ProfileAvatarImage } from "@/src/components/ProfileAvatarImage";
+import { sanitizeUsernameInput } from "@/src/lib/username";
 
 export default function StoreOwnerAccount() {
   const { user, refreshUser } = useAuth();
@@ -208,7 +209,7 @@ export default function StoreOwnerAccount() {
             <div className="space-y-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2"><AtSign className="w-4 h-4 text-gray-400" /> Username</label>
               <input
-                type="text" required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})}
+                type="text" required value={formData.username} onChange={e => setFormData({...formData, username: sanitizeUsernameInput(e.target.value)})}
                 className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
               />
             </div>

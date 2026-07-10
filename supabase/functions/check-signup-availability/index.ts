@@ -50,7 +50,11 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const email = normalizeEmail(body.email);
-    const username = normalizeUsername(body.username);
+    const rawUsername = String(body.username || "");
+    if (/\s/.test(rawUsername)) {
+      return jsonResponse({ error: "Username cannot contain spaces." }, 400);
+    }
+    const username = normalizeUsername(rawUsername);
     const phone = normalizePhone(body.phone);
 
     if (!email && !username && !phone) {

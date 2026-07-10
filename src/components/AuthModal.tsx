@@ -6,7 +6,8 @@ import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail
 } from '@/src/lib/supabaseAuthCompat';
-import { getPasswordStrength, validateStrongPassword } from '@/src/lib/passwordStrength';
+import { getPasswordStrength, sanitizePasswordInput, validateStrongPassword } from '@/src/lib/passwordStrength';
+import { sanitizeUsernameInput } from '@/src/lib/username';
 import { requestEmailOtp, verifyEmailOtp } from '@/src/lib/emailOtp';
 import { redeemStoreReferralCode, updateCustomerProfile, validateStoreReferralCode } from '@/src/lib/secureQr';
 import { useToast } from './ToastProvider';
@@ -40,6 +41,7 @@ const emptySignupProfile = {
 const normalizeSignupUsername = (value: string) => value.trim().toLowerCase();
 
 const getSignupUsernameError = (value: string) => {
+  if (/\s/.test(value)) return 'Username cannot contain spaces.';
   const username = normalizeSignupUsername(value);
   if (!username) return 'Username is required.';
   if (username.length < 4) return 'Username must be at least 4 characters.';
@@ -808,7 +810,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                       type="text"
                       required
                       value={signupProfile.accountUsername}
-                      onChange={(e) => setSignupProfile({ ...signupProfile, accountUsername: normalizeSignupUsername(e.target.value) })}
+                      onChange={(e) => setSignupProfile({ ...signupProfile, accountUsername: sanitizeUsernameInput(e.target.value) })}
                       className="block w-full pl-10 pr-3 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors"
                       placeholder="juan.delacruz"
                     />
@@ -865,7 +867,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                     type={showPassword ? "text" : "password"}
                     required
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => setPassword(sanitizePasswordInput(e.target.value))}
                     className="block w-full pl-10 pr-10 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors"
                     placeholder="••••••••"
                   />

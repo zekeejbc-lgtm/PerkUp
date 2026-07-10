@@ -4,27 +4,34 @@ import {
   formatPaymentSchedule,
   formatPredictedPaymentDate,
   formatBillingDate,
+  getSubscriptionBranchLimit,
   predictPaymentDates,
   resolveStoreBilling,
 } from "../../lib/subscriptionBilling";
 
 export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
+  const subscriptionStore = stores.find((store) => store.isPrimaryBranch === true) ||
+    stores.find((store) => store.subscriptionLevel || store.subscriptionDependencies) ||
+    stores[0] || null;
+  const branchLimit = getSubscriptionBranchLimit(subscriptionStore?.subscriptionDependencies);
+
   return (
     <div className="max-w-3xl space-y-6">
       <div>
         <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Subscription Management</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Review your billing schedule and predicted payment dates.</p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Review your single owner subscription, branch allowance, and predicted payment dates.</p>
       </div>
 
-      {stores.length === 0 ? (
+      {!subscriptionStore ? (
         <div className="rounded-3xl border border-dashed border-gray-300 p-10 text-center dark:border-gray-700">
           <CreditCard className="mx-auto mb-3 h-9 w-9 text-gray-400" />
           <p className="font-semibold text-gray-900 dark:text-white">No subscription assigned</p>
           <p className="mt-1 text-sm text-gray-500">Payment forecasts appear after an admin assigns a store.</p>
         </div>
       ) : (
-        <div className="space-y-5">
-          {stores.map((store) => {
+        <div>
+          {(() => {
+            const store = subscriptionStore;
             const dates = predictPaymentDates(
               store.paymentSchedule,
               store.subscriptionStart,
@@ -60,6 +67,12 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                       <p className="text-sm font-semibold">{formatPaymentSchedule(store.paymentSchedule)}</p>
                     </div>
                   </div>
+                  <div className="mt-4 rounded-2xl bg-white/10 px-4 py-3">
+                    <p className="text-xs uppercase tracking-widest text-gray-400">Branch allowance</p>
+                    <p className="mt-1 text-sm font-semibold">
+                      {stores.length} of {branchLimit} branches used under this subscription
+                    </p>
+                  </div>
                 </div>
 
                 <div className="p-6">
@@ -88,7 +101,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                 </div>
               </section>
             );
-          })}
+          })()}
         </div>
       )}
     </div>

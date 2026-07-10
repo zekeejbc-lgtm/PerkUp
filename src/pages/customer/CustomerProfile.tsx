@@ -5,7 +5,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { logOut } from "../../lib/backend";
 import { deleteImageFromDriveSecure, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { updateCustomerProfile } from "@/src/lib/secureQr";
-import { getUsernameValidationMessage, normalizeUsername } from "@/src/lib/username";
+import { getUsernameValidationMessage, normalizeUsername, sanitizeUsernameInput } from "@/src/lib/username";
 import {
   AtSign,
   Calendar,
@@ -267,7 +267,7 @@ export default function CustomerProfile() {
                   type="text"
                   required
                   value={formData.username}
-                  onChange={(event) => setFormData({ ...formData, username: normalizeUsername(event.target.value) })}
+                  onChange={(event) => setFormData({ ...formData, username: sanitizeUsernameInput(event.target.value) })}
                   className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:text-white"
                 />
                 <p className={`text-xs font-medium ${getUsernameValidationMessage(formData.username) ? "text-[#1b1b1b] dark:text-white" : "text-green-600 dark:text-green-400"}`}>

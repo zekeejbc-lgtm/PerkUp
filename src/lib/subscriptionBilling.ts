@@ -13,6 +13,12 @@ export type SubscriptionDependencies = {
   branchLimit?: number | string;
 };
 
+export function getSubscriptionBranchLimit(dependencies?: SubscriptionDependencies | null) {
+  const configuredLimit = Math.trunc(Number(dependencies?.branchLimit ?? 1));
+  if (!Number.isFinite(configuredLimit)) return 1;
+  return configuredLimit <= 0 ? 100 : Math.min(100, configuredLimit);
+}
+
 export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   {
     id: "standard",
