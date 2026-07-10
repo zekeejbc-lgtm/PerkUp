@@ -122,6 +122,27 @@ export default function CustomerOverview() {
   }, [user]);
 
   useEffect(() => {
+    if (!user?.id || !qrTicket?.expiresAt) return;
+    const expiresAt = new Date(qrTicket.expiresAt).getTime();
+    if (!Number.isFinite(expiresAt)) return;
+
+    const refreshDelay = Math.max(expiresAt - Date.now() - 30_000, 1_000);
+    const refreshTimer = window.setTimeout(async () => {
+      if (!navigator.onLine) return;
+      try {
+        const ticket = await issueCustomerQr();
+        setQrTicket(ticket);
+        setQrError("");
+      } catch (error) {
+        console.error("Failed to renew expiring customer QR", error);
+        setQrError(error instanceof Error ? error.message : "Could not renew secure QR code.");
+      }
+    }, refreshDelay);
+
+    return () => window.clearTimeout(refreshTimer);
+  }, [user?.id, qrTicket?.expiresAt]);
+
+  useEffect(() => {
     if (!user?.id) return;
 
     let active = true;

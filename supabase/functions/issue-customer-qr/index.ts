@@ -1,7 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 
-const PERMANENT_TOKEN_PREFIX = "perkup:v2:";
+const EXPIRING_TOKEN_PREFIX = "perkup:v3:";
+const QR_TTL_SECONDS = 10 * 60;
 const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
 
 const requiredEnv = (name: string) => {
@@ -38,6 +39,7 @@ Deno.serve(async (req) => {
     const supabaseUrl = requiredEnv("SUPABASE_URL");
     const anonKey = requiredEnv("SUPABASE_ANON_KEY");
     const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const signingSecret = requiredEnv("QR_SIGNING_SECRET");
     const authorization = req.headers.get("Authorization") || "";
 
     const userClient = createClient(supabaseUrl, anonKey, {
@@ -115,15 +117,16 @@ Deno.serve(async (req) => {
       if (updateError) throw updateError;
     }
 
-    const payload = `${authData.user.id}.${qrVersion}`;
+    const expiresAtSeconds = Math.floor(Date.now() / 1000) + QR_TTL_SECONDS;
+    const payload = `${authData.user.id}.${qrVersion}.${expiresAtSeconds}`;
     const encodedPayload = base64Url(new TextEncoder().encode(payload));
-    const signature = await signPayload(payload, serviceKey);
-    const token = `${PERMANENT_TOKEN_PREFIX}${encodedPayload}.${signature}`;
+    const signature = await signPayload(payload, signingSecret);
+    const token = `${EXPIRING_TOKEN_PREFIX}${encodedPayload}.${signature}`;
 
     return jsonResponse({
       token,
-      expiresAt: null,
-      ttlSeconds: null,
+      expiresAt: new Date(expiresAtSeconds * 1000).toISOString(),
+      ttlSeconds: QR_TTL_SECONDS,
     });
   } catch (error) {
     console.error("issue-customer-qr failed", error);

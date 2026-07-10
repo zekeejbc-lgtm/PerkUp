@@ -1,7 +1,8 @@
 import { supabase } from "./supabase";
 
 export const LEGACY_CUSTOMER_QR_PREFIX = "perkup:v1:";
-export const SECURE_CUSTOMER_QR_PREFIX = "perkup:v2:";
+export const RETIRED_CUSTOMER_QR_PREFIX = "perkup:v2:";
+export const SECURE_CUSTOMER_QR_PREFIX = "perkup:v3:";
 
 export type IssuedCustomerQr = {
   token: string;
@@ -29,6 +30,8 @@ export type ScanTicket = {
   ticketNumber: string;
   cryptographicId?: string;
   status: "issued";
+  staffId: string;
+  staffName: string;
   storeId: string;
   storeName: string;
   promotionId: string | null;
@@ -101,6 +104,7 @@ const getFunctionErrorMessage = async (error: unknown, fallback: string) => {
 
 export const isSecureCustomerQr = (value: string) =>
   value.trim().startsWith(SECURE_CUSTOMER_QR_PREFIX) ||
+  value.trim().startsWith(RETIRED_CUSTOMER_QR_PREFIX) ||
   value.trim().startsWith(LEGACY_CUSTOMER_QR_PREFIX);
 
 export const normalizeCustomerUsername = (value: string) =>

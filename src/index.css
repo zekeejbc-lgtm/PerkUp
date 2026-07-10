@@ -69,7 +69,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeleton-shimmer {
+  .skeleton-shimmer,
+  .animate-scroll {
     animation: none;
   }
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, Loader2, RefreshCw, Star, Ticket } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, Star, Store, Ticket, UserRoundCheck } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { Pagination } from "../../components/Pagination";
@@ -11,6 +11,7 @@ type CustomerTicket = {
   ticketNumber: string;
   status: string;
   storeName: string;
+  staffName: string;
   promotionTitle: string | null;
   points: number;
   issuedAt: string;
@@ -52,6 +53,7 @@ export default function CustomerTickets() {
         ticketNumber: row.data.ticketNumber || `LEGACY-${String(row.id).slice(0, 8).toUpperCase()}`,
         status: row.data.status || "issued",
         storeName: row.data.storeName || "PerkUp Store",
+        staffName: row.data.staffName || "Store staff",
         promotionTitle: row.data.promotionTitle || null,
         points: Number(row.data.points || 0),
         issuedAt: row.data.issuedAt || (
@@ -130,6 +132,10 @@ export default function CustomerTickets() {
                 <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700 dark:bg-green-900/30 dark:text-green-300">
                   <CheckCircle2 className="h-3.5 w-3.5" /> Successful
                 </span>
+              </div>
+              <div className="mt-4 grid gap-2 rounded-2xl bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800/70 dark:text-gray-300 sm:grid-cols-2">
+                <p className="flex items-center gap-2"><UserRoundCheck className="h-4 w-4 shrink-0" /> Scanned by {ticket.staffName}</p>
+                <p className="flex items-center gap-2"><Store className="h-4 w-4 shrink-0" /> {ticket.storeName}</p>
               </div>
               <div className="mt-5 flex items-end justify-between border-t border-gray-100 pt-4 dark:border-gray-800">
                 <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(ticket.issuedAt).toLocaleString()}</p>

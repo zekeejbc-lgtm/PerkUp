@@ -90,6 +90,7 @@ export default function LandingPage() {
     heroImageUrl: "https://images.unsplash.com/photo-1554118811-1e0d58224f24?q=80&w=2047&auto=format&fit=crop",
     trustedBusinesses: [],
     usePartnerStores: false,
+    animateTrustedBusinesses: true,
     applicationsOpen: true,
     footerInfo: {
       address: "Tagum City, Davao del Norte, Philippines",
@@ -206,7 +207,7 @@ export default function LandingPage() {
       : LOGOS;
   // Five 256px items fill the widest content area. Smaller sets are clearer
   // when they remain centered instead of being duplicated into a marquee.
-  const shouldAnimateTrustedBusinesses = trustedBusinesses.length >= 5;
+  const shouldAnimateTrustedBusinesses = config.animateTrustedBusinesses !== false && trustedBusinesses.length >= 5;
   const displayedTrustedBusinesses = shouldAnimateTrustedBusinesses
     ? [...trustedBusinesses, ...trustedBusinesses]
     : trustedBusinesses;
@@ -314,7 +315,7 @@ export default function LandingPage() {
             Trusted by local businesses
           </p>
 
-          <div className={`relative w-full overflow-hidden flex ${shouldAnimateTrustedBusinesses ? "" : "justify-center"}`}>
+          <div className={`relative flex w-full ${shouldAnimateTrustedBusinesses ? "overflow-hidden" : "justify-center px-6"}`}>
             {/* gradient fades for the edges */}
             {shouldAnimateTrustedBusinesses && (
               <>
@@ -323,7 +324,7 @@ export default function LandingPage() {
               </>
             )}
 
-            <div className={`flex transition-opacity duration-500 ${shouldAnimateTrustedBusinesses ? "animate-scroll w-max" : "justify-center"}`}>
+            <div className={`flex transition-opacity duration-500 ${shouldAnimateTrustedBusinesses ? "animate-scroll w-max" : "w-full flex-wrap justify-center gap-y-8"}`}>
               {displayedTrustedBusinesses.map((business: any, idx: number) => {
                 const FallbackIcon = business.icon || StoreIcon;
                 return (

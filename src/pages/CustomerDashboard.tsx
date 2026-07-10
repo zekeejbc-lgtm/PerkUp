@@ -1,7 +1,10 @@
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { QrCode, Map, CreditCard, Gift, User as UserIcon, Menu, Ticket } from "lucide-react";
 import { PageSkeleton } from "../components/LoadingSkeleton";
+import { useAuth } from "../contexts/AuthContext";
+import { supabase } from "../lib/supabase";
+import { useToast } from "../components/ToastProvider";
 
 const CustomerOverview = lazy(() => import("./customer/CustomerOverview"));
 const CustomerProfile = lazy(() => import("./customer/CustomerProfile"));
@@ -9,6 +12,55 @@ const CustomerStores = lazy(() => import("./customer/CustomerStores"));
 const CustomerCards = lazy(() => import("./customer/CustomerCards"));
 const CustomerPromotions = lazy(() => import("./customer/CustomerPromotions"));
 const CustomerTickets = lazy(() => import("./customer/CustomerTickets"));
+
+type CustomerScanEvent = {
+  customerId?: string;
+  staffName?: string;
+  storeName?: string;
+  points?: number | string;
+};
+
+function CustomerScanNotifications() {
+  const { user } = useAuth();
+  const toast = useToast();
+  const notifiedTicketIds = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`customer-scan-notifications-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "promotions_scanned" },
+        (payload) => {
+          const row = payload.new as { id?: string; data?: CustomerScanEvent };
+          const ticketId = String(row.id || "");
+          const scan = row.data;
+          if (!scan || scan.customerId !== user.id || !ticketId || notifiedTicketIds.current.has(ticketId)) return;
+
+          notifiedTicketIds.current.add(ticketId);
+          const staffName = String(scan.staffName || "Store staff");
+          const storeName = String(scan.storeName || "the store");
+          const points = Number(scan.points || 0);
+          const creditMessage = points > 0
+            ? ` You received ${points} stamp${points === 1 ? "" : "s"}.`
+            : "";
+          toast.success(`${staffName} scanned your QR at ${storeName}.${creditMessage}`, {
+            title: "Scan successful",
+            duration: 7000,
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [toast, user?.id]);
+
+  return null;
+}
 
 export default function CustomerDashboard() {
   const location = useLocation();
@@ -38,6 +90,7 @@ export default function CustomerDashboard() {
 
   return (
     <div className="flex flex-col md:flex-row gap-8 pb-24 md:pb-0 w-full relative">
+      <CustomerScanNotifications />
       {/* Desktop Sidebar Navigation */}
       <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 h-max z-10 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
         <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} mb-2`}>

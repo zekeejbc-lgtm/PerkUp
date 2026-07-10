@@ -17,5 +17,6 @@ export const jsonResponse = (body: unknown, status = 200) =>
     headers: {
       ...corsHeaders,
       "Content-Type": "application/json",
+      "Cache-Control": "no-store",
     },
   });

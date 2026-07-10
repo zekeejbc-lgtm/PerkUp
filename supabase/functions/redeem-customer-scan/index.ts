@@ -2,7 +2,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 
 const LEGACY_TOKEN_PREFIX = "perkup:v1:";
-const SIGNED_TOKEN_PREFIX = "perkup:v2:";
+const RETIRED_SIGNED_TOKEN_PREFIX = "perkup:v2:";
+const SIGNED_TOKEN_PREFIX = "perkup:v3:";
 const MAX_POINTS_PER_SCAN = 100;
 const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
 const PHILIPPINE_UTC_OFFSET = "+08:00";
@@ -125,15 +126,23 @@ const timingSafeEqual = (left: Uint8Array, right: Uint8Array) => {
 };
 
 const verifySignedCustomerToken = async (scanToken: string, secret: string) => {
-  if (!scanToken.startsWith(SIGNED_TOKEN_PREFIX)) return null;
+  const tokenPrefix = scanToken.startsWith(SIGNED_TOKEN_PREFIX)
+    ? SIGNED_TOKEN_PREFIX
+    : scanToken.startsWith(RETIRED_SIGNED_TOKEN_PREFIX)
+      ? RETIRED_SIGNED_TOKEN_PREFIX
+      : "";
+  if (!tokenPrefix) return null;
+  if (tokenPrefix === RETIRED_SIGNED_TOKEN_PREFIX) {
+    return { customerId: "", qrVersion: 0, expired: true };
+  }
 
   try {
-    const tokenBody = scanToken.slice(SIGNED_TOKEN_PREFIX.length);
+    const tokenBody = scanToken.slice(tokenPrefix.length);
     const [encodedPayload, encodedSignature] = tokenBody.split(".");
     if (!encodedPayload || !encodedSignature) return null;
 
     const payload = new TextDecoder().decode(base64UrlToBytes(encodedPayload));
-    const [customerId, versionText] = payload.split(".");
+    const [customerId, versionText, expiresAtText] = payload.split(".");
     const qrVersion = Number(versionText);
     if (!customerId || !Number.isInteger(qrVersion) || qrVersion < 1) return null;
 
@@ -141,7 +150,11 @@ const verifySignedCustomerToken = async (scanToken: string, secret: string) => {
     const actualSignature = base64UrlToBytes(encodedSignature);
     if (!timingSafeEqual(actualSignature, expectedSignature)) return null;
 
-    return { customerId, qrVersion };
+    const expiresAtSeconds = Number(expiresAtText);
+    const expired = tokenPrefix === RETIRED_SIGNED_TOKEN_PREFIX
+      || !Number.isInteger(expiresAtSeconds)
+      || expiresAtSeconds <= Math.floor(Date.now() / 1000);
+    return { customerId, qrVersion, expired };
   } catch {
     return null;
   }
@@ -163,19 +176,21 @@ Deno.serve(async (req) => {
     const scannerLocation = normalizeScannerLocation(body.scannerLocation);
 
     const isManualLookup = Boolean(manualUsername);
-    const isSignedToken = scanToken.startsWith(SIGNED_TOKEN_PREFIX);
+    const isSignedToken = scanToken.startsWith(SIGNED_TOKEN_PREFIX)
+      || scanToken.startsWith(RETIRED_SIGNED_TOKEN_PREFIX);
     const isLegacyToken = scanToken.startsWith(LEGACY_TOKEN_PREFIX);
     if (!isManualLookup && !isSignedToken && !isLegacyToken) {
       return jsonResponse({ error: "Invalid PerkUp QR code." }, 400);
     }
     if (isManualLookup && !isValidUsername(manualUsername)) {
-      return jsonResponse({ error: "Customer username could not be verified." }, 404);
+      return jsonResponse({ error: "Invalid: no customer found." }, 404);
     }
     if (!storeId) return jsonResponse({ error: "Store is required." }, 400);
 
     const supabaseUrl = requiredEnv("SUPABASE_URL");
     const anonKey = requiredEnv("SUPABASE_ANON_KEY");
     const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const signingSecret = requiredEnv("QR_SIGNING_SECRET");
     const authorization = req.headers.get("Authorization") || "";
 
     const userClient = createClient(supabaseUrl, anonKey, {
@@ -196,7 +211,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (staffError) throw staffError;
 
-    const staff = staffRow?.data as { role?: string; storeId?: string } | null;
+    const staff = staffRow?.data as { role?: string; storeId?: string; name?: string } | null;
     const isAuthorizedStaff =
       staff?.role === "staff" && String(staff.storeId || "") === storeId;
     if (!isAuthorizedStaff) {
@@ -284,6 +299,7 @@ Deno.serve(async (req) => {
 
     let customerId = "";
     let tokenHash = "";
+    let verifiedSignedToken: Awaited<ReturnType<typeof verifySignedCustomerToken>> = null;
 
     if (isManualLookup) {
       const { data: usernameRow, error: usernameError } = await admin
@@ -318,12 +334,13 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (!customerId) return jsonResponse({ error: "Customer username could not be verified." }, 404);
+      if (!customerId) return jsonResponse({ error: "Invalid: no customer found." }, 404);
     } else if (isSignedToken) {
-      const verifiedToken = await verifySignedCustomerToken(scanToken, serviceKey);
-      if (!verifiedToken) return jsonResponse({ error: "QR code signature could not be verified." }, 400);
+      verifiedSignedToken = await verifySignedCustomerToken(scanToken, signingSecret);
+      if (!verifiedSignedToken) return jsonResponse({ error: "Invalid PerkUp QR code." }, 400);
+      if (verifiedSignedToken.expired) return jsonResponse({ error: "QR is expired." }, 410);
 
-      customerId = verifiedToken.customerId;
+      customerId = verifiedSignedToken.customerId;
     } else {
       tokenHash = await sha256Hex(scanToken);
       const { data: tokenRow, error: tokenError } = await admin
@@ -335,7 +352,7 @@ Deno.serve(async (req) => {
       if (!tokenRow) return jsonResponse({ error: "QR code was not issued by PerkUp." }, 400);
       if (tokenRow.used_at) return jsonResponse({ error: "QR code has already been used." }, 409);
       if (new Date(tokenRow.expires_at).getTime() <= Date.now()) {
-        return jsonResponse({ error: "QR code has expired. Ask the customer to refresh it." }, 410);
+        return jsonResponse({ error: "QR is expired. Ask the customer to refresh it." }, 410);
       }
       customerId = tokenRow.customer_id as string;
     }
@@ -356,14 +373,13 @@ Deno.serve(async (req) => {
       qrVersion?: number;
     } | null;
     if (isSignedToken) {
-      const verifiedToken = await verifySignedCustomerToken(scanToken, serviceKey);
       const activeQrVersion = Number.isFinite(Number(customer?.qrVersion)) ? Number(customer?.qrVersion) : 1;
-      if (!verifiedToken || verifiedToken.qrVersion !== activeQrVersion) {
-        return jsonResponse({ error: "QR code has been replaced. Ask the customer for their latest QR." }, 410);
+      if (!verifiedSignedToken || verifiedSignedToken.qrVersion !== activeQrVersion) {
+        return jsonResponse({ error: "QR is expired. Ask the customer for their latest QR." }, 410);
       }
     }
     if (!customer) {
-      return jsonResponse({ error: "Customer profile could not be loaded." }, 404);
+      return jsonResponse({ error: "Invalid: no customer found." }, 404);
     }
 
     const customerUsername = normalizeUsername(customer?.username || manualUsername);
@@ -575,12 +591,14 @@ Deno.serve(async (req) => {
         }
       }
 
+      const staffName = String(staff?.name || "Store staff");
       const scanLog = {
         ticketNumber,
         cryptographicId,
         status: "issued",
         customerId,
         staffId: authData.user.id,
+        staffName,
         storeId,
         storeName: String(store?.name || "Store"),
         promotionId: promotionId || null,
@@ -625,6 +643,8 @@ Deno.serve(async (req) => {
           ticketNumber,
           cryptographicId,
           status: "issued",
+          staffId: authData.user.id,
+          staffName,
           storeId,
           storeName: String(store?.name || "Store"),
           promotionId: promotionId || null,

@@ -23,7 +23,13 @@ if (!supabaseAnonKey) {
   console.warn("VITE_SUPABASE_ANON_KEY is missing. Please add it to your environment variables.");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey || 'missing-key');
+export const supabase = createClient(supabaseUrl, supabaseAnonKey || 'missing-key', {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+  },
+});
 export const secondarySupabase = createClient(supabaseUrl, supabaseAnonKey || 'missing-key', {
   auth: {
     storageKey: 'perkup-secondary-auth',

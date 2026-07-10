@@ -12,6 +12,7 @@ type HomepageConfig = {
   heroImageUrl: string;
   trustedBusinesses: { name: string; logoUrl: string }[];
   usePartnerStores: boolean;
+  animateTrustedBusinesses: boolean;
   footerInfo: {
     address: string;
     email: string;
@@ -33,6 +34,7 @@ const DEFAULT_CONFIG: HomepageConfig = {
     { name: "Downtown Coffee", logoUrl: "https://images.unsplash.com/photo-1497935586351-b67a49e012bf?auto=format&fit=crop&w=100&h=100&q=80" }
   ],
   usePartnerStores: false,
+  animateTrustedBusinesses: true,
   footerInfo: {
     address: "Tagum City, Davao del Norte, Philippines",
     email: "perkup.shop@youthserviceph.org",
@@ -53,6 +55,7 @@ const mergeHomepageConfig = (data: Partial<HomepageConfig> = {}): HomepageConfig
   ...data,
   trustedBusinesses: data.trustedBusinesses ?? DEFAULT_CONFIG.trustedBusinesses,
   usePartnerStores: data.usePartnerStores ?? DEFAULT_CONFIG.usePartnerStores,
+  animateTrustedBusinesses: data.animateTrustedBusinesses ?? DEFAULT_CONFIG.animateTrustedBusinesses,
   applicationsOpen: data.applicationsOpen ?? DEFAULT_CONFIG.applicationsOpen,
   footerInfo: {
     ...DEFAULT_CONFIG.footerInfo,
@@ -530,7 +533,24 @@ export default function AdminHomepage() {
               </button>
             )}
           </div>
-          
+
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/50">
+            <div>
+              <h5 className="text-sm font-semibold text-gray-900 dark:text-white">Animate business logos</h5>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Move the logos continuously across the homepage. Turn this off to show a centered, static layout.</p>
+            </div>
+            <label className="relative inline-flex shrink-0 cursor-pointer items-center">
+              <input
+                type="checkbox"
+                className="peer sr-only"
+                checked={config.animateTrustedBusinesses}
+                onChange={(event) => setConfig({ ...config, animateTrustedBusinesses: event.target.checked })}
+                aria-label="Animate business logos"
+              />
+              <div className="h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-[#1b1b1b] peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#1b1b1b]/30 dark:bg-gray-700 dark:peer-checked:bg-white dark:peer-checked:after:bg-[#1b1b1b] dark:peer-focus:ring-white/30"></div>
+            </label>
+          </div>
+
           {config.usePartnerStores ? (
             <div className="p-8 text-center text-gray-500 text-sm border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900/50">
               The homepage will automatically fetch and display active partner stores here.

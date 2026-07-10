@@ -401,8 +401,14 @@ export function deleteField(): DeleteFieldValue {
 }
 
 export async function getCountFromServer(ref: CollectionRef | QueryRef) {
-  const snapshot = await getDocs(ref);
+  const collectionName = ref.type === "collection" ? ref.name : ref.collectionName;
+  const filters = ref.type === "query" ? ref.filters : [];
+  const { count, error } = await applyFilters(
+    dataApi(collectionName).select("id", { count: "exact", head: true }),
+    filters,
+  );
+  if (error) throw error;
   return {
-    data: () => ({ count: snapshot.size }),
+    data: () => ({ count: count || 0 }),
   };
 }

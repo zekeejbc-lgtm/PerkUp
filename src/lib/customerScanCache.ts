@@ -1,5 +1,10 @@
 import type { CustomerScanCard, RedeemedCustomerScan } from "./secureQr";
 
+export type CustomerScanCacheScope = {
+  staffId: string;
+  storeId: string;
+};
+
 type CachedCustomerScan = {
   customer: {
     id: string;
@@ -10,59 +15,157 @@ type CachedCustomerScan = {
     cards: CustomerScanCard[];
   };
   cachedAt: number;
+  qrExpiresAt?: number;
 };
 
-const CACHE_PREFIX = "perkup:customerScanCache";
+type EncryptedCache = {
+  version: 1;
+  iv: number[];
+  ciphertext: ArrayBuffer;
+};
+
+const LEGACY_CACHE_PREFIX = "perkup:customerScanCache";
+const DB_NAME = "perkup-secure-scan-cache";
+const DB_VERSION = 1;
+const KEY_STORE = "keys";
+const CACHE_STORE = "customer-rosters";
+const DEVICE_KEY_ID = "customer-cache-aes-key";
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_CACHE_ITEMS = 200;
-
-const safeJsonParse = (value: string | null): Record<string, CachedCustomerScan> => {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-};
-
-const cacheKey = (storeId: string) => `${CACHE_PREFIX}:${storeId}`;
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
 
 const digest = async (value: string) => {
-  const buffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  const buffer = await crypto.subtle.digest("SHA-256", textEncoder.encode(value));
   return Array.from(new Uint8Array(buffer))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 };
 
-const normalizeCache = (cache: Record<string, CachedCustomerScan>) => {
+const removeLegacyPlaintextCaches = () => {
+  if (typeof localStorage === "undefined") return;
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith(LEGACY_CACHE_PREFIX)) localStorage.removeItem(key);
+  }
+};
+
+const openCacheDb = () => new Promise<IDBDatabase>((resolve, reject) => {
+  if (typeof indexedDB === "undefined") {
+    reject(new Error("Secure browser storage is unavailable."));
+    return;
+  }
+
+  const request = indexedDB.open(DB_NAME, DB_VERSION);
+  request.onupgradeneeded = () => {
+    const db = request.result;
+    if (!db.objectStoreNames.contains(KEY_STORE)) db.createObjectStore(KEY_STORE);
+    if (!db.objectStoreNames.contains(CACHE_STORE)) db.createObjectStore(CACHE_STORE);
+  };
+  request.onsuccess = () => resolve(request.result);
+  request.onerror = () => reject(request.error || new Error("Could not open the secure customer cache."));
+});
+
+const idbGet = <T>(db: IDBDatabase, storeName: string, key: string) => new Promise<T | undefined>((resolve, reject) => {
+  const request = db.transaction(storeName, "readonly").objectStore(storeName).get(key);
+  request.onsuccess = () => resolve(request.result as T | undefined);
+  request.onerror = () => reject(request.error);
+});
+
+const idbPut = (db: IDBDatabase, storeName: string, key: string, value: unknown) => new Promise<void>((resolve, reject) => {
+  const request = db.transaction(storeName, "readwrite").objectStore(storeName).put(value, key);
+  request.onsuccess = () => resolve();
+  request.onerror = () => reject(request.error);
+});
+
+const idbDelete = (db: IDBDatabase, storeName: string, key: string) => new Promise<void>((resolve, reject) => {
+  const request = db.transaction(storeName, "readwrite").objectStore(storeName).delete(key);
+  request.onsuccess = () => resolve();
+  request.onerror = () => reject(request.error);
+});
+
+const getDeviceKey = async (db: IDBDatabase) => {
+  const existing = await idbGet<CryptoKey>(db, KEY_STORE, DEVICE_KEY_ID);
+  if (existing) return existing;
+
+  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  await idbPut(db, KEY_STORE, DEVICE_KEY_ID, key);
+  return key;
+};
+
+const getScopeId = async (scope: CustomerScanCacheScope) =>
+  digest(`staff:${scope.staffId}:store:${scope.storeId}`);
+
+const validScope = (scope: CustomerScanCacheScope) => Boolean(scope.staffId && scope.storeId);
+
+const normalizeCache = (value: unknown): Record<string, CachedCustomerScan> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const cutoff = Date.now() - CACHE_TTL_MS;
   return Object.fromEntries(
-    Object.entries(cache)
-      .filter(([, value]) => value?.cachedAt >= cutoff && value?.customer?.id)
+    Object.entries(value as Record<string, CachedCustomerScan>)
+      .filter(([, item]) => (
+        item?.cachedAt >= cutoff
+        && item?.customer?.id
+        && (!item.qrExpiresAt || item.qrExpiresAt > Date.now())
+      ))
       .sort((left, right) => right[1].cachedAt - left[1].cachedAt)
       .slice(0, MAX_CACHE_ITEMS),
   );
 };
 
-const readCache = (storeId: string) => {
-  if (typeof localStorage === "undefined") return {};
-  const key = cacheKey(storeId);
-  const cache = normalizeCache(safeJsonParse(localStorage.getItem(key)));
+const readEncryptedCache = async (scope: CustomerScanCacheScope) => {
+  removeLegacyPlaintextCaches();
+  if (!validScope(scope) || !globalThis.crypto?.subtle) return {};
+
+  const db = await openCacheDb();
+  const scopeId = await getScopeId(scope);
+  const envelope = await idbGet<EncryptedCache>(db, CACHE_STORE, scopeId);
+  if (!envelope) return {};
+
   try {
-    localStorage.setItem(key, JSON.stringify(cache));
-  } catch {
-    // Best-effort cache only.
+    const key = await getDeviceKey(db);
+    const plaintext = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: new Uint8Array(envelope.iv), additionalData: textEncoder.encode(scopeId) },
+      key,
+      envelope.ciphertext,
+    );
+    return normalizeCache(JSON.parse(textDecoder.decode(plaintext)));
+  } catch (error) {
+    await idbDelete(db, CACHE_STORE, scopeId).catch(() => undefined);
+    console.warn("Discarded an unreadable customer scan cache.", error);
+    return {};
   }
-  return cache;
 };
 
-const writeCache = (storeId: string, cache: Record<string, CachedCustomerScan>) => {
-  if (typeof localStorage === "undefined") return;
+const writeEncryptedCache = async (
+  scope: CustomerScanCacheScope,
+  cache: Record<string, CachedCustomerScan>,
+) => {
+  if (!validScope(scope) || !globalThis.crypto?.subtle) return;
+
+  const db = await openCacheDb();
+  const scopeId = await getScopeId(scope);
+  const key = await getDeviceKey(db);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: textEncoder.encode(scopeId) },
+    key,
+    textEncoder.encode(JSON.stringify(normalizeCache(cache))),
+  );
+  await idbPut(db, CACHE_STORE, scopeId, { version: 1, iv: Array.from(iv), ciphertext } satisfies EncryptedCache);
+};
+
+const getQrExpiry = (scanToken: string) => {
+  if (!scanToken.startsWith("perkup:v3:")) return undefined;
   try {
-    localStorage.setItem(cacheKey(storeId), JSON.stringify(normalizeCache(cache)));
-  } catch (error) {
-    console.warn("Failed to persist customer scan cache.", error);
+    const encodedPayload = scanToken.slice("perkup:v3:".length).split(".")[0];
+    const normalized = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + (4 - normalized.length % 4) % 4, "=");
+    const payload = atob(padded);
+    const expiresAtSeconds = Number(payload.split(".")[2]);
+    return Number.isFinite(expiresAtSeconds) ? expiresAtSeconds * 1000 : undefined;
+  } catch {
+    return undefined;
   }
 };
 
@@ -75,21 +178,21 @@ export const getCustomerScanCacheKey = async (input: { scanToken?: string; manua
 };
 
 export const readCustomerScanCache = async (
-  storeId: string,
+  scope: CustomerScanCacheScope,
   input: { scanToken?: string; manualUsername?: string },
 ) => {
   const lookupKey = await getCustomerScanCacheKey(input);
-  if (!storeId || !lookupKey) return null;
-  return readCache(storeId)[lookupKey] || null;
+  if (!validScope(scope) || !lookupKey) return null;
+  return (await readEncryptedCache(scope))[lookupKey] || null;
 };
 
 export const writeCustomerScanCache = async (
-  storeId: string,
+  scope: CustomerScanCacheScope,
   input: { scanToken?: string; manualUsername?: string },
   result: RedeemedCustomerScan,
 ) => {
   const lookupKey = await getCustomerScanCacheKey(input);
-  if (!storeId || !lookupKey || !result.customer?.id) return;
+  if (!validScope(scope) || !lookupKey || !result.customer?.id) return;
 
   const customer = {
     id: result.customer.id,
@@ -99,14 +202,16 @@ export const writeCustomerScanCache = async (
     existingStars: Number(result.customer.existingStars || 0),
     cards: result.customer.cards || [],
   };
+  const cachedAt = Date.now();
+  const cachedEntry = { customer, cachedAt, qrExpiresAt: getQrExpiry(String(input.scanToken || "")) };
   const nextCache = {
-    ...readCache(storeId),
-    [lookupKey]: { customer, cachedAt: Date.now() },
+    ...await readEncryptedCache(scope),
+    [lookupKey]: cachedEntry,
   };
 
   if (customer.username) {
-    nextCache[`username:${customer.username.toLowerCase()}`] = { customer, cachedAt: Date.now() };
+    nextCache[`username:${customer.username.toLowerCase()}`] = { customer, cachedAt };
   }
 
-  writeCache(storeId, nextCache);
+  await writeEncryptedCache(scope, nextCache);
 };

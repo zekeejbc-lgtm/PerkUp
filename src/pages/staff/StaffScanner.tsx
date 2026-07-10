@@ -30,6 +30,7 @@ import { normalizeStampStyle, StoreStamp } from "@/src/components/StoreStamp";
 import { getPhilippineDateTimeMillis } from "@/src/lib/dateTime";
 import { formatCustomerCode } from "@/src/lib/customerId";
 import { PROMOTION_REDEEM_QR_PREFIX, redeemPromotionClaim } from "@/src/lib/promotionClaims";
+import { useAuth } from "@/src/contexts/AuthContext";
 
 type ScannerLocation = {
   lat: number;
@@ -129,6 +130,7 @@ const isPromotionCurrentlyVisible = (promotion: Promotion) => {
 };
 
 export default function StaffScanner({ store }: { store: any }) {
+  const { user } = useAuth();
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [selectedPromotionId, setSelectedPromotionId] = useState("");
   const [scannerLocation, setScannerLocation] = useState<ScannerLocation | null>(null);
@@ -151,6 +153,7 @@ export default function StaffScanner({ store }: { store: any }) {
   const duplicateScanRef = useRef<{ token: string; scannedAt: number; alertedAt: number } | null>(null);
 
   const selectedPromotion = promotions.find((promotion) => promotion.id === selectedPromotionId) || null;
+  const customerCacheScope = { staffId: user?.id || "", storeId: String(store?.id || "") };
   const activeGeofence = getScannerGeofence(selectedPromotion);
   const distanceFromGeofence = scannerLocation && activeGeofence
     ? distanceInMeters(scannerLocation, activeGeofence)
@@ -254,7 +257,7 @@ export default function StaffScanner({ store }: { store: any }) {
   };
 
   const previewCustomer = async (redemptionInput: RedemptionInput) => {
-    const cachedScan = await readCustomerScanCache(store.id, redemptionInput);
+    const cachedScan = await readCustomerScanCache(customerCacheScope, redemptionInput);
     if (cachedScan) {
       setScannedCustomer({
         ...cachedScan.customer,
@@ -273,7 +276,7 @@ export default function StaffScanner({ store }: { store: any }) {
       previewOnly: true,
     });
 
-    await writeCustomerScanCache(store.id, redemptionInput, result);
+    await writeCustomerScanCache(customerCacheScope, redemptionInput, result);
     setScannedCustomer({
       id: result.customer.id,
       username: result.customer.username,
@@ -352,7 +355,7 @@ export default function StaffScanner({ store }: { store: any }) {
 
     try {
       if (!navigator.onLine) {
-        const cachedScan = await readCustomerScanCache(store.id, { scanToken });
+        const cachedScan = await readCustomerScanCache(customerCacheScope, { scanToken });
         if (!cachedScan) {
           setMessage({ type: "error", text: "No saved customer info on this device. Connect to the internet once to verify this customer." });
           setIsScannerActive(true);
@@ -388,7 +391,7 @@ export default function StaffScanner({ store }: { store: any }) {
 
     try {
       if (!navigator.onLine) {
-        const cachedScan = await readCustomerScanCache(store.id, { manualUsername: username });
+        const cachedScan = await readCustomerScanCache(customerCacheScope, { manualUsername: username });
         if (!cachedScan) {
           setManualError("No saved customer info on this device. Connect to verify this username.");
           return;
@@ -452,7 +455,7 @@ export default function StaffScanner({ store }: { store: any }) {
         cards: updatedCards.length > 0 ? updatedCards : result.customer.cards || [],
         isCachedPreview: false,
       });
-      await writeCustomerScanCache(store.id, scannedCustomer.redemptionInput, result);
+      await writeCustomerScanCache(customerCacheScope, scannedCustomer.redemptionInput, result);
       setManualUsername("");
       setMessage({
         type: "success",
