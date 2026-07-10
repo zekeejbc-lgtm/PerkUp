@@ -40,12 +40,11 @@
   color: #ffffff;
 }
 
-button,
-input,
-select,
-textarea {
-  color: inherit;
-  font: inherit;
+@layer base {
+  button, input, select, textarea {
+    color: inherit;
+    font: inherit;
+  }
 }
 
 @keyframes blob {
