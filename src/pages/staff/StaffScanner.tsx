@@ -22,7 +22,7 @@ import {
   UserCircle,
   X,
 } from "lucide-react";
-import { CustomerScanCard, isSecureCustomerQr, normalizeCustomerUsername, redeemCustomerScan } from "@/src/lib/secureQr";
+import { CustomerScanCard, normalizeCustomerUsername, parseCustomerQr, redeemCustomerScan } from "@/src/lib/secureQr";
 import { readCustomerScanCache, writeCustomerScanCache } from "@/src/lib/customerScanCache";
 import { getDisplayImageUrl } from "@/src/lib/imageStorage";
 import { CustomDropdown } from "@/src/components/CustomDropdown";
@@ -31,6 +31,9 @@ import { getPhilippineDateTimeMillis } from "@/src/lib/dateTime";
 import { formatCustomerCode } from "@/src/lib/customerId";
 import { PROMOTION_REDEEM_QR_PREFIX, redeemPromotionClaim } from "@/src/lib/promotionClaims";
 import { useAuth } from "@/src/contexts/AuthContext";
+import { configureQrScannerRuntime } from "@/src/lib/qrScannerRuntime";
+
+configureQrScannerRuntime();
 
 type ScannerLocation = {
   lat: number;
@@ -150,6 +153,7 @@ export default function StaffScanner({ store }: { store: any }) {
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showScanSuccess, setShowScanSuccess] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [creditSuccessToast, setCreditSuccessToast] = useState<string | null>(null);
   const duplicateScanRef = useRef<{ token: string; scannedAt: number; alertedAt: number } | null>(null);
 
   const selectedPromotion = promotions.find((promotion) => promotion.id === selectedPromotionId) || null;
@@ -193,7 +197,22 @@ export default function StaffScanner({ store }: { store: any }) {
     setBatchQueue([]);
     setShowBatchModal(false);
     setMessage(null);
+    setCreditSuccessToast(null);
   }, [selectedPromotionId]);
+
+  useEffect(() => {
+    if (!creditSuccessToast) return;
+
+    const closeTimer = window.setTimeout(() => {
+      setCreditSuccessToast(null);
+      setScannedCustomer(null);
+      setSelectedCardId("");
+      setPointsToAdd(1);
+      setIsScannerActive(true);
+    }, 5000);
+
+    return () => window.clearTimeout(closeTimer);
+  }, [creditSuccessToast]);
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -256,6 +275,16 @@ export default function StaffScanner({ store }: { store: any }) {
     setLocationPing((value) => value + 1);
   };
 
+  const handleScannerError = (error: unknown) => {
+    console.error("QR scanner failed", error);
+    const detail = error instanceof Error ? error.message : "The camera or QR decoder could not start.";
+    setMessage({
+      type: "error",
+      text: `Scanner unavailable: ${detail} Check camera permission, then stop and restart the scanner.`,
+    });
+    setIsScannerActive(false);
+  };
+
   const previewCustomer = async (redemptionInput: RedemptionInput) => {
     const cachedScan = await readCustomerScanCache(customerCacheScope, redemptionInput);
     if (cachedScan) {
@@ -290,10 +319,10 @@ export default function StaffScanner({ store }: { store: any }) {
   };
 
   const handleScan = async (rawValue: string) => {
-    const scanToken = String(rawValue || "").trim();
-    if (!scanToken || isProcessing || scannedCustomer || !isWithinGeofence) return;
+    const scanValue = String(rawValue || "").trim();
+    if (!scanValue || isProcessing || scannedCustomer || !isWithinGeofence) return;
 
-    if (scanToken.startsWith(PROMOTION_REDEEM_QR_PREFIX)) {
+    if (scanValue.startsWith(PROMOTION_REDEEM_QR_PREFIX)) {
       if (isBatchMode) {
         setMessage({ type: "error", text: "Reward claims must be redeemed in Single Scan mode." });
         return;
@@ -306,7 +335,7 @@ export default function StaffScanner({ store }: { store: any }) {
       setIsScannerActive(false);
       setMessage(null);
       try {
-        const claim = await redeemPromotionClaim({ storeId: store.id, lookup: scanToken, method: "qr" });
+        const claim = await redeemPromotionClaim({ storeId: store.id, lookup: scanValue, method: "qr" });
         setShowScanSuccess(true);
         setTimeout(() => setShowScanSuccess(false), 1000);
         setMessage({ type: "success", text: `Reward ${claim.redeemCode} redeemed successfully and marked as used.` });
@@ -319,14 +348,24 @@ export default function StaffScanner({ store }: { store: any }) {
       return;
     }
 
-    if (!isSecureCustomerQr(scanToken)) {
+    const parsedQr = parseCustomerQr(scanValue);
+    if (!parsedQr) {
       setMessage({ type: "error", text: "Invalid PerkUp QR code. Ask the customer to open their Identity QR." });
       return;
     }
+    if (isBatchMode && parsedQr.kind === "profile") {
+      setMessage({ type: "error", text: "Downloaded username QR cards are confirmed in Single Scan mode." });
+      return;
+    }
+
+    const redemptionInput: RedemptionInput = parsedQr.kind === "secure"
+      ? { scanToken: parsedQr.scanToken }
+      : { manualUsername: parsedQr.manualUsername };
+    const scanKey = parsedQr.kind === "secure" ? parsedQr.scanToken : `@${parsedQr.manualUsername}`;
 
     const now = Date.now();
     const lastScan = duplicateScanRef.current;
-    if (lastScan?.token === scanToken && now - lastScan.scannedAt < DUPLICATE_SCAN_COOLDOWN_MS) {
+    if (lastScan?.token === scanKey && now - lastScan.scannedAt < DUPLICATE_SCAN_COOLDOWN_MS) {
       if (now - lastScan.alertedAt > DUPLICATE_SCAN_ALERT_COOLDOWN_MS) {
         setMessage({ type: "error", text: "This QR code was already scanned. Please wait a few seconds before scanning it again." });
         duplicateScanRef.current = { ...lastScan, alertedAt: now };
@@ -334,18 +373,18 @@ export default function StaffScanner({ store }: { store: any }) {
       return;
     }
 
-    if (isBatchMode && batchQueue.some((item) => item.id === scanToken)) {
+    if (isBatchMode && batchQueue.some((item) => item.id === scanKey)) {
       setMessage({ type: "error", text: "This QR code is already in the current batch." });
-      duplicateScanRef.current = { token: scanToken, scannedAt: now, alertedAt: now };
+      duplicateScanRef.current = { token: scanKey, scannedAt: now, alertedAt: now };
       return;
     }
 
-    duplicateScanRef.current = { token: scanToken, scannedAt: now, alertedAt: 0 };
+    duplicateScanRef.current = { token: scanKey, scannedAt: now, alertedAt: 0 };
     setShowScanSuccess(true);
     setTimeout(() => setShowScanSuccess(false), 1000);
 
     if (isBatchMode) {
-      setBatchQueue((queue) => [...queue, { id: scanToken, points: pointsToAdd }]);
+      setBatchQueue((queue) => [...queue, { id: parsedQr.kind === "secure" ? parsedQr.scanToken : scanKey, points: pointsToAdd }]);
       return;
     }
 
@@ -355,7 +394,7 @@ export default function StaffScanner({ store }: { store: any }) {
 
     try {
       if (!navigator.onLine) {
-        const cachedScan = await readCustomerScanCache(customerCacheScope, { scanToken });
+        const cachedScan = await readCustomerScanCache(customerCacheScope, redemptionInput);
         if (!cachedScan) {
           setMessage({ type: "error", text: "No saved customer info on this device. Connect to the internet once to verify this customer." });
           setIsScannerActive(true);
@@ -363,13 +402,13 @@ export default function StaffScanner({ store }: { store: any }) {
         }
         setScannedCustomer({
           ...cachedScan.customer,
-          redemptionInput: { scanToken },
+          redemptionInput,
           cachedAt: cachedScan.cachedAt,
           isCachedPreview: true,
         });
         setMessage({ type: "success", text: "Loaded saved customer info. Connect to the internet before crediting the card." });
       } else {
-        await previewCustomer({ scanToken });
+        await previewCustomer(redemptionInput);
       }
     } catch (error) {
       console.error(error);
@@ -415,7 +454,7 @@ export default function StaffScanner({ store }: { store: any }) {
   };
 
   const handleCredit = async () => {
-    if (!scannedCustomer || !store?.id || isProcessing) return;
+    if (!scannedCustomer || !store?.id || isProcessing || creditSuccessToast) return;
     if (!navigator.onLine) {
       setMessage({ type: "error", text: "Customer info can be viewed from cache offline, but crediting a card requires internet confirmation." });
       return;
@@ -457,10 +496,9 @@ export default function StaffScanner({ store }: { store: any }) {
       });
       await writeCustomerScanCache(customerCacheScope, scannedCustomer.redemptionInput, result);
       setManualUsername("");
-      setMessage({
-        type: "success",
-        text: `Scan successful. Ticket ${result.ticket?.ticketNumber || "issued"} — credited ${pointsToAdd} point${pointsToAdd === 1 ? "" : "s"} to @${scannedCustomer.username}.`,
-      });
+      setCreditSuccessToast(
+        `Scan successful. Ticket ${result.ticket?.ticketNumber || "issued"} — credited ${pointsToAdd} point${pointsToAdd === 1 ? "" : "s"} to @${scannedCustomer.username}.`,
+      );
     } catch (error) {
       console.error(error);
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Failed to credit card." });
@@ -518,6 +556,7 @@ export default function StaffScanner({ store }: { store: any }) {
   };
 
   const resetScan = () => {
+    setCreditSuccessToast(null);
     setScannedCustomer(null);
     setMessage(null);
     setPointsToAdd(1);
@@ -532,6 +571,20 @@ export default function StaffScanner({ store }: { store: any }) {
 
   return (
     <div className="w-full max-w-5xl space-y-8">
+      {creditSuccessToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed left-1/2 top-4 z-[60] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-start gap-3 rounded-2xl border border-green-200 bg-white p-4 text-sm font-medium text-green-800 shadow-2xl dark:border-green-800 dark:bg-gray-900 dark:text-green-300 sm:top-6"
+        >
+          <CheckCircle2 className="h-5 w-5 shrink-0" />
+          <div>
+            <p>{creditSuccessToast}</p>
+            <p className="mt-1 text-xs text-green-600 dark:text-green-400">This panel will close automatically in 5 seconds.</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">QR Scanner</h2>
@@ -561,8 +614,8 @@ export default function StaffScanner({ store }: { store: any }) {
         </div>
       )}
 
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <section className="rounded-[2rem] border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+      <div className="grid w-full min-w-0 grid-cols-1 gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <section className="min-w-0 rounded-[2rem] border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <div className="mb-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white">
@@ -681,7 +734,14 @@ export default function StaffScanner({ store }: { store: any }) {
                 <p className="text-sm font-semibold">Scanner disabled by geofence</p>
               </div>
             ) : isScannerActive ? (
-              <Scanner onScan={(result) => handleScan(result[0].rawValue)} />
+              <Scanner
+                formats={["qr_code"]}
+                onScan={(result) => {
+                  const rawValue = result[0]?.rawValue;
+                  if (rawValue) handleScan(rawValue);
+                }}
+                onError={handleScannerError}
+              />
             ) : (
               <div className="p-6 text-center text-gray-400">
                 <QrCode className="mx-auto mb-4 h-12 w-12" />
@@ -947,7 +1007,7 @@ export default function StaffScanner({ store }: { store: any }) {
                 <button
                   type="button"
                   onClick={handleCredit}
-                  disabled={isProcessing}
+                  disabled={isProcessing || Boolean(creditSuccessToast)}
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1b1b1b] px-4 py-3 font-bold text-white shadow-lg shadow-black/20 transition hover:bg-black disabled:opacity-50"
                 >
                   {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}

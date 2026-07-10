@@ -3,8 +3,9 @@ import { Calendar, CheckCircle2, Clock3, Gift, Grid2X2, ImageIcon, List, Search,
 import { QRCodeSVG } from "qrcode.react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
-import { collection, doc, getDoc, getDocs, query, where } from "@/src/lib/dataCompat";
+import { collection, doc, getDoc, getDocs, getDocsFromServer, query, where } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
+import { supabase } from "../../lib/supabase";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { normalizeStampStyle, StoreStamp, StoreStampStyle } from "../../components/StoreStamp";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
@@ -53,31 +54,48 @@ export default function CustomerCards() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
   useEffect(() => {
+    let active = true;
+
     async function fetchCards() {
       if (!user) return;
       try {
         const [cardsSnapshot, claims] = await Promise.all([
-          getDocs(query(collection(db, "cards"), where("customerId", "==", user.id))),
-          listPromotionClaims(),
+          getDocsFromServer(query(collection(db, "cards"), where("customerId", "==", user.id))),
+          listPromotionClaims().catch((error) => {
+            console.error("Could not load promotion claims", error);
+            return [];
+          }),
         ]);
+        if (!active) return;
         const cards = cardsSnapshot.docs.map((cardDoc) => ({ id: cardDoc.id, ...cardDoc.data() }));
         const storeIds = Array.from(new Set(cards.map((card) => String(card.storeId || "")).filter(Boolean)));
         const styleEntries = await Promise.all(storeIds.map(async (storeId) => {
           const storeSnap = await getDoc(doc(db, "stores", storeId));
           return [storeId, normalizeStampStyle(storeSnap.data())] as const;
         }));
+        if (!active) return;
         setStoreStyles(Object.fromEntries(styleEntries));
         if (!storeIds.length) return setPromoCards([]);
 
         const promotionsSnapshot = await getDocs(query(collection(db, "promotions"), where("storeId", "in", storeIds)));
-        const cardsByStore = Object.fromEntries(cards.map((card) => [String(card.storeId || ""), card]));
+        if (!active) return;
+        const cardsByStore = cards.reduce<Record<string, any[]>>((result, card) => {
+          const storeId = String(card.storeId || "");
+          if (storeId) (result[storeId] ||= []).push(card);
+          return result;
+        }, {});
         const claimsByPromotion = new Map<string, PromotionClaim>();
         claims.forEach((claim) => {
           if (!claimsByPromotion.has(claim.promotionId)) claimsByPromotion.set(claim.promotionId, claim);
         });
         setPromoCards(promotionsSnapshot.docs.map((promotionDoc) => {
           const promotion = { id: promotionDoc.id, ...promotionDoc.data() } as any;
-          const card = cardsByStore[String(promotion.storeId || "")];
+          const matchingCards = cardsByStore[String(promotion.storeId || "")] || [];
+          const card = matchingCards.reduce<any | undefined>((best, candidate) => (
+            Number(candidate?.promoProgress?.[promotionDoc.id] || 0) > Number(best?.promoProgress?.[promotionDoc.id] || 0)
+              ? candidate
+              : best
+          ), matchingCards[0]);
           return {
             ...promotion,
             card,
@@ -86,13 +104,34 @@ export default function CustomerCards() {
           };
         }).filter((promotion) => isPromotionAvailable(promotion) || Boolean(promotion.claim)).filter((promotion) => promotion.progress > 0));
       } catch (error) {
-        handleDataError(error, OperationType.GET, "cards");
+        if (active) handleDataError(error, OperationType.GET, "cards");
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }
-    fetchCards();
-  }, [user]);
+
+    void fetchCards();
+    if (!user?.id) return () => { active = false; };
+
+    const channel = supabase
+      .channel(`customer-reward-cards-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cards" },
+        (payload) => {
+          const row = (payload.new || payload.old) as { data?: Record<string, unknown> };
+          if (String(row?.data?.customerId || "") === user.id) void fetchCards();
+        },
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") void fetchCards();
+      });
+
+    return () => {
+      active = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   const groupedCards = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -211,7 +250,7 @@ function PromoCardDetailsModal({ promo, stampStyle, claiming, onClaim, onClose }
         {promo.bannerImageUrl && <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className="h-44 w-full object-cover sm:h-52" />}
         <div className="space-y-5 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3"><p className="flex items-center gap-2 text-sm font-semibold text-gray-500"><Store className="h-4 w-4" />{promo.card?.storeName || "Participating store"}</p>{promo.linkedProductName && <p className="flex items-center gap-2 text-sm text-gray-500"><Tag className="h-4 w-4" />{promo.linkedProductName}</p>}</div>
-          {activeClaim ? <ClaimPanel claim={claim!} /> : <>
+          {activeClaim ? <ClaimPanel claim={claim!} redemptionInstructions={promo.redemptionInstructions} /> : <>
             <div><h3 className="text-xs font-bold uppercase tracking-wide text-gray-400">Mechanics</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-600 dark:text-gray-300">{promo.description || `Collect ${required} ${normalizeStampStyle(stampStyle).stampLabel.toLowerCase()}s to claim this promotion.`}</p></div>
             <div className="rounded-xl border border-gray-100 p-4 dark:border-gray-800"><div className="flex justify-between text-sm font-bold"><span>Progress</span><span>{progress}/{required}</span></div><div className="mt-4 flex flex-wrap gap-2">{Array.from({ length: required }, (_, index) => <StoreStamp key={index} style={stampStyle} filled={index < Math.min(progress, required)} />)}</div></div>
             <div className="grid gap-3 sm:grid-cols-2"><Info icon={<Calendar className="h-4 w-4" />} label="Validity" value={formatPromoDuration(promo)} /><Info icon={<Gift className="h-4 w-4" />} label="Reward" value={ready ? `Reserve within ${Math.max(Number(promo.claimExpiryDays || 7), 1)} days.` : `${required - progress} more to claim.`} /></div>
@@ -225,9 +264,12 @@ function PromoCardDetailsModal({ promo, stampStyle, claiming, onClaim, onClose }
   </div>;
 }
 
-function ClaimPanel({ claim }: { claim: PromotionClaim }) {
+function ClaimPanel({ claim, redemptionInstructions }: { claim: PromotionClaim; redemptionInstructions?: string }) {
+  const instructions = redemptionInstructions?.trim()
+    || "Show this one-time QR to staff. If scanning fails, give them the redeem code below. The store can also confirm the claim manually.";
+
   return <div className="space-y-4">
-    <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-100"><p className="font-bold">How to redeem</p><p className="mt-1 leading-6">Show this one-time QR to staff. If scanning fails, give them the redeem code below. The store can also confirm the claim manually.</p></div>
+    <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-100"><p className="font-bold">How to redeem</p><p className="mt-1 whitespace-pre-wrap leading-6">{instructions}</p></div>
     <div className="grid gap-4 sm:grid-cols-[220px_1fr] sm:items-center"><div className="mx-auto rounded-2xl border bg-white p-4"><QRCodeSVG value={claim.qrToken} size={180} level="M" /></div><div className="space-y-3"><div><p className="text-xs font-bold uppercase tracking-wide text-gray-400">Redeem code</p><p className="mt-1 select-all font-mono text-3xl font-black tracking-[0.18em] text-gray-900 dark:text-white">{claim.redeemCode}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-gray-400">Reserved until</p><p className="mt-1 text-sm font-semibold dark:text-white">{formatPhilippineDateTime(claim.expiresAt)}</p></div><p className="text-xs leading-5 text-gray-500">This QR and code can be used once only and only at the issuing store.</p></div></div>
   </div>;
 }

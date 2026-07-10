@@ -5,12 +5,14 @@ import { doc, getDoc, collection, query, where, getCountFromServer } from "@/src
 import { db, handleDataError, OperationType } from "../../lib/backend";
 import { Star, ShieldCheck, CreditCard, Gift, Info, Download, RotateCcw, X, AlertTriangle, AtSign, CheckCircle2, Pencil, Save } from "lucide-react";
 import { Link } from "react-router-dom";
-import { issueCustomerQr, IssuedCustomerQr, updateCustomerProfile } from "@/src/lib/secureQr";
+import { buildCustomerScanUrl, issueCustomerQr, IssuedCustomerQr, updateCustomerProfile } from "@/src/lib/secureQr";
 import { getUsernameValidationMessage, normalizeUsername } from "@/src/lib/username";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 const APP_NAME = "PerkUp";
-const LOGO_SRC = "/icons/perkup-wordmark-light-transparent.png?v=20260625-brand";
+const LIGHT_LOGO_SRC = "/icons/perkup-wordmark-light-transparent.png?v=20260625-brand";
+const DARK_LOGO_SRC = "/icons/perkup-wordmark-dark-transparent.png?v=20260625-brand";
+const QR_LOGO_SRC = "/icons/favicon-192.png";
 
 type AppContact = {
   address?: string;
@@ -242,7 +244,7 @@ export default function CustomerOverview() {
   };
 
   const downloadQrPng = async () => {
-    if (!qrTicket?.token) return;
+    if (!user?.username) return;
 
     const qrCanvas = document.getElementById("customer-overview-download-qr") as HTMLCanvasElement | null;
     if (!qrCanvas) return;
@@ -256,12 +258,20 @@ export default function CustomerOverview() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    const isDarkMode = document.documentElement.classList.contains("dark");
+    const pageColor = isDarkMode ? "#121212" : "#ffffff";
+    const cardColor = isDarkMode ? "#1f1f1f" : "#ffffff";
+    const primaryText = isDarkMode ? "#f9fafb" : "#111827";
+    const secondaryText = isDarkMode ? "#d1d5db" : "#4b5563";
+    const mutedText = isDarkMode ? "#9ca3af" : "#6b7280";
+    const borderColor = isDarkMode ? "#4b5563" : "#1b1b1b";
+
     ctx.scale(scale, scale);
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = pageColor;
     ctx.fillRect(0, 0, width, height);
 
-    ctx.fillStyle = "#ffffff";
-    ctx.shadowColor = "rgba(15, 23, 42, 0.12)";
+    ctx.fillStyle = cardColor;
+    ctx.shadowColor = isDarkMode ? "rgba(0, 0, 0, 0.42)" : "rgba(15, 23, 42, 0.12)";
     ctx.shadowBlur = 32;
     ctx.shadowOffsetY = 16;
     ctx.beginPath();
@@ -270,22 +280,24 @@ export default function CustomerOverview() {
     ctx.shadowColor = "transparent";
 
     try {
-      const logo = await loadImage(LOGO_SRC);
-      ctx.drawImage(logo, 250, 132, 250, 114);
+      const logo = await loadImage(isDarkMode ? DARK_LOGO_SRC : LIGHT_LOGO_SRC);
+      const logoWidth = 270;
+      const logoHeight = logoWidth * (logo.naturalHeight / logo.naturalWidth);
+      ctx.drawImage(logo, (width - logoWidth) / 2, 142, logoWidth, logoHeight);
     } catch {
-      ctx.fillStyle = "#1b1b1b";
+      ctx.fillStyle = primaryText;
       ctx.beginPath();
-      ctx.arc(366, 168, 36, 0, Math.PI * 2);
+      ctx.arc(width / 2, 180, 36, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    ctx.fillStyle = "#6b7280";
+    ctx.fillStyle = mutedText;
     ctx.textAlign = "center";
     ctx.font = "600 19px Inter, Arial, sans-serif";
-    ctx.fillText("Secure Customer QR", width / 2, 278);
+    ctx.fillText("PerkUp Customer QR", width / 2, 278);
 
     ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = "#1b1b1b";
+    ctx.strokeStyle = borderColor;
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.roundRect(236, 300, 428, 428, 32);
@@ -293,12 +305,13 @@ export default function CustomerOverview() {
     ctx.stroke();
     ctx.drawImage(qrCanvas, 270, 334, 360, 360);
 
-    ctx.fillStyle = "#111827";
-    drawFittedText(ctx, user.name || "PerkUp User", width / 2, 810, 650, 700, 36, 22, "Inter, Arial, sans-serif");
+    ctx.fillStyle = primaryText;
+    drawFittedText(ctx, `@${user.username}`, width / 2, 802, 650, 800, 38, 22, "Inter, Arial, sans-serif");
 
-    ctx.fillStyle = "#4b5563";
-    drawFittedText(ctx, "PerkUp scanner required", width / 2, 852, 650, 500, 18, 12, "Inter, Arial, sans-serif");
-    drawFittedText(ctx, "Reusable offline copy", width / 2, 880, 650, 500, 16, 12, "Inter, Arial, sans-serif");
+    ctx.fillStyle = secondaryText;
+    drawFittedText(ctx, user.name || "PerkUp customer", width / 2, 844, 650, 600, 21, 13, "Inter, Arial, sans-serif");
+    drawFittedText(ctx, "Scan in PerkUp to earn rewards", width / 2, 880, 650, 500, 17, 12, "Inter, Arial, sans-serif");
+    drawFittedText(ctx, "A phone camera opens the PerkUp app", width / 2, 908, 650, 500, 16, 12, "Inter, Arial, sans-serif");
 
     const footerRows = [
       appContact?.email ? `Email: ${appContact.email}` : null,
@@ -308,18 +321,18 @@ export default function CustomerOverview() {
     ].filter(Boolean) as string[];
 
     if (footerRows.length > 0) {
-      ctx.strokeStyle = "#1b1b1b";
+      ctx.strokeStyle = borderColor;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(170, 940);
       ctx.lineTo(730, 940);
       ctx.stroke();
 
-      ctx.fillStyle = "#9ca3af";
+      ctx.fillStyle = mutedText;
       ctx.font = "700 14px Inter, Arial, sans-serif";
       ctx.fillText("Contact PerkUp", width / 2, 982);
 
-      ctx.fillStyle = "#4b5563";
+      ctx.fillStyle = secondaryText;
       footerRows.slice(0, 6).forEach((row, index) => {
         drawFittedText(ctx, row, width / 2, 1020 + index * 32, 650, 500, 18, 12, "Inter, Arial, sans-serif");
       });
@@ -327,7 +340,7 @@ export default function CustomerOverview() {
 
     const link = document.createElement("a");
     link.href = canvas.toDataURL("image/png");
-    link.download = `${APP_NAME.toLowerCase()}-${sanitizeFilename(user.name || user.email || user.id)}-qr.png`;
+    link.download = `${APP_NAME.toLowerCase()}-${sanitizeFilename(user.username)}-${isDarkMode ? "dark" : "light"}-qr.png`;
     link.click();
   };
 
@@ -336,7 +349,14 @@ export default function CustomerOverview() {
   return (
     <div className="space-y-8">
       <div className="sr-only" aria-hidden="true">
-        <QRCodeCanvas id="customer-overview-download-qr" value={qrTicket?.token || ""} size={512} marginSize={4} />
+        <QRCodeCanvas
+          id="customer-overview-download-qr"
+          value={buildCustomerScanUrl({ username: user?.username })}
+          size={512}
+          level="H"
+          marginSize={4}
+          imageSettings={{ src: QR_LOGO_SRC, height: 72, width: 72, excavate: true }}
+        />
       </div>
 
       <div>
@@ -391,7 +411,13 @@ export default function CustomerOverview() {
           <div className="w-full max-w-[280px] bg-gray-50 dark:bg-gray-800/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-700/50 flex flex-col items-center self-center sm:self-start">
             <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-200">
               {qrTicket?.token ? (
-                <QRCodeSVG value={qrTicket.token} size={160} className="w-full max-w-[160px] h-auto" />
+                <QRCodeSVG
+                  value={buildCustomerScanUrl({ scanToken: qrTicket.token })}
+                  size={160}
+                  level="H"
+                  imageSettings={{ src: QR_LOGO_SRC, height: 26, width: 26, excavate: true }}
+                  className="w-full max-w-[160px] h-auto"
+                />
               ) : (
                 <div className="w-[160px] h-[160px] flex items-center justify-center text-center text-xs font-semibold text-gray-500">
                   {qrError ? "Profile required" : "Generating secure QR..."}
@@ -399,10 +425,10 @@ export default function CustomerOverview() {
               )}
             </div>
             <div className="mt-4 text-center">
-              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Secure Scanner Only</p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">PerkUp Identity QR</p>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 {qrTicket
-                  ? "Reusable QR. Staff scanner verifies it securely online."
+                  ? "The live code renews securely. A phone camera opens PerkUp."
                   : qrError || "Preparing your private scan code."}
               </p>
             </div>
@@ -485,7 +511,7 @@ export default function CustomerOverview() {
             </form>
             <button
               onClick={downloadQrPng}
-              disabled={!qrTicket?.token}
+              disabled={!user?.username}
               className="mt-5 inline-flex w-full items-center justify-center gap-2 px-4 py-3 bg-[#1b1b1b] text-white rounded-xl text-sm font-semibold hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="w-4 h-4" />
@@ -566,7 +592,7 @@ export default function CustomerOverview() {
                 Refresh your QR code?
               </h3>
               <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                A new secure QR will replace your current one. Any QR image you previously downloaded or shared will stop working.
+                A new secure live QR will replace the one currently on screen. Downloaded username QR cards remain usable after a refresh.
               </p>
 
               <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">

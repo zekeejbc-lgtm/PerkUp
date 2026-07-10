@@ -12,9 +12,11 @@ export function ThemeToggle() {
 
   return (
     <button
+      type="button"
       onClick={cycleTheme}
       className="p-2 rounded-full bg-white dark:bg-[#1b1b1b] text-[#1b1b1b] dark:text-white hover:opacity-70 border border-[#1b1b1b]/10 dark:border-white/15 shadow-sm transition-all hover:scale-105"
       title={`Current theme: ${theme}. Click to change.`}
+      aria-label={`Current theme: ${theme}. Change theme`}
     >
       {theme === 'light' && <Sun className="w-5 h-5" />}
       {theme === 'dark' && <Moon className="w-5 h-5" />}

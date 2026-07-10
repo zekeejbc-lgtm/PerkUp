@@ -3,6 +3,11 @@ import { supabase } from "./supabase";
 export const LEGACY_CUSTOMER_QR_PREFIX = "perkup:v1:";
 export const RETIRED_CUSTOMER_QR_PREFIX = "perkup:v2:";
 export const SECURE_CUSTOMER_QR_PREFIX = "perkup:v3:";
+export const CUSTOMER_SCAN_PATH = "/scan";
+
+export type ParsedCustomerQr =
+  | { kind: "secure"; scanToken: string }
+  | { kind: "profile"; manualUsername: string };
 
 export type IssuedCustomerQr = {
   token: string;
@@ -109,6 +114,43 @@ export const isSecureCustomerQr = (value: string) =>
 
 export const normalizeCustomerUsername = (value: string) =>
   value.trim().replace(/^@+/, "").toLowerCase();
+
+const getAppOrigin = () => {
+  if (typeof window !== "undefined") return window.location.origin;
+  return "https://perk-up-navy.vercel.app";
+};
+
+export const buildCustomerScanUrl = (input: { scanToken?: string; username?: string }) => {
+  const params = new URLSearchParams();
+  const scanToken = String(input.scanToken || "").trim();
+  const username = normalizeCustomerUsername(String(input.username || ""));
+
+  if (scanToken) params.set("token", scanToken);
+  else if (username) params.set("user", username);
+
+  return `${getAppOrigin()}${CUSTOMER_SCAN_PATH}#${params.toString()}`;
+};
+
+export const parseCustomerQr = (value: string): ParsedCustomerQr | null => {
+  const rawValue = String(value || "").trim();
+  if (isSecureCustomerQr(rawValue)) return { kind: "secure", scanToken: rawValue };
+
+  try {
+    const url = new URL(rawValue);
+    if (url.origin !== getAppOrigin() || url.pathname.replace(/\/+$/, "") !== CUSTOMER_SCAN_PATH) return null;
+
+    const params = new URLSearchParams(url.hash.replace(/^#/, ""));
+    const scanToken = String(params.get("token") || "").trim();
+    if (isSecureCustomerQr(scanToken)) return { kind: "secure", scanToken };
+
+    const username = normalizeCustomerUsername(params.get("user") || "");
+    if (username) return { kind: "profile", manualUsername: username };
+  } catch {
+    return null;
+  }
+
+  return null;
+};
 
 export async function issueCustomerQr(input?: { rotate?: boolean }): Promise<IssuedCustomerQr> {
   const { data, error } = await supabase.functions.invoke<IssuedCustomerQr>("issue-customer-qr", {

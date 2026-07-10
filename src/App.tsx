@@ -27,6 +27,7 @@ const TermsOfServicePage = lazy(() => import("./pages/TermsOfServicePage"));
 const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
 const MarketingPage = lazy(() => import("./pages/MarketingPage"));
 const PricingPage = lazy(() => import("./pages/MarketingPage").then((module) => ({ default: module.PricingPage })));
+const CustomerQrLandingPage = lazy(() => import("./pages/CustomerQrLandingPage"));
 
 const SCROLL_POSITIONS_KEY = "perkup:scroll-positions";
 
@@ -412,6 +413,7 @@ export default function App() {
       <Route path="/customers" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />
       <Route path="/businesses" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />
       <Route path="/pricing" element={<Suspense fallback={<PageSkeleton variant="pricing" />}><PricingPage /></Suspense>} />
+      <Route path="/scan" element={<Suspense fallback={<PageSkeleton variant="content" />}><CustomerQrLandingPage /></Suspense>} />
       <Route path="/dashboard" element={<RoleRouter />} />
       
       <Route path="/customer/*" element={

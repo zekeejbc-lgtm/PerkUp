@@ -123,21 +123,21 @@ export default function CustomerDashboard() {
       </aside>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-[#1b1b1b]/90 backdrop-blur-xl border-t border-gray-200 dark:border-gray-800 flex items-center justify-start sm:justify-center overflow-x-auto pb-[env(safe-area-inset-bottom)] px-2 py-2 shadow-[0_-10px_40px_-20px_rgba(0,0,0,0.1)] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] gap-2 sm:gap-6">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 grid grid-cols-6 items-center gap-[clamp(0.125rem,1vw,0.5rem)] bg-white/90 dark:bg-[#1b1b1b]/90 backdrop-blur-xl border-t border-gray-200 dark:border-gray-800 px-[clamp(0.25rem,2vw,0.75rem)] pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-10px_40px_-20px_rgba(0,0,0,0.1)]">
         {navigation.map((item) => {
           const active = isActive(item.href);
           return (
             <Link
               key={item.name}
               to={item.href}
-              className={`flex flex-col items-center gap-1 min-w-[4rem] px-3 py-1.5 rounded-xl transition-all shrink-0 ${
+              className={`flex min-w-0 flex-col items-center gap-1 rounded-xl px-[clamp(0.125rem,1vw,0.75rem)] py-1.5 transition-all ${
                 active
                   ? 'text-[#1b1b1b] dark:text-white bg-gray-100 dark:bg-white/10'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
-              <item.icon className={`w-5 h-5 mb-0.5 ${active ? 'fill-[#1b1b1b]/20' : ''}`} />
-              <span className="text-[10px] font-bold tracking-tight">{item.name}</span>
+              <item.icon className={`mb-0.5 h-[clamp(1.125rem,5vw,1.25rem)] w-[clamp(1.125rem,5vw,1.25rem)] shrink-0 ${active ? 'fill-[#1b1b1b]/20' : ''}`} />
+              <span className="w-full truncate text-center text-[clamp(8px,2.4vw,10px)] font-bold leading-tight tracking-tight">{item.name}</span>
             </Link>
           );
         })}

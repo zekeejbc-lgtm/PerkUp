@@ -247,7 +247,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
                     </button>
                   </div>
                   <div className="flex gap-2">
-                   <button type="button" aria-label={`Edit ${product.name}`} onClick={() => handleOpenModal(product)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
+                   <button type="button" aria-label={`Edit ${product.name}`} onClick={() => handleOpenModal(product)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 dark:hover:text-white rounded-lg transition-colors">
                      <Edit2 className="w-4 h-4" />
                    </button>
                    <button type="button" aria-label={`Delete ${product.name}`} onClick={() => setProductToDelete(product)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">

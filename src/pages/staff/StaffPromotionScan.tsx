@@ -4,13 +4,16 @@ import { doc, getDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2, Search, Cake, Sparkles, Trophy } from "lucide-react";
-import { isSecureCustomerQr, normalizeCustomerUsername, redeemCustomerScan } from "@/src/lib/secureQr";
+import { isSecureCustomerQr, normalizeCustomerUsername, parseCustomerQr, redeemCustomerScan } from "@/src/lib/secureQr";
 import { getBirthdayStatus } from "@/src/lib/birthday";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { supabase } from "@/src/lib/supabase";
 import { formatPhilippineDate } from "@/src/lib/dateTime";
 import { formatCustomerCode } from "@/src/lib/customerId";
 import { PROMOTION_REDEEM_QR_PREFIX, redeemPromotionClaim } from "@/src/lib/promotionClaims";
+import { configureQrScannerRuntime } from "@/src/lib/qrScannerRuntime";
+
+configureQrScannerRuntime();
 
 type OfflineScan = {
   id: string;
@@ -383,16 +386,26 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       return;
     }
 
-    if (!isValidCustomerQr(scannedId)) {
+    const parsedQr = parseCustomerQr(scannedId);
+    if (!parsedQr) {
       alert("Invalid PerkUp QR code. Ask the customer to open or download their QR from the PerkUp app.");
       return;
     }
+    if (isBatchMode && parsedQr.kind === "profile") {
+      alert("Downloaded username QR cards are confirmed in Single Scan mode.");
+      return;
+    }
+
+    const redemptionInput: RedemptionInput = parsedQr.kind === "secure"
+      ? { scanToken: parsedQr.scanToken }
+      : { manualUsername: parsedQr.manualUsername };
+    const scanKey = parsedQr.kind === "secure" ? parsedQr.scanToken : `@${parsedQr.manualUsername}`;
 
     const now = Date.now();
     const lastDuplicateScan = duplicateScanRef.current;
     
     if (
-      lastDuplicateScan?.id === scannedId &&
+      lastDuplicateScan?.id === scanKey &&
       now - lastDuplicateScan.scannedAt < DUPLICATE_SCAN_COOLDOWN_MS
     ) {
       if (now - lastDuplicateScan.alertedAt > DUPLICATE_SCAN_ALERT_COOLDOWN_MS) {
@@ -402,20 +415,20 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       return;
     }
 
-    if (isBatchMode && batchQueue.some(item => item.id === scannedId)) {
+    if (isBatchMode && batchQueue.some(item => item.id === scanKey)) {
       alert("This QR code has already been scanned in the current batch.");
-      duplicateScanRef.current = { id: scannedId, scannedAt: now, alertedAt: now };
+      duplicateScanRef.current = { id: scanKey, scannedAt: now, alertedAt: now };
       return;
     }
     
-    duplicateScanRef.current = { id: scannedId, scannedAt: now, alertedAt: 0 };
+    duplicateScanRef.current = { id: scanKey, scannedAt: now, alertedAt: 0 };
 
     // Trigger visual feedback
     setShowScanSuccess(true);
     setTimeout(() => setShowScanSuccess(false), 1000);
 
     if (isBatchMode) {
-      setBatchQueue(prev => [...prev, { id: scannedId, points: pointsToAdd }]);
+      setBatchQueue(prev => [...prev, { id: parsedQr.kind === "secure" ? parsedQr.scanToken : scanKey, points: pointsToAdd }]);
       return;
     }
 
@@ -429,7 +442,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
     try {
       const result = await redeemCustomerScan({
-        scanToken: scannedId,
+        ...redemptionInput,
         storeId: store.id,
         promotionId: id,
         points: pointsToAdd,
@@ -439,7 +452,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
       setScannedCustomer({
         id: result.customer.id,
-        redemptionInput: { scanToken: scannedId },
+        redemptionInput,
         username: result.customer.username,
         maskedName: result.customer.maskedName,
         birthday: result.customer.birthday,
@@ -642,7 +655,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   const topProgress = customerProgress[0]?.progress.percent || 0;
 
   return (
-    <div className="max-w-5xl space-y-8">
+    <div className="w-full min-w-0 max-w-5xl space-y-8">
       {/* Header */}
       <div className="flex items-start gap-4">
         <Link to="/staff/promotions" className="p-2 -ml-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
@@ -676,9 +689,9 @@ export default function StaffPromotionScan({ store }: { store: any }) {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-2 gap-8">
+      <div className="grid w-full min-w-0 grid-cols-1 gap-8 lg:grid-cols-2">
         {/* Scanner Panel */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8 flex flex-col items-center">
+        <div className="min-w-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[2rem] p-6 sm:p-8 flex flex-col items-center">
           <div className="w-full flex flex-col gap-4 mb-8">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
@@ -737,7 +750,18 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                   <p className="text-sm font-medium">Scanner disabled due to location restrictions.</p>
                </div>
             ) : isScannerActive ? (
-               <Scanner onScan={(result) => handleScan(result[0].rawValue)} />
+               <Scanner
+                 formats={["qr_code"]}
+                 onScan={(result) => {
+                   const rawValue = result[0]?.rawValue;
+                   if (rawValue) handleScan(rawValue);
+                 }}
+                 onError={(error) => {
+                   console.error("Promotion QR scanner failed", error);
+                   setIsScannerActive(false);
+                   alert(`Scanner unavailable: ${error instanceof Error ? error.message : "The camera or QR decoder could not start."} Check camera permission, then restart the scanner.`);
+                 }}
+               />
             ) : (
                <div className="text-center p-6 text-gray-400">
                   <CameraOff className="w-12 h-12 mx-auto mb-4 opacity-50" />

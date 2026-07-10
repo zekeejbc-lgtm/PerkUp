@@ -1,20 +1,22 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, deleteDoc, addDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Gift, Calendar, Plus, Edit2, Trash2, ArrowLeft, MapPin, ImagePlus, Users, Copy, Ticket, Loader2, ShoppingBag } from "lucide-react";
+import { Gift, Calendar, Plus, Edit2, Trash2, ArrowLeft, MapPin, ImagePlus, Users, Copy, Ticket, Loader2, ShoppingBag, Archive, ChevronDown, Search, SlidersHorizontal, LayoutGrid, Rows3, X } from "lucide-react";
 import { Circle, MapContainer, Marker, useMapEvents } from "react-leaflet";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { getStoreReferralCode, getStoreReferralStats } from "../../lib/secureQr";
 import { MapBaseLayers } from "../../components/MapBaseLayers";
-import { formatPhilippineDateTime } from "../../lib/dateTime";
+import { formatPhilippineDateTime, getPhilippineDateTimeMillis, toDate } from "../../lib/dateTime";
 import { getCompletedPromotionCount, getRemainingPromotionClaimsLabel } from "../../lib/promotionProgress";
 import { Pagination } from "../../components/Pagination";
+import { CustomDropdown } from "../../components/CustomDropdown";
 
 type PromotionFormData = {
   title: string;
   description: string;
+  redemptionInstructions: string;
   requiredStamps: number;
   startDate: string;
   endDate: string;
@@ -33,6 +35,36 @@ type PromotionFormData = {
 const DEFAULT_RADIUS_METERS = 500;
 const DEFAULT_CENTER = { lat: 7.4478, lng: 125.8078 };
 const PROMOTIONS_PER_PAGE = 6;
+
+type PromotionViewMode = "grid" | "list";
+type PromotionLifecycleFilter = "all" | "live" | "scheduled";
+type PromotionProductFilter = "all" | "linked" | "general";
+type PromotionSortOrder = "newest" | "oldest" | "endingSoon";
+
+const isPromotionExpired = (promotion: any, now = Date.now()) => {
+  if (!promotion?.endDate) return false;
+  const endTime = getPhilippineDateTimeMillis(promotion.endDate);
+  return Number.isFinite(endTime) && endTime <= now;
+};
+
+const getPromotionCreatedAtMillis = (promotion: any) =>
+  toDate(promotion?.createdAt)?.getTime() ?? 0;
+
+const matchesPromotionSearch = (promotion: any, normalizedQuery: string) => {
+  if (!normalizedQuery) return true;
+  return [
+    promotion?.title,
+    promotion?.description,
+    promotion?.redemptionInstructions,
+    promotion?.linkedProductName,
+  ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
+};
+
+const matchesProductFilter = (promotion: any, filter: PromotionProductFilter) => {
+  if (filter === "linked") return Boolean(promotion?.linkedProductId || promotion?.linkedProductName);
+  if (filter === "general") return !promotion?.linkedProductId && !promotion?.linkedProductName;
+  return true;
+};
 
 const getStoreCenter = (store: any) => ({
   lat: Number(store?.lat) || DEFAULT_CENTER.lat,
@@ -66,11 +98,20 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const [referralCount, setReferralCount] = useState<number | null>(null);
   const [loadingReferralCode, setLoadingReferralCode] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [promotionClock, setPromotionClock] = useState(() => Date.now());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [lifecycleFilter, setLifecycleFilter] = useState<PromotionLifecycleFilter>("all");
+  const [productFilter, setProductFilter] = useState<PromotionProductFilter>("all");
+  const [sortOrder, setSortOrder] = useState<PromotionSortOrder>("newest");
+  const [viewMode, setViewMode] = useState<PromotionViewMode>("grid");
+  const expirySyncingIds = useRef(new Set<string>());
 
   const storeCenter = useMemo(() => getStoreCenter(store), [store]);
   const [formData, setFormData] = useState<PromotionFormData>({
     title: "",
     description: "",
+    redemptionInstructions: "",
     requiredStamps: 10,
     startDate: "",
     endDate: "",
@@ -130,8 +171,77 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     return () => window.clearInterval(timer);
   }, []);
 
-  const totalPages = Math.max(1, Math.ceil(promotions.length / PROMOTIONS_PER_PAGE));
-  const paginatedPromotions = promotions.slice(
+  useEffect(() => {
+    const timer = window.setInterval(() => setPromotionClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+
+    const expiredPromotions = promotions.filter((promotion) =>
+      (promotion.active ?? true)
+      && isPromotionExpired(promotion, promotionClock)
+      && !expirySyncingIds.current.has(promotion.id)
+    );
+    if (expiredPromotions.length === 0) return;
+
+    expiredPromotions.forEach((promotion) => expirySyncingIds.current.add(promotion.id));
+    void Promise.allSettled(expiredPromotions.map(async (promotion) => {
+      try {
+        await updateDoc(doc(db, "promotions", promotion.id), {
+          active: false,
+          updatedAt: serverTimestamp(),
+        });
+        setPromotions((current) => current.map((item) =>
+          item.id === promotion.id ? { ...item, active: false } : item
+        ));
+      } catch (error) {
+        console.error(`Failed to automatically archive promotion ${promotion.id}`, error);
+      } finally {
+        expirySyncingIds.current.delete(promotion.id);
+      }
+    }));
+  }, [loading, promotionClock, promotions]);
+
+  const activePromotions = useMemo(() => promotions.filter((promotion) =>
+    (promotion.active ?? true) && !isPromotionExpired(promotion, promotionClock)
+  ), [promotionClock, promotions]);
+  const archivedPromotions = useMemo(() => promotions.filter((promotion) =>
+    !(promotion.active ?? true) || isPromotionExpired(promotion, promotionClock)
+  ), [promotionClock, promotions]);
+
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const visibleActivePromotions = useMemo(() => activePromotions
+    .filter((promotion) => matchesPromotionSearch(promotion, normalizedSearchQuery))
+    .filter((promotion) => matchesProductFilter(promotion, productFilter))
+    .filter((promotion) => {
+      if (lifecycleFilter === "all") return true;
+      const startsAt = promotion.startDate ? getPhilippineDateTimeMillis(promotion.startDate) : Number.NaN;
+      const scheduled = Number.isFinite(startsAt) && startsAt > promotionClock;
+      return lifecycleFilter === "scheduled" ? scheduled : !scheduled;
+    })
+    .sort((first, second) => {
+      if (sortOrder === "oldest") {
+        return getPromotionCreatedAtMillis(first) - getPromotionCreatedAtMillis(second);
+      }
+      if (sortOrder === "endingSoon") {
+        const firstEnd = first.endDate ? getPhilippineDateTimeMillis(first.endDate) : Number.POSITIVE_INFINITY;
+        const secondEnd = second.endDate ? getPhilippineDateTimeMillis(second.endDate) : Number.POSITIVE_INFINITY;
+        return firstEnd - secondEnd;
+      }
+      return getPromotionCreatedAtMillis(second) - getPromotionCreatedAtMillis(first);
+    }), [activePromotions, lifecycleFilter, normalizedSearchQuery, productFilter, promotionClock, sortOrder]);
+
+  const visibleArchivedPromotions = useMemo(() => archivedPromotions
+    .filter((promotion) => matchesPromotionSearch(promotion, normalizedSearchQuery))
+    .filter((promotion) => matchesProductFilter(promotion, productFilter))
+    .sort((first, second) => getPromotionCreatedAtMillis(second) - getPromotionCreatedAtMillis(first)),
+  [archivedPromotions, normalizedSearchQuery, productFilter]);
+
+  const hasActiveFilters = Boolean(normalizedSearchQuery || lifecycleFilter !== "all" || productFilter !== "all");
+  const totalPages = Math.max(1, Math.ceil(visibleActivePromotions.length / PROMOTIONS_PER_PAGE));
+  const paginatedPromotions = visibleActivePromotions.slice(
     (currentPage - 1) * PROMOTIONS_PER_PAGE,
     currentPage * PROMOTIONS_PER_PAGE,
   );
@@ -139,6 +249,10 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [lifecycleFilter, normalizedSearchQuery, productFilter, sortOrder]);
 
   const handleGetReferralCode = async () => {
     if (!store?.id || loadingReferralCode) return;
@@ -170,6 +284,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     setFormData({
       title: "",
       description: "",
+      redemptionInstructions: "",
       requiredStamps: 10,
       startDate: "",
       endDate: "",
@@ -193,6 +308,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
       setFormData({
         title: promo.title || "",
         description: promo.description || "",
+        redemptionInstructions: promo.redemptionInstructions || "",
         requiredStamps: Number(promo.requiredStamps || 10),
         startDate: promo.startDate || "",
         endDate: promo.endDate || "",
@@ -237,6 +353,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
       const data = {
         storeId: store.id,
         ...formData,
+        active: formData.active && !isPromotionExpired(formData),
         bannerImageUrl,
         maxRedemptions: maxRedemptions > 0 ? maxRedemptions : null,
         linkedProductId: linkedProduct ? linkedProduct.id : null,
@@ -254,8 +371,9 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
         }
         setPromotions(promotions.map((p) => (p.id === editingPromo.id ? { ...p, ...data } : p)));
       } else {
-        const newRef = await addDoc(collection(db, "promotions"), { ...data, createdAt: serverTimestamp() });
-        setPromotions([...promotions, { id: newRef.id, ...data, claimedCount: 0 }]);
+        const createdAt = serverTimestamp();
+        const newRef = await addDoc(collection(db, "promotions"), { ...data, createdAt });
+        setPromotions([...promotions, { id: newRef.id, ...data, createdAt, claimedCount: 0 }]);
       }
       setIsModalOpen(false);
       setPendingBannerFile(null);
@@ -284,6 +402,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   };
 
   const handleAvailabilityToggle = async (promo: any) => {
+    if (isPromotionExpired(promo)) return;
     const nextActive = !(promo.active ?? true);
 
     setAvailabilitySavingIds((current) => new Set(current).add(promo.id));
@@ -322,6 +441,99 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const geofenceCenter = {
     lat: Number(formData.geofenceLat || storeCenter.lat),
     lng: Number(formData.geofenceLng || storeCenter.lng),
+  };
+
+  const renderPromotionCard = (promo: any) => {
+    const expired = isPromotionExpired(promo, promotionClock);
+    const active = (promo.active ?? true) && !expired;
+    const availabilitySaving = availabilitySavingIds.has(promo.id);
+
+    return (
+      <div key={promo.id} className={`bg-white dark:bg-gray-900 border rounded-2xl overflow-hidden ${active ? "border-gray-300 dark:border-white/15 shadow-sm" : "border-gray-200 dark:border-gray-800 opacity-75"}`}>
+        {promo.bannerImageUrl && (
+          <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" className="h-36 w-full object-cover" />
+        )}
+        <div className="p-6">
+          <div className="flex justify-between items-start gap-4 mb-4">
+            <div className="flex gap-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${active ? "bg-gray-100 dark:bg-white/15 text-[#1b1b1b] dark:text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
+                <Gift className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white">{promo.title}</h3>
+                <div className="flex flex-wrap items-center gap-2 mt-1">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${active ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : expired ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
+                    {active ? "Active" : expired ? "Expired" : "Inactive"}
+                  </span>
+                  <span className="text-xs text-gray-500 font-semibold">{promo.requiredStamps} Stamps Required</span>
+                  {promo.linkedProductName && (
+                    <span className="inline-flex items-center gap-1 text-xs text-gray-500 font-semibold">
+                      <ShoppingBag className="h-3.5 w-3.5" />
+                      {promo.linkedProductName}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 line-clamp-2">{promo.description}</p>
+
+          <div className="grid gap-2 mb-4">
+            {(promo.startDate || promo.endDate) && (
+              <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 dark:bg-gray-800/50 p-2 rounded-lg">
+                <Calendar className="w-4 h-4 shrink-0" />
+                <span>{promo.startDate ? formatPhilippineDateTime(promo.startDate) : "Anytime"} - {promo.endDate ? formatPhilippineDateTime(promo.endDate) : "No expiry"}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 dark:bg-gray-800/50 p-2 rounded-lg">
+              <Users className="w-4 h-4 shrink-0" />
+              <span>{getRemainingPromotionClaimsLabel(promo)}</span>
+            </div>
+            {promo.geofenceEnabled && (
+              <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 dark:bg-gray-800/50 p-2 rounded-lg">
+                <MapPin className="w-4 h-4 shrink-0" />
+                <span>{promo.geofenceRadiusMeters || DEFAULT_RADIUS_METERS}m scanner geofence</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={active}
+              aria-label={expired ? `${promo.title} has expired` : `Mark ${promo.title} as ${active ? "inactive" : "active"}`}
+              disabled={availabilitySaving || expired}
+              onClick={() => handleAvailabilityToggle(promo)}
+              title={expired ? "Edit the end time before reactivating this promotion." : undefined}
+              className={`group/switch flex min-h-9 items-center gap-2.5 rounded-full border py-1.5 pl-2 pr-3 text-xs font-bold shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0 dark:focus-visible:ring-white ${
+                active
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800/70 dark:bg-emerald-950/50 dark:text-emerald-300 dark:hover:bg-emerald-950/80"
+                  : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              }`}
+            >
+              <span className={`relative h-5 w-9 shrink-0 rounded-full shadow-inner transition-colors ${active ? "bg-emerald-500" : "bg-gray-300 dark:bg-gray-600"}`}>
+                <span className={`absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow transition-transform duration-200 ${active ? "translate-x-4" : "translate-x-0"}`}>
+                  {availabilitySaving && <Loader2 className="h-2.5 w-2.5 animate-spin text-gray-500" />}
+                </span>
+              </span>
+              <span className="min-w-[4.6rem] text-left">
+                {availabilitySaving ? "Updating..." : expired ? "Expired" : active ? "Active" : "Inactive"}
+              </span>
+            </button>
+            <div className="flex gap-2">
+              <button type="button" aria-label={`Edit ${promo.title}`} onClick={() => handleOpenModal(promo)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 dark:hover:text-white rounded-lg transition-colors">
+                <Edit2 className="w-4 h-4" />
+              </button>
+              <button type="button" aria-label={`Delete ${promo.title}`} onClick={() => setPromotionToDelete(promo)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (isModalOpen) {
@@ -369,6 +581,19 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                     placeholder="Details about the promotion..."
                     className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] resize-none"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Claim / Redeem Instructions</label>
+                  <textarea
+                    rows={3}
+                    maxLength={1000}
+                    value={formData.redemptionInstructions}
+                    onChange={(event) => setFormData({ ...formData, redemptionInstructions: event.target.value })}
+                    placeholder="e.g. Show your one-time QR at the cashier and present a valid ID."
+                    className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b] resize-none"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Customers see these instructions after reserving the reward.</p>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -420,25 +645,26 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                   <label className="text-sm font-semibold text-gray-900 dark:text-gray-200 flex items-center gap-2">
                     <ShoppingBag className="w-4 h-4 text-gray-500" /> Product Dependency
                   </label>
-                  <select
+                  <CustomDropdown
                     value={formData.linkedProductId}
-                    onChange={(event) => {
-                      const product = products.find((item) => item.id === event.target.value);
+                    onChange={(linkedProductId) => {
+                      const product = products.find((item) => item.id === linkedProductId);
                       setFormData({
                         ...formData,
-                        linkedProductId: event.target.value,
+                        linkedProductId,
                         linkedProductName: product ? String(product.name || "Product") : "",
                       });
                     }}
-                    className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-[#1b1b1b]"
-                  >
-                    <option value="">No specific product</option>
-                    {products.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name || "Untitled product"}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { label: "No specific product", value: "" },
+                      ...products.map((product) => ({
+                        label: product.name || "Untitled product",
+                        value: product.id,
+                      })),
+                    ]}
+                    ariaLabel="Product dependency"
+                    className="w-full [&>button]:min-h-[42px] [&>button]:px-4 [&>button]:py-2.5"
+                  />
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     Use this for product-specific offers like buy 10 coffees, get 1 coffee free.
                   </p>
@@ -597,7 +823,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                   <button
                     type="button"
                     onClick={handleCopyReferralCode}
-                    className="p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+                    className="p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 dark:hover:text-white transition-colors"
                     title="Copy referral code"
                   >
                     <Copy className="w-4 h-4" />
@@ -631,20 +857,115 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
-        {promotions.length === 0 ? (
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search promotions, products, or descriptions"
+              aria-label="Search promotions"
+              className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-4 text-sm text-gray-900 outline-none transition focus:border-gray-400 focus:ring-2 focus:ring-gray-900/10 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:border-gray-500 dark:focus:ring-white/10"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex h-11 items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 dark:border-gray-700 dark:bg-gray-800">
+              <SlidersHorizontal className="h-4 w-4 shrink-0 text-gray-400" />
+              <select
+                value={lifecycleFilter}
+                onChange={(event) => setLifecycleFilter(event.target.value as PromotionLifecycleFilter)}
+                aria-label="Filter promotions by schedule"
+                className="bg-transparent pr-1 text-sm font-medium text-gray-700 outline-none dark:text-gray-200"
+              >
+                <option value="all">All schedules</option>
+                <option value="live">Live now</option>
+                <option value="scheduled">Scheduled</option>
+              </select>
+            </div>
+
+            <select
+              value={productFilter}
+              onChange={(event) => setProductFilter(event.target.value as PromotionProductFilter)}
+              aria-label="Filter promotions by product dependency"
+              className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-700 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            >
+              <option value="all">All products</option>
+              <option value="linked">Product linked</option>
+              <option value="general">No product</option>
+            </select>
+
+            <select
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value as PromotionSortOrder)}
+              aria-label="Sort promotions"
+              className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-700 outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            >
+              <option value="newest">Newest created</option>
+              <option value="oldest">Oldest created</option>
+              <option value="endingSoon">Ending soon</option>
+            </select>
+
+            <div className="inline-flex h-11 rounded-xl border border-gray-200 bg-gray-50 p-1 dark:border-gray-700 dark:bg-gray-800" aria-label="Promotion view options">
+              <button
+                type="button"
+                onClick={() => setViewMode("grid")}
+                aria-label="Grid view"
+                aria-pressed={viewMode === "grid"}
+                title="Grid view"
+                className={`flex w-9 items-center justify-center rounded-lg transition-colors ${viewMode === "grid" ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white" : "text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"}`}
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("list")}
+                aria-label="List view"
+                aria-pressed={viewMode === "list"}
+                title="List view"
+                className={`flex w-9 items-center justify-center rounded-lg transition-colors ${viewMode === "list" ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white" : "text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"}`}
+              >
+                <Rows3 className="h-4 w-4" />
+              </button>
+            </div>
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setLifecycleFilter("all");
+                  setProductFilter("all");
+                }}
+                className="inline-flex h-11 items-center gap-1.5 rounded-xl px-3 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-white"
+              >
+                <X className="h-4 w-4" />
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+        <p className="mt-3 text-xs font-medium text-gray-500 dark:text-gray-400">
+          Showing {visibleActivePromotions.length} of {activePromotions.length} active {activePromotions.length === 1 ? "promotion" : "promotions"}. Newest promotions are prioritized by default.
+        </p>
+      </section>
+
+      <div className={`grid gap-4 ${viewMode === "grid" ? "sm:grid-cols-2 lg:grid-cols-2" : "grid-cols-1"}`}>
+        {visibleActivePromotions.length === 0 ? (
           <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-[#1b1b1b] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
             <Gift className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-700 mb-3" />
-            <p className="font-medium text-gray-900 dark:text-white">No promotions yet</p>
-            <p className="text-sm text-gray-500 mt-1">Add your first promotional offer to attract customers.</p>
+            <p className="font-medium text-gray-900 dark:text-white">{hasActiveFilters ? "No matching active promotions" : "No active promotions"}</p>
+            <p className="text-sm text-gray-500 mt-1">{hasActiveFilters ? "Try changing or clearing the search and filters." : "Add a promotion or reactivate one from the archive."}</p>
           </div>
         ) : (
           paginatedPromotions.map((promo) => (
-            <div key={promo.id} className={`bg-white dark:bg-gray-900 border rounded-2xl overflow-hidden ${(promo.active ?? true) ? "border-gray-300 dark:border-white/15 shadow-sm" : "border-gray-200 dark:border-gray-800 opacity-75"}`}>
+            <div key={promo.id} className={`bg-white dark:bg-gray-900 border rounded-2xl overflow-hidden ${viewMode === "list" ? "sm:grid sm:grid-cols-[minmax(180px,260px)_minmax(0,1fr)]" : ""} ${(promo.active ?? true) ? "border-gray-300 dark:border-white/15 shadow-sm" : "border-gray-200 dark:border-gray-800 opacity-75"}`}>
               {promo.bannerImageUrl && (
-                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" className="h-36 w-full object-cover" />
+                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" className={viewMode === "list" ? "h-48 w-full object-cover sm:h-full sm:min-h-64" : "h-36 w-full object-cover"} />
               )}
-              <div className="p-6">
+              <div className={`p-6 ${viewMode === "list" && !promo.bannerImageUrl ? "sm:col-span-2" : ""}`}>
                 <div className="flex justify-between items-start gap-4 mb-4">
                   <div className="flex gap-3">
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${(promo.active ?? true) ? "bg-gray-100 dark:bg-white/15 text-[#1b1b1b] dark:text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
@@ -724,7 +1045,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                     </span>
                   </button>
                   <div className="flex gap-2">
-                  <button type="button" aria-label={`Edit ${promo.title}`} onClick={() => handleOpenModal(promo)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
+                  <button type="button" aria-label={`Edit ${promo.title}`} onClick={() => handleOpenModal(promo)} className="p-2 text-gray-500 hover:text-[#1b1b1b] hover:bg-gray-100 dark:hover:bg-white/10 dark:hover:text-white rounded-lg transition-colors">
                     <Edit2 className="w-4 h-4" />
                   </button>
                   <button type="button" aria-label={`Delete ${promo.title}`} onClick={() => setPromotionToDelete(promo)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
@@ -740,10 +1061,41 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
       <Pagination
         page={currentPage}
         pageSize={PROMOTIONS_PER_PAGE}
-        totalItems={promotions.length}
-        itemLabel="promotions"
+        totalItems={visibleActivePromotions.length}
+        itemLabel="active promotions"
         onPageChange={setCurrentPage}
       />
+
+      {visibleArchivedPromotions.length > 0 && (
+        <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+          <button
+            type="button"
+            aria-expanded={archiveOpen}
+            aria-controls="promotion-archive"
+            onClick={() => setArchiveOpen((open) => !open)}
+            className="flex w-full items-center justify-between gap-4 p-5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/5"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                <Archive className="h-5 w-5" />
+              </span>
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white">Promotion Archive</h3>
+                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+                  {visibleArchivedPromotions.length} inactive or expired {visibleArchivedPromotions.length === 1 ? "promotion" : "promotions"}
+                </p>
+              </div>
+            </div>
+            <ChevronDown className={`h-5 w-5 shrink-0 text-gray-500 transition-transform ${archiveOpen ? "rotate-180" : ""}`} />
+          </button>
+
+          {archiveOpen && (
+            <div id="promotion-archive" className="grid gap-4 border-t border-gray-200 p-4 dark:border-gray-800 sm:grid-cols-2 lg:grid-cols-2">
+              {visibleArchivedPromotions.map(renderPromotionCard)}
+            </div>
+          )}
+        </section>
+      )}
 
       <ConfirmationModal
         isOpen={Boolean(promotionToDelete)}

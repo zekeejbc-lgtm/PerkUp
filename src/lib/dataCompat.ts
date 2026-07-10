@@ -239,18 +239,20 @@ export async function getDocFromServer(ref: DocumentRef) {
   return fetchDoc(ref, false);
 }
 
-export async function getDocs(ref: CollectionRef | QueryRef) {
+async function fetchDocs(ref: CollectionRef | QueryRef, useCache: boolean) {
   const collectionName = ref.type === "collection" ? ref.name : ref.collectionName;
   const filters = ref.type === "query" ? ref.filters : [];
   const cacheKey = `${collectionName}:query:${JSON.stringify(filters)}`;
-  const cached = getCachedValue<{ id: string; data: Record<string, unknown> }[]>(cacheKey);
-  if (cached) {
-    const docs = cached.map((row) => docSnapshot(row.id, row.data));
-    return {
-      docs,
-      empty: docs.length === 0,
-      size: docs.length,
-    };
+  if (useCache) {
+    const cached = getCachedValue<{ id: string; data: Record<string, unknown> }[]>(cacheKey);
+    if (cached) {
+      const docs = cached.map((row) => docSnapshot(row.id, row.data));
+      return {
+        docs,
+        empty: docs.length === 0,
+        size: docs.length,
+      };
+    }
   }
 
   const { data, error } = await applyFilters(dataApi(collectionName).select("id,data"), filters);
@@ -267,6 +269,14 @@ export async function getDocs(ref: CollectionRef | QueryRef) {
     empty: docs.length === 0,
     size: docs.length,
   };
+}
+
+export async function getDocs(ref: CollectionRef | QueryRef) {
+  return fetchDocs(ref, true);
+}
+
+export async function getDocsFromServer(ref: CollectionRef | QueryRef) {
+  return fetchDocs(ref, false);
 }
 
 const resolveUpdate = (current: Record<string, unknown>, update: Record<string, unknown>) => {

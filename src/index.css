@@ -28,6 +28,26 @@
   --color-gray-950: #0a0a0a;
 }
 
+:root {
+  color-scheme: light;
+  background-color: #ffffff;
+  color: #1b1b1b;
+}
+
+:root.dark {
+  color-scheme: dark;
+  background-color: #1b1b1b;
+  color: #ffffff;
+}
+
+button,
+input,
+select,
+textarea {
+  color: inherit;
+  font: inherit;
+}
+
 @keyframes blob {
   0% { transform: translate(0px, 0px) scale(1); }
   33% { transform: translate(30px, -50px) scale(1.1); }
@@ -84,9 +104,13 @@
 }
 
 body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
   font-family: var(--font-sans);
   @apply bg-white text-[#1b1b1b] dark:bg-[#1b1b1b] dark:text-white;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 150ms ease, color 150ms ease;
 }
 
 img:not([data-image-viewer-ignore="true"]) {

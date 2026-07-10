@@ -205,11 +205,14 @@ export default function LandingPage() {
     : config.trustedBusinesses?.length > 0
       ? config.trustedBusinesses
       : LOGOS;
-  // Five 256px items fill the widest content area. Smaller sets are clearer
-  // when they remain centered instead of being duplicated into a marquee.
-  const shouldAnimateTrustedBusinesses = config.animateTrustedBusinesses !== false && trustedBusinesses.length >= 5;
-  const displayedTrustedBusinesses = shouldAnimateTrustedBusinesses
-    ? [...trustedBusinesses, ...trustedBusinesses]
+  const shouldAnimateTrustedBusinesses = config.animateTrustedBusinesses !== false && trustedBusinesses.length > 0;
+  // Keep each half of the marquee wider than the page so a small set of
+  // businesses can loop continuously without leaving an empty gap.
+  const marqueeBusinesses = shouldAnimateTrustedBusinesses
+    ? Array.from(
+        { length: Math.max(6, trustedBusinesses.length) },
+        (_, index) => trustedBusinesses[index % trustedBusinesses.length],
+      )
     : trustedBusinesses;
 
   return (
@@ -315,7 +318,7 @@ export default function LandingPage() {
             Trusted by local businesses
           </p>
 
-          <div className={`relative flex w-full ${shouldAnimateTrustedBusinesses ? "overflow-hidden" : "justify-center px-6"}`}>
+          <div className={`relative flex w-full ${shouldAnimateTrustedBusinesses ? "overflow-hidden" : "overflow-x-auto px-6"}`}>
             {/* gradient fades for the edges */}
             {shouldAnimateTrustedBusinesses && (
               <>
@@ -324,27 +327,31 @@ export default function LandingPage() {
               </>
             )}
 
-            <div className={`flex transition-opacity duration-500 ${shouldAnimateTrustedBusinesses ? "animate-scroll w-max" : "w-full flex-wrap justify-center gap-y-8"}`}>
-              {displayedTrustedBusinesses.map((business: any, idx: number) => {
-                const FallbackIcon = business.icon || StoreIcon;
-                return (
-                  <div key={`${business.id || business.name}-${idx}`} className="flex w-64 shrink-0 flex-col items-center justify-center gap-4 opacity-90 transition-opacity duration-300 hover:opacity-100">
-                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-3xl border border-gray-200 bg-gray-100 text-gray-600 shadow-sm transition-all duration-300 hover:-rotate-3 hover:scale-105 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                      {business.logoUrl ? (
-                        <img
-                          src={getDisplayImageUrl(business.logoUrl)}
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover"
-                          alt={`${business.name} logo`}
-                        />
-                      ) : (
-                        <FallbackIcon className="w-8 h-8" />
-                      )}
-                    </div>
-                    <span className="font-semibold tracking-tight text-gray-600 dark:text-gray-300">{business.name}</span>
-                  </div>
-                );
-              })}
+            <div className={`flex w-max min-w-full transition-opacity duration-500 ${shouldAnimateTrustedBusinesses ? "animate-scroll" : "justify-center"}`}>
+              {(shouldAnimateTrustedBusinesses ? [0, 1] : [0]).map((groupIndex) => (
+                <div key={groupIndex} className="flex shrink-0" aria-hidden={groupIndex === 1 ? "true" : undefined}>
+                  {marqueeBusinesses.map((business: any, idx: number) => {
+                    const FallbackIcon = business.icon || StoreIcon;
+                    return (
+                      <div key={`${business.id || business.name}-${idx}`} className="flex w-64 shrink-0 flex-col items-center justify-center gap-4 opacity-90 transition-opacity duration-300 hover:opacity-100">
+                        <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-3xl border border-gray-200 bg-gray-100 text-gray-600 shadow-sm transition-all duration-300 hover:-rotate-3 hover:scale-105 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                          {business.logoUrl ? (
+                            <img
+                              src={getDisplayImageUrl(business.logoUrl)}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                              alt={`${business.name} logo`}
+                            />
+                          ) : (
+                            <FallbackIcon className="w-8 h-8" />
+                          )}
+                        </div>
+                        <span className="font-semibold tracking-tight text-gray-600 dark:text-gray-300">{business.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
         </section>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useLayoutEffect, useState } from 'react';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -8,23 +8,27 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+const THEMES: Theme[] = ['light', 'dark', 'system'];
+
+const updateThemeColor = (theme: 'light' | 'dark') => {
+  window.document.querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', theme === 'dark' ? '#1b1b1b' : '#ffffff');
+};
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
-    return (localStorage.getItem('theme') as Theme) || 'system';
+    const storedTheme = localStorage.getItem('theme') as Theme | null;
+    return storedTheme && THEMES.includes(storedTheme) ? storedTheme : 'system';
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = window.document.documentElement;
     root.classList.remove('light', 'dark');
-
-    if (theme === 'system') {
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      root.classList.add(systemTheme);
-      return;
-    }
-
-    root.classList.add(theme);
+    const resolvedTheme = theme === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : theme;
+    root.classList.add(resolvedTheme);
+    updateThemeColor(resolvedTheme);
   }, [theme]);
 
   // Handle system theme changes
@@ -34,7 +38,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       if (theme === 'system') {
         const root = window.document.documentElement;
         root.classList.remove('light', 'dark');
-        root.classList.add(mediaQuery.matches ? 'dark' : 'light');
+        const resolvedTheme = mediaQuery.matches ? 'dark' : 'light';
+        root.classList.add(resolvedTheme);
+        updateThemeColor(resolvedTheme);
       }
     };
 
