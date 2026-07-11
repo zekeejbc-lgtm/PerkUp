@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 export const LEGACY_CUSTOMER_QR_PREFIX = "perkup:v1:";
 export const RETIRED_CUSTOMER_QR_PREFIX = "perkup:v2:";
 export const SECURE_CUSTOMER_QR_PREFIX = "perkup:v3:";
+export const CUSTOMER_PROFILE_QR_PREFIX = "perkup:user:v1:";
 export const CUSTOMER_SCAN_PATH = "/scan";
 
 export type ParsedCustomerQr =
@@ -131,9 +132,23 @@ export const buildCustomerScanUrl = (input: { scanToken?: string; username?: str
   return `${getAppOrigin()}${CUSTOMER_SCAN_PATH}#${params.toString()}`;
 };
 
+// Scanner-native values stay compact and do not depend on the environment URL.
+// Keep buildCustomerScanUrl for ordinary phone-camera landing links and legacy QRs.
+export const buildCustomerQrPayload = (input: { scanToken?: string; username?: string }) => {
+  const scanToken = String(input.scanToken || "").trim();
+  if (scanToken) return scanToken;
+
+  const username = normalizeCustomerUsername(String(input.username || ""));
+  return username ? `${CUSTOMER_PROFILE_QR_PREFIX}${username}` : "";
+};
+
 export const parseCustomerQr = (value: string): ParsedCustomerQr | null => {
   const rawValue = String(value || "").trim();
   if (isSecureCustomerQr(rawValue)) return { kind: "secure", scanToken: rawValue };
+  if (rawValue.toLowerCase().startsWith(CUSTOMER_PROFILE_QR_PREFIX)) {
+    const username = normalizeCustomerUsername(rawValue.slice(CUSTOMER_PROFILE_QR_PREFIX.length));
+    return username ? { kind: "profile", manualUsername: username } : null;
+  }
 
   try {
     const url = new URL(rawValue);

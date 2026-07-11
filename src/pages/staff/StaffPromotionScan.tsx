@@ -180,7 +180,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
   // Batch & Feedback state
   const [isBatchMode, setIsBatchMode] = useState(false);
-  const [batchQueue, setBatchQueue] = useState<{ id: string, points: number }[]>([]);
+  const [batchQueue, setBatchQueue] = useState<{ id: string; redemptionInput: RedemptionInput; points: number }[]>([]);
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showScanSuccess, setShowScanSuccess] = useState(false);
   const duplicateScanRef = useRef<{ id: string; scannedAt: number; alertedAt: number } | null>(null);
@@ -391,11 +391,6 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       alert("Invalid PerkUp QR code. Ask the customer to open or download their QR from the PerkUp app.");
       return;
     }
-    if (isBatchMode && parsedQr.kind === "profile") {
-      alert("Downloaded username QR cards are confirmed in Single Scan mode.");
-      return;
-    }
-
     const redemptionInput: RedemptionInput = parsedQr.kind === "secure"
       ? { scanToken: parsedQr.scanToken }
       : { manualUsername: parsedQr.manualUsername };
@@ -428,7 +423,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     setTimeout(() => setShowScanSuccess(false), 1000);
 
     if (isBatchMode) {
-      setBatchQueue(prev => [...prev, { id: parsedQr.kind === "secure" ? parsedQr.scanToken : scanKey, points: pointsToAdd }]);
+      setBatchQueue(prev => [...prev, { id: scanKey, redemptionInput, points: pointsToAdd }]);
       return;
     }
 
@@ -595,7 +590,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     try {
         const ticketNumbers: string[] = [];
         for (const item of batchQueue) {
-            const result = await processPointsForCustomer(item.id, item.points);
+            const result = await processPointsForCustomerInput(item.redemptionInput, item.points);
             if (result.ticket?.ticketNumber) ticketNumbers.push(result.ticket.ticketNumber);
         }
         

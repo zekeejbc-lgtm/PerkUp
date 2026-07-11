@@ -74,6 +74,7 @@ type ScannedCustomer = {
 
 type BatchItem = {
   id: string;
+  redemptionInput: RedemptionInput;
   points: number;
 };
 
@@ -353,11 +354,6 @@ export default function StaffScanner({ store }: { store: any }) {
       setMessage({ type: "error", text: "Invalid PerkUp QR code. Ask the customer to open their Identity QR." });
       return;
     }
-    if (isBatchMode && parsedQr.kind === "profile") {
-      setMessage({ type: "error", text: "Downloaded username QR cards are confirmed in Single Scan mode." });
-      return;
-    }
-
     const redemptionInput: RedemptionInput = parsedQr.kind === "secure"
       ? { scanToken: parsedQr.scanToken }
       : { manualUsername: parsedQr.manualUsername };
@@ -384,7 +380,7 @@ export default function StaffScanner({ store }: { store: any }) {
     setTimeout(() => setShowScanSuccess(false), 1000);
 
     if (isBatchMode) {
-      setBatchQueue((queue) => [...queue, { id: parsedQr.kind === "secure" ? parsedQr.scanToken : scanKey, points: pointsToAdd }]);
+      setBatchQueue((queue) => [...queue, { id: scanKey, redemptionInput, points: pointsToAdd }]);
       return;
     }
 
@@ -520,7 +516,7 @@ export default function StaffScanner({ store }: { store: any }) {
       const ticketNumbers: string[] = [];
       for (const item of batchQueue) {
         const result = await redeemCustomerScan({
-          scanToken: item.id,
+          ...item.redemptionInput,
           storeId: store.id,
           promotionId: selectedPromotionId || undefined,
           points: item.points,

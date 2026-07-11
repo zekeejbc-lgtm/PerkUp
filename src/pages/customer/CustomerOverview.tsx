@@ -5,14 +5,13 @@ import { doc, getDoc, collection, query, where, getCountFromServer } from "@/src
 import { db, handleDataError, OperationType } from "../../lib/backend";
 import { Star, ShieldCheck, CreditCard, Gift, Info, Download, RotateCcw, X, AlertTriangle, AtSign, CheckCircle2, Pencil, Save } from "lucide-react";
 import { Link } from "react-router-dom";
-import { buildCustomerScanUrl, issueCustomerQr, IssuedCustomerQr, updateCustomerProfile } from "@/src/lib/secureQr";
+import { buildCustomerQrPayload, issueCustomerQr, IssuedCustomerQr, updateCustomerProfile } from "@/src/lib/secureQr";
 import { getUsernameValidationMessage, normalizeUsername } from "@/src/lib/username";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 
 const APP_NAME = "PerkUp";
 const LIGHT_LOGO_SRC = "/icons/perkup-wordmark-light-transparent.png?v=20260625-brand";
 const DARK_LOGO_SRC = "/icons/perkup-wordmark-dark-transparent.png?v=20260625-brand";
-const QR_LOGO_SRC = "/icons/favicon-192.png";
 
 type AppContact = {
   address?: string;
@@ -351,11 +350,10 @@ export default function CustomerOverview() {
       <div className="sr-only" aria-hidden="true">
         <QRCodeCanvas
           id="customer-overview-download-qr"
-          value={buildCustomerScanUrl({ username: user?.username })}
+          value={buildCustomerQrPayload({ username: user?.username })}
           size={512}
-          level="H"
-          marginSize={4}
-          imageSettings={{ src: QR_LOGO_SRC, height: 72, width: 72, excavate: true }}
+          level="M"
+          marginSize={5}
         />
       </div>
 
@@ -412,11 +410,11 @@ export default function CustomerOverview() {
             <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-200">
               {qrTicket?.token ? (
                 <QRCodeSVG
-                  value={buildCustomerScanUrl({ scanToken: qrTicket.token })}
-                  size={160}
-                  level="H"
-                  imageSettings={{ src: QR_LOGO_SRC, height: 26, width: 26, excavate: true }}
-                  className="w-full max-w-[160px] h-auto"
+                  value={buildCustomerQrPayload({ scanToken: qrTicket.token })}
+                  size={220}
+                  level="M"
+                  marginSize={4}
+                  className="h-auto w-full max-w-[220px]"
                 />
               ) : (
                 <div className="w-[160px] h-[160px] flex items-center justify-center text-center text-xs font-semibold text-gray-500">
