@@ -15,9 +15,7 @@ import { supabase } from '@/src/lib/supabase';
 import { checkSignupAvailability } from '@/src/lib/signupAvailability';
 import { doc, getDoc } from '@/src/lib/dataCompat';
 import {
-  findTrustedLoginDevice,
   getMfaPromptReason,
-  trustCurrentDeviceForUser,
   TrustedLoginProfile,
 } from '@/src/lib/trustedDevice';
 
@@ -71,6 +69,7 @@ const DEMO_ACCOUNTS: Array<{ role: DemoRole; label: string }> = [
 ];
 
 const DEMO_PASSWORD = 'password123';
+const DEMO_LOGIN_ENABLED = import.meta.env.VITE_DEMO_LOGIN_ENABLED === 'true';
 
 const ensureDemoAccount = async (role: DemoRole) => {
   const { data, error } = await supabase.functions.invoke<{ email: string }>('demo-login', {
@@ -117,7 +116,6 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
       setOtpExpiresAt(0);
       setPendingMfa(null);
       setMfaCode('');
-      setTrustDevice(false);
       const redirectMessage = window.sessionStorage.getItem(AUTH_REDIRECT_MESSAGE_KEY);
       setError(redirectMessage || '');
       if (redirectMessage) {
@@ -141,7 +139,6 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
   const [message, setMessage] = useState('');
   const [pendingMfa, setPendingMfa] = useState<PendingMfa | null>(null);
   const [mfaCode, setMfaCode] = useState('');
-  const [trustDevice, setTrustDevice] = useState(false);
   const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
   const signupPasswordValidation = useMemo(() => validateStrongPassword(password, {
     name: signupProfile.name,
@@ -214,9 +211,6 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     if (!factor) return false;
 
     const profile = await getUserProfile(userId);
-    const trustedDevice = await findTrustedLoginDevice(profile);
-    if (trustedDevice) return false;
-
     setPendingMfa({
       userId,
       factorId: factor.id,
@@ -224,7 +218,6 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
       reason: await getMfaPromptReason(profile),
     });
     setMfaCode('');
-    setTrustDevice(false);
     return true;
   };
 
@@ -245,10 +238,6 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
       });
       if (verify.error) throw verify.error;
 
-      if (trustDevice) {
-        await trustCurrentDeviceForUser(pendingMfa.userId);
-      }
-
       toast.success('Signed in successfully.');
       setPendingMfa(null);
       setMfaCode('');
@@ -265,7 +254,6 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     await auth.client.signOut().catch(() => undefined);
     setPendingMfa(null);
     setMfaCode('');
-    setTrustDevice(false);
     setLoading(false);
   };
 
@@ -522,7 +510,6 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     setOtpExpiresAt(0);
     setPendingMfa(null);
     setMfaCode('');
-    setTrustDevice(false);
   };
 
   const handlePrivacyAgreement = () => {
@@ -698,21 +685,6 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                   Use the 6-digit code from {pendingMfa.factorName}.
                 </p>
               </div>
-
-              <label className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-3 text-left dark:border-gray-800 dark:bg-gray-800/70">
-                <input
-                  type="checkbox"
-                  checked={trustDevice}
-                  onChange={(event) => setTrustDevice(event.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-gray-300 text-[#1b1b1b] focus:ring-[#1b1b1b]"
-                />
-                <span>
-                  <span className="block text-sm font-semibold text-gray-900 dark:text-white">Trust this device for 30 days</span>
-                  <span className="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
-                    Skip the authenticator prompt on this browser unless the device or location changes. You can turn this off in your profile.
-                  </span>
-                </span>
-              </label>
 
               <button
                 type="submit"
@@ -1053,7 +1025,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
             </>
           )}
 
-          {mode === 'signin' && !pendingMfa && (
+          {DEMO_LOGIN_ENABLED && mode === 'signin' && !pendingMfa && (
             <div className="mt-6 border-t border-gray-100 pt-6 dark:border-gray-800">
               <p className="mb-3 text-center text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
                 Demo Accounts

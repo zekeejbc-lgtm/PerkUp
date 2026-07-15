@@ -211,11 +211,11 @@ export default function StoreOwnerDashboard() {
     'form';
 
   if (loading) {
-    return <DashboardShellSkeleton navigationItems={9} />;
+    return <DashboardShellSkeleton navigationItems={9}><PageSkeleton variant={fallbackVariant} /></DashboardShellSkeleton>;
   }
 
-  if (subscriptionStore && getEffectiveSubscriptionStatus(subscriptionStore.subscriptionAccess) === "frozen") {
-    return <SubscriptionFrozenScreen store={subscriptionStore} />;
+  if (subscriptionStore && getEffectiveSubscriptionStatus(subscriptionStore.subscriptionAccess, new Date(), subscriptionStore.subscriptionEnd) === "frozen") {
+    return <SubscriptionFrozenScreen store={subscriptionStore} role="store_owner" />;
   }
 
   // Branch Selector View
@@ -260,7 +260,7 @@ export default function StoreOwnerDashboard() {
                   <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{store.name || 'Unnamed Branch'}</h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mb-6">{store.address || 'No address set'}</p>
                   <div className="flex items-center text-sm font-semibold text-[#1b1b1b] dark:text-white">
-                    Manage Branch <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                    Manage <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
                   </div>
                 </button>
               );
@@ -279,26 +279,35 @@ export default function StoreOwnerDashboard() {
                     : "You have used all branch slots. Contact an admin to increase your limit."}
               </p>
             </div>
-            <button type="button" disabled={remainingBranchSlots < 1 || Boolean(pendingBranchRequest)} onClick={() => {
-              setIsBranchRequestSectionExpanded(true);
-              setShowBranchRequest(!showBranchRequest);
-            }} className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900">
-              <Plus className="h-4 w-4" /> Request a branch
-            </button>
-            <button type="button" disabled={requestLookupBusy} onClick={() => loadOwnerData()} className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
-              <RefreshCw className={`h-4 w-4 ${requestLookupBusy ? "animate-spin" : ""}`} /> Check status
-            </button>
-            <button
-              type="button"
-              aria-expanded={isBranchRequestSectionExpanded}
-              aria-controls="branch-request-details"
-              aria-label={isBranchRequestSectionExpanded ? "Collapse branch requests" : "Expand branch requests"}
-              title={isBranchRequestSectionExpanded ? "Collapse requests" : "Expand requests"}
-              onClick={() => setIsBranchRequestSectionExpanded((expanded) => !expanded)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
-            >
-              <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isBranchRequestSectionExpanded ? "rotate-180" : ""}`} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button type="button" disabled={remainingBranchSlots < 1 || Boolean(pendingBranchRequest)} onClick={() => {
+                setIsBranchRequestSectionExpanded(true);
+                setShowBranchRequest(!showBranchRequest);
+              }} aria-label="Request another branch" className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-gray-900 px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900">
+                <Plus className="h-4 w-4" /> Request
+              </button>
+              <button
+                type="button"
+                disabled={requestLookupBusy}
+                onClick={() => loadOwnerData()}
+                aria-label="Reload branch request status"
+                title="Reload status"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <RefreshCw className={`h-4 w-4 ${requestLookupBusy ? "animate-spin" : ""}`} />
+              </button>
+              <button
+                type="button"
+                aria-expanded={isBranchRequestSectionExpanded}
+                aria-controls="branch-request-details"
+                aria-label={isBranchRequestSectionExpanded ? "Collapse branch requests" : "Expand branch requests"}
+                title={isBranchRequestSectionExpanded ? "Collapse requests" : "Expand requests"}
+                onClick={() => setIsBranchRequestSectionExpanded((expanded) => !expanded)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isBranchRequestSectionExpanded ? "rotate-180" : ""}`} />
+              </button>
+            </div>
           </div>
           <div id="branch-request-details" hidden={!isBranchRequestSectionExpanded}>
             {visibleBranchRequests.length > 0 && (
@@ -380,7 +389,7 @@ export default function StoreOwnerDashboard() {
                     className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-[#1b1b1b] dark:text-white hover:text-black dark:hover:text-white"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
-                    Back to branches
+                    Back
                   </button>
               </div>
             ) : (
@@ -453,12 +462,12 @@ export default function StoreOwnerDashboard() {
             }`}
           >
             <ArrowLeft className="w-4 h-4" />
-            Back to branches
+            Back
           </button>
         )}
         <Suspense fallback={<PageSkeleton variant={fallbackVariant} />}>
           <Routes>
-            <Route path="/" element={<StoreOwnerInfo store={activeStore} setStore={(updatedStore: any) => {
+            <Route path="/" element={<StoreOwnerInfo store={activeStore} subscriptionDependencies={subscriptionStore?.subscriptionDependencies} setStore={(updatedStore: any) => {
               setSelectedStore(updatedStore);
               setStores(stores.map(s => s.id === updatedStore.id ? updatedStore : s));
             }} />} />

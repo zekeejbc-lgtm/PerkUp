@@ -1,8 +1,8 @@
 var EMAIL_CONFIG = {
   systemName: "PerkUp",
   senderName: "PerkUp",
-  websiteLink: "https://perk-up-navy.vercel.app",
-  logoUrl: "https://perk-up-navy.vercel.app/icons/perkup-wordmark-light-transparent.png?v=20260625-brand",
+  websiteLink: "https://perks.youthserviceph.org/",
+  logoUrl: "https://perks.youthserviceph.org/icons/perkup-wordmark-light-transparent.png?v=20260625-brand",
   contactEmail: "perkup.shop@youthserviceph.org",
   contactPhone: "0962 232 8290",
   contactPhoneLink: "+639622328290",
@@ -225,6 +225,42 @@ function sendApplicationReceivedEmail(recipientEmail, userName, application) {
   });
 }
 
+function sendFeedbackReceivedEmail(recipientEmail, userName, feedback) {
+  validateEmailInput_(recipientEmail, userName);
+  feedback = feedback || {};
+
+  var referenceNumber = String(feedback.referenceNumber || "").trim();
+  if (!referenceNumber) {
+    throw new Error("feedback.referenceNumber is required.");
+  }
+
+  var trackingLink = String(feedback.trackingLink || "").trim() ||
+    EMAIL_CONFIG.websiteLink.replace(/\/+$/, "") + "/feedback?reference=" + encodeURIComponent(referenceNumber) + "#lookup";
+  var category = String(feedback.category || "general").replace(/_/g, " ");
+
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: "We received your PerkUp feedback",
+    userName: userName,
+    heading: "Feedback received, " + userName + ".",
+    introText: "Thank you for helping us improve PerkUp. Keep this reference number to follow our progress.",
+    secondaryText: "You can use the feedback lookup tool at any time to see its current status and our public response.",
+    feedback: {
+      referenceNumber: referenceNumber,
+      category: category,
+      message: String(feedback.message || "").trim()
+    },
+    buttonText: "Track Feedback",
+    buttonLink: trackingLink,
+    showButton: true,
+    plainText:
+      "We received your PerkUp feedback.\n" +
+      "Reference number: " + referenceNumber + "\n" +
+      "Type: " + category + "\n" +
+      "Track your feedback: " + trackingLink
+  });
+}
+
 function sendTestOtpEmail() {
   return sendOtpEmail("user@example.com", "John Doe", "123456");
 }
@@ -287,6 +323,7 @@ function sendSystemEmail_(emailData) {
   template.otpCode = emailData.otpCode || "";
   template.store = emailData.store || null;
   template.application = emailData.application || null;
+  template.feedback = emailData.feedback || null;
   template.buttonText = emailData.buttonText || "View Dashboard";
   template.buttonLink = emailData.buttonLink || EMAIL_CONFIG.websiteLink;
   template.showButton = emailData.showButton !== false;

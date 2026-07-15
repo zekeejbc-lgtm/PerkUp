@@ -10,7 +10,6 @@ import { SkeletonBlock } from "@/src/components/LoadingSkeleton";
 import { updateEmail } from "@/src/lib/supabaseAuthCompat";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { doc, serverTimestamp, setDoc } from "@/src/lib/dataCompat";
-import { getActiveTrustedDevices, updateTrustedDevicePreference } from "@/src/lib/trustedDevice";
 import { invokeAdminBackend } from "@/src/lib/adminBackend";
 import { formatPhilippineDateTime } from "@/src/lib/dateTime";
 
@@ -69,9 +68,6 @@ export default function AccountSecurity() {
   const [removeCode, setRemoveCode] = useState("");
   const [mfaBusy, setMfaBusy] = useState(false);
   const [mfaMessage, setMfaMessage] = useState<Message | null>(null);
-  const [trustedDeviceEnabled, setTrustedDeviceEnabled] = useState(true);
-  const [trustedDeviceBusy, setTrustedDeviceBusy] = useState(false);
-  const [trustedDeviceMessage, setTrustedDeviceMessage] = useState<Message | null>(null);
   const [deletionStep, setDeletionStep] = useState<"start" | "otp" | "credentials">("start");
   const [deletionOtpToken, setDeletionOtpToken] = useState("");
   const [deletionOtpCode, setDeletionOtpCode] = useState("");
@@ -83,7 +79,6 @@ export default function AccountSecurity() {
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<Message | null>(null);
   const passwordStrength = useMemo(() => getPasswordStrength(newPassword), [newPassword]);
-  const activeTrustedDevices = useMemo(() => getActiveTrustedDevices(user), [user]);
 
   const loadFactors = async () => {
     setLoadingFactors(true);
@@ -102,10 +97,6 @@ export default function AccountSecurity() {
   useEffect(() => {
     loadFactors();
   }, []);
-
-  useEffect(() => {
-    setTrustedDeviceEnabled(user?.skipMfaOnTrustedDevice !== false);
-  }, [user?.skipMfaOnTrustedDevice]);
 
   useEffect(() => {
     if (!emailOtpExpiresAt) {
@@ -469,32 +460,6 @@ export default function AccountSecurity() {
     }
   };
 
-  const handleTrustedDeviceToggle = async (enabled: boolean) => {
-    if (!user?.id) return;
-
-    setTrustedDeviceBusy(true);
-    setTrustedDeviceMessage(null);
-    try {
-      await updateTrustedDevicePreference(user.id, enabled);
-      setTrustedDeviceEnabled(enabled);
-      await refreshUser();
-      setTrustedDeviceMessage({
-        type: "success",
-        text: enabled
-          ? "Trusted-device skipping is enabled."
-          : "Trusted-device skipping is off. Saved trusted devices were cleared.",
-      });
-    } catch (error) {
-      console.error("Trusted device preference update failed:", error);
-      setTrustedDeviceMessage({
-        type: "error",
-        text: error instanceof Error ? error.message : "Could not update trusted-device settings.",
-      });
-    } finally {
-      setTrustedDeviceBusy(false);
-    }
-  };
-
   const verifiedFactors = factors.filter((factor) => factor.status === "verified");
 
   return (
@@ -745,60 +710,6 @@ export default function AccountSecurity() {
               </button>
             </div>
           </form>
-        )}
-      </section>
-
-      <section className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-3xl border border-gray-200 dark:border-gray-800">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-gray-400" />
-              Trusted Devices
-            </h3>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Allow trusted browsers to skip authenticator codes for 30 days. A new device or location will still require a code.
-            </p>
-            <p className="mt-2 text-xs font-medium text-gray-500 dark:text-gray-400">
-              {activeTrustedDevices.length} trusted {activeTrustedDevices.length === 1 ? "device" : "devices"} active.
-            </p>
-          </div>
-
-          <label className="flex shrink-0 items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
-            <input
-              type="checkbox"
-              checked={trustedDeviceEnabled}
-              disabled={trustedDeviceBusy}
-              onChange={(event) => handleTrustedDeviceToggle(event.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-[#1b1b1b] focus:ring-[#1b1b1b] disabled:opacity-50"
-            />
-            <span className="text-sm font-semibold text-gray-900 dark:text-white">
-              Skip on trusted devices
-            </span>
-          </label>
-        </div>
-
-        {activeTrustedDevices.length > 0 && (
-          <div className="mt-4 space-y-2 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-            {activeTrustedDevices.map((device) => (
-              <div key={device.id} className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between">
-                <span className="font-medium text-gray-900 dark:text-gray-100">{device.label || "Trusted browser"}</span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  Trusted until {formatEnrollmentDate(device.trustedUntil)}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {trustedDeviceMessage && (
-          <div className={`mt-4 p-4 rounded-2xl text-sm font-medium flex items-center gap-2 ${
-            trustedDeviceMessage.type === "success"
-              ? "bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800"
-              : "bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800"
-          }`}>
-            {trustedDeviceMessage.type === "success" ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
-            {trustedDeviceMessage.text}
-          </div>
         )}
       </section>
 

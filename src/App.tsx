@@ -8,7 +8,7 @@ import { DashboardShellSkeleton, PageSkeleton } from "./components/LoadingSkelet
 import { ThemeToggle } from "./components/ThemeToggle";
 import { BrandMark } from "./components/BrandMark";
 import { ProfileAvatarImage } from "./components/ProfileAvatarImage";
-import { findTrustedLoginDevice, getMfaPromptReason, trustCurrentDeviceForUser, TrustedLoginProfile } from "./lib/trustedDevice";
+import { getMfaPromptReason, TrustedLoginProfile } from "./lib/trustedDevice";
 import { FirstLoginPasswordChange } from "./components/FirstLoginPasswordChange";
 import { PublicSiteFooter } from "./components/PublicPageShell";
 import { GlobalImageViewer } from "./components/GlobalImageViewer";
@@ -17,6 +17,8 @@ const LandingPage = lazy(() => import("./pages/LandingPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const StoresPage = lazy(() => import("./pages/StoresPage"));
 const StorePage = lazy(() => import("./pages/StorePage"));
+const StoreProductsPage = lazy(() => import("./pages/StoreProductsPage"));
+const StorePromotionsPage = lazy(() => import("./pages/StorePromotionsPage"));
 const CustomerDashboard = lazy(() => import("./pages/CustomerDashboard"));
 const StaffDashboard = lazy(() => import("./pages/StaffDashboard"));
 const StoreOwnerDashboard = lazy(() => import("./pages/StoreOwnerDashboard"));
@@ -98,7 +100,6 @@ function MfaChallenge({ onVerified, profile }: { onVerified: () => void; profile
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [reason, setReason] = useState("Enter the code from your authentication app.");
-  const [trustDevice, setTrustDevice] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -126,12 +127,6 @@ function MfaChallenge({ onVerified, profile }: { onVerified: () => void; profile
         code: code.trim(),
       });
       if (verify.error) throw verify.error;
-
-      const userResponse = await supabase.auth.getUser();
-      const userId = userResponse.data.user?.id;
-      if (trustDevice && userId) {
-        await trustCurrentDeviceForUser(userId);
-      }
 
       onVerified();
     } catch (challengeError) {
@@ -175,21 +170,6 @@ function MfaChallenge({ onVerified, profile }: { onVerified: () => void; profile
             placeholder="123456"
           />
         </div>
-
-        <label className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-3 text-left dark:border-gray-800 dark:bg-gray-800/70">
-          <input
-            type="checkbox"
-            checked={trustDevice}
-            onChange={(event) => setTrustDevice(event.target.checked)}
-            className="mt-1 h-4 w-4 rounded border-gray-300 text-[#1b1b1b] focus:ring-[#1b1b1b]"
-          />
-          <span>
-            <span className="block text-sm font-semibold text-gray-900 dark:text-white">Trust this device for 30 days</span>
-            <span className="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
-              Skip this prompt on this browser unless the device or location changes.
-            </span>
-          </span>
-        </label>
 
         <div className="flex flex-col sm:flex-row gap-3">
           <button
@@ -236,14 +216,15 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode, allow
         const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
         if (error) throw error;
         if (data.nextLevel === "aal2" && data.currentLevel !== "aal2") {
-          const trustedDevice = await findTrustedLoginDevice(user);
-          if (active) setMfaRequired(!trustedDevice);
+          if (active) setMfaRequired(true);
           return;
         }
         if (active) setMfaRequired(false);
       } catch (error) {
         console.error("MFA assurance check failed:", error);
-        if (active) setMfaRequired(false);
+        // A failed assurance check must not silently downgrade an enrolled
+        // account to single-factor access.
+        if (active) setMfaRequired(true);
       } finally {
         if (active) setCheckingMfa(false);
       }
@@ -403,8 +384,10 @@ export default function App() {
       <Routes>
       <Route path="/" element={<Suspense fallback={<PageSkeleton variant="landing" />}><LandingPage /></Suspense>} />
       <Route path="/reset-password" element={<Suspense fallback={<PageSkeleton variant="auth" />}><ResetPasswordPage /></Suspense>} />
-      <Route path="/stores" element={<Suspense fallback={<PageSkeleton variant="content" />}><StoresPage /></Suspense>} />
+      <Route path="/stores" element={<Suspense fallback={<PageSkeleton variant="directory" />}><StoresPage /></Suspense>} />
       <Route path="/store/:storeId" element={<Suspense fallback={<PageSkeleton variant="store" />}><StorePage /></Suspense>} />
+      <Route path="/store/:storeId/products" element={<Suspense fallback={<PageSkeleton variant="products" />}><StoreProductsPage /></Suspense>} />
+      <Route path="/store/:storeId/promotions" element={<Suspense fallback={<PageSkeleton variant="promotions" />}><StorePromotionsPage /></Suspense>} />
       <Route path="/privacy" element={<Suspense fallback={<PageSkeleton variant="content" />}><PrivacyPolicyPage /></Suspense>} />
       <Route path="/data-deletion" element={<Suspense fallback={<PageSkeleton variant="content" />}><DataDeletionPage /></Suspense>} />
       <Route path="/terms" element={<Suspense fallback={<PageSkeleton variant="content" />}><TermsOfServicePage /></Suspense>} />
@@ -436,7 +419,7 @@ export default function App() {
       
       <Route path="/admin/*" element={
         <ProtectedRoute allowedRoles={["admin", "assistant_admin", "auditor"]}>
-          <Layout><Suspense fallback={<PageSkeleton />}><AdminDashboard /></Suspense></Layout>
+          <Layout><Suspense fallback={<DashboardShellSkeleton navigationItems={6} />}><AdminDashboard /></Suspense></Layout>
         </ProtectedRoute>
       } />
       </Routes>

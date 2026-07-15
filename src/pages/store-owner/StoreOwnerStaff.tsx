@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { collection, query, where, getDocs, doc, getDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
@@ -11,6 +11,7 @@ import { validateStrongPassword } from "../../lib/passwordStrength";
 import { Pagination } from "../../components/Pagination";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { formatCustomerCode } from "../../lib/customerId";
+import { CategorySearchInput } from "../../components/CategorySearchInput";
 
 const STAFF_PER_PAGE = 9;
 const SCAN_LOGS_PER_PAGE = 10;
@@ -58,6 +59,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
   const [isRemovingStaff, setIsRemovingStaff] = useState(false);
   const [staffPage, setStaffPage] = useState(1);
   const [scanPage, setScanPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
   
   const [formData, setFormData] = useState({
     name: "",
@@ -82,8 +84,27 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
     fetchStaff();
   }, [store]);
 
-  const staffTotalPages = Math.max(1, Math.ceil(staff.length / STAFF_PER_PAGE));
-  const paginatedStaff = staff.slice((staffPage - 1) * STAFF_PER_PAGE, staffPage * STAFF_PER_PAGE);
+  const filteredStaff = useMemo(() => {
+    const terms = searchQuery.toLocaleLowerCase().split(",").map((term) => term.trim()).filter(Boolean);
+    if (!terms.length) return staff;
+    return staff.filter((member) => {
+      const passwordStatus = member.requirePasswordChange ? "password change required" : "password updated";
+      const searchable = [
+        member.name,
+        member.email,
+        member.role,
+        "scanner ready",
+        passwordStatus,
+      ].join(" ").toLocaleLowerCase();
+      return terms.every((term) => {
+        if (term === "scanner ready") return true;
+        if (["password change required", "password updated"].includes(term)) return passwordStatus === term;
+        return searchable.includes(term);
+      });
+    });
+  }, [searchQuery, staff]);
+  const staffTotalPages = Math.max(1, Math.ceil(filteredStaff.length / STAFF_PER_PAGE));
+  const paginatedStaff = filteredStaff.slice((staffPage - 1) * STAFF_PER_PAGE, staffPage * STAFF_PER_PAGE);
   const scanTotalPages = Math.max(1, Math.ceil(scanLogs.length / SCAN_LOGS_PER_PAGE));
   const paginatedScanLogs = scanLogs.slice((scanPage - 1) * SCAN_LOGS_PER_PAGE, scanPage * SCAN_LOGS_PER_PAGE);
   const staffLimit = Math.trunc(Number(store?.subscriptionDependencies?.staffLimit || 0));
@@ -92,6 +113,10 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
   useEffect(() => {
     setStaffPage((page) => Math.min(page, staffTotalPages));
   }, [staffTotalPages]);
+
+  useEffect(() => {
+    setStaffPage(1);
+  }, [searchQuery]);
 
   useEffect(() => {
     setScanPage(1);
@@ -263,7 +288,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
           className="inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />
-          Back to Staff Directory
+          Back
         </button>
 
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 flex flex-col lg:flex-row gap-6 shadow-sm">
@@ -333,7 +358,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
 
             <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm">
               <div className="flex items-center gap-2 mb-3">
-                <TrendingUp className="w-5 h-5 text-[#1b1b1b]" />
+                <TrendingUp className="w-5 h-5 text-[#1b1b1b] dark:text-white" />
                 <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest">Performance</h3>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -448,16 +473,28 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
           className="flex items-center gap-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-4 py-2 rounded-xl font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors text-sm shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="w-4 h-4" />
-          Add Staff
+          Add
         </button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {staff.length === 0 ? (
+      <CategorySearchInput
+        value={searchQuery}
+        onChange={setSearchQuery}
+        categories={["Scanner Ready", "Password Change Required", "Password Updated"]}
+        placeholder="Search staff or filter by account status..."
+        ariaLabel="Search and filter staff management"
+        suggestionLabel="staff filter"
+        collapsibleFilters
+        resultsId="staff-management-results"
+        className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-12 text-sm text-gray-900 shadow-sm outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
+      />
+
+      <div id="staff-management-results" className="scroll-mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {filteredStaff.length === 0 ? (
           <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-[#1b1b1b] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
             <BadgeCheck className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-700 mb-3" />
-            <p className="font-medium text-gray-900 dark:text-white">No staff accounts found</p>
-            <p className="text-sm text-gray-500 mt-1">Add staff to allow them to process rewards in your store.</p>
+            <p className="font-medium text-gray-900 dark:text-white">{staff.length ? "No staff match your filters" : "No staff accounts found"}</p>
+            <p className="text-sm text-gray-500 mt-1">{staff.length ? "Try another search or clear the current filters." : "Add staff to allow them to process rewards in your store."}</p>
           </div>
         ) : (
           paginatedStaff.map(member => (
@@ -492,7 +529,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                </div>
                <div className="pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
                  <span className="text-xs font-bold uppercase tracking-widest text-[#1b1b1b] dark:text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                   View analytics
+                   Analytics
                  </span>
                  <button
                    type="button"
@@ -514,7 +551,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
       <Pagination
         page={staffPage}
         pageSize={STAFF_PER_PAGE}
-        totalItems={staff.length}
+        totalItems={filteredStaff.length}
         itemLabel="staff"
         onPageChange={setStaffPage}
       />
@@ -561,8 +598,8 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
 
               <div className="pt-4 flex justify-end gap-3 mt-4 border-t border-gray-100 dark:border-gray-800">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Cancel</button>
-                <button type="submit" disabled={saving || !validateStrongPassword(formData.password, { name: formData.name, email: formData.email }).valid} className="bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-6 py-2 rounded-xl text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-50">
-                  {saving ? 'Adding...' : 'Add Staff Access'}
+                <button type="submit" disabled={saving || !validateStrongPassword(formData.password, { name: formData.name, email: formData.email }).valid} aria-label="Add staff access" className="bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-6 py-2 rounded-xl text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-50">
+                  {saving ? 'Adding...' : 'Add'}
                 </button>
               </div>
 
@@ -574,7 +611,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
         isOpen={Boolean(staffToRemove)}
         title="Remove staff access?"
         description={`${staffToRemove?.name || staffToRemove?.email || "This staff member"} will immediately lose access to customer scanning and the store workspace.`}
-        confirmLabel="Remove access"
+        confirmLabel="Remove"
         isLoading={isRemovingStaff}
         onClose={() => setStaffToRemove(null)}
         onConfirm={handleDelete}

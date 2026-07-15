@@ -3,6 +3,7 @@ import { Search } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "../contexts/AuthContext";
+import { SkeletonBlock } from "./LoadingSkeleton";
 
 interface PublicSiteHeaderProps {
   onSignIn: () => void;
@@ -31,14 +32,16 @@ export function PublicSiteHeader({ onSignIn, onSignUp, onTrack }: PublicSiteHead
               <span className="hidden sm:inline">Track</span>
             </button>
           )}
-          {!loading && user ? (
+          {loading ? (
+            <div className="flex items-center gap-3" aria-label="Loading account controls"><SkeletonBlock className="h-5 w-12 rounded-lg" /><SkeletonBlock className="hidden h-9 w-20 rounded-full sm:block" /></div>
+          ) : user ? (
             <Link
               to="/dashboard"
               className="rounded-full bg-[#1b1b1b] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black dark:bg-white dark:text-[#1b1b1b] dark:hover:bg-gray-100"
             >
               Dashboard
             </Link>
-          ) : !loading ? (
+          ) : (
             <>
               <button
                 type="button"
@@ -55,7 +58,7 @@ export function PublicSiteHeader({ onSignIn, onSignUp, onTrack }: PublicSiteHead
                 Sign up
               </button>
             </>
-          ) : null}
+          )}
         </div>
       </nav>
     </header>

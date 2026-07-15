@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, ArrowRight, CalendarDays, Clock3, MapPin, Search, SlidersHorizontal, Store, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Clock3, MapPin, SlidersHorizontal, Store, X } from "lucide-react";
 import { AuthModal } from "../components/AuthModal";
 import { DirectionsButton } from "../components/DirectionsButton";
 import { PublicSiteHeader } from "../components/PublicSiteHeader";
@@ -13,8 +13,10 @@ import {
   DirectoryStore,
   getAvailableStoreCategories,
   isStoreOpenNow,
-  storeMatchesFilters,
+  storeMatchesCategorySearch,
 } from "../lib/storeDirectory";
+import { CategorySearchInput } from "../components/CategorySearchInput";
+import { SkeletonBlock } from "../components/LoadingSkeleton";
 
 export default function StoresPage() {
   const { user, loading: authLoading } = useAuth();
@@ -22,7 +24,6 @@ export default function StoresPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("All");
   const [openNowOnly, setOpenNowOnly] = useState(false);
   const [availabilityDate, setAvailabilityDate] = useState("");
   const [availabilityTime, setAvailabilityTime] = useState("");
@@ -74,14 +75,15 @@ export default function StoresPage() {
     return Number.isNaN(value.getTime()) ? null : value;
   }, [availabilityDate, availabilityTime]);
 
+  const categories = useMemo(() => getAvailableStoreCategories(stores), [stores]);
   const filteredStores = useMemo(
     () => stores.filter((store) =>
-      storeMatchesFilters(store, searchQuery, selectedCategory, openNowOnly, availableAt)
+      storeMatchesCategorySearch(store, searchQuery, categories) &&
+      ((!openNowOnly && !availableAt) || isStoreOpenNow(store.hours, availableAt || new Date()))
     ),
-    [availableAt, openNowOnly, searchQuery, selectedCategory, stores],
+    [availableAt, categories, openNowOnly, searchQuery, stores],
   );
-  const categories = useMemo(() => getAvailableStoreCategories(stores), [stores]);
-  const hasActiveFilters = Boolean(searchQuery.trim()) || selectedCategory !== "All" || openNowOnly || Boolean(availabilityDate) || Boolean(availabilityTime);
+  const hasActiveFilters = Boolean(searchQuery.trim()) || openNowOnly || Boolean(availabilityDate) || Boolean(availabilityTime);
 
   const openAuthModal = (mode: "signin" | "signup") => {
     setAuthMode(mode);
@@ -90,7 +92,6 @@ export default function StoresPage() {
 
   const clearFilters = () => {
     setSearchQuery("");
-    setSelectedCategory("All");
     setOpenNowOnly(false);
     setAvailabilityDate("");
     setAvailabilityTime("");
@@ -106,13 +107,13 @@ export default function StoresPage() {
       <main className="flex-1">
         <section className="border-b border-[#1b1b1b]/10 px-6 pb-12 pt-7 dark:border-white/10 sm:pb-16 sm:pt-9">
           <div className="mx-auto max-w-6xl">
-            <Link
-              to={!authLoading && user ? "/dashboard" : "/"}
+            {authLoading ? <SkeletonBlock className="h-5 w-36 rounded-lg" /> : <Link
+              to={user ? "/dashboard" : "/"}
               className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 transition-colors hover:text-[#1b1b1b] dark:text-gray-400 dark:hover:text-white"
             >
               <ArrowLeft className="h-4 w-4" />
-              {!authLoading && user ? "Back to dashboard" : "Back to homepage"}
-            </Link>
+              {user ? "Back to dashboard" : "Back to homepage"}
+            </Link>}
             <div className="mx-auto mt-10 max-w-3xl text-center sm:mt-12">
               <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-gray-400 dark:text-gray-500">
                 PerkUp partners
@@ -124,16 +125,13 @@ export default function StoresPage() {
             </div>
 
             <div className="mx-auto mt-8 max-w-4xl">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Search by store name or category..."
-                  className="w-full rounded-full border-0 bg-white py-4 pl-13 pr-5 text-gray-900 shadow-sm ring-1 ring-inset ring-[#1b1b1b]/10 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:bg-[#202020] dark:text-white dark:ring-white/10 dark:placeholder:text-gray-600 dark:focus:ring-white"
-                />
-              </div>
+              <CategorySearchInput
+                value={searchQuery}
+                onChange={setSearchQuery}
+                categories={categories}
+                resultsId="public-store-search-results"
+                className="w-full rounded-full border-0 bg-white py-4 pl-13 pr-12 text-gray-900 shadow-sm ring-1 ring-inset ring-[#1b1b1b]/10 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:bg-[#202020] dark:text-white dark:ring-white/10 dark:placeholder:text-gray-600 dark:focus:ring-white"
+              />
 
               <div className="mt-5 rounded-3xl border border-gray-200 bg-gray-50/70 p-4 text-left dark:border-white/10 dark:bg-[#202020] sm:p-5">
                 <div className="mb-4 flex items-center gap-2">
@@ -193,25 +191,6 @@ export default function StoresPage() {
                   Select both a date and time to find stores available then.
                 </p>
 
-                {categories.length > 1 && (
-                  <div className="mt-4 flex flex-wrap gap-2 border-t border-gray-200 pt-4 dark:border-white/10">
-                    {categories.map((category) => (
-                      <button
-                        key={category}
-                        type="button"
-                        aria-pressed={selectedCategory === category}
-                        onClick={() => setSelectedCategory(category)}
-                        className={`shrink-0 rounded-full border px-4 py-2 text-sm transition-colors ${
-                          selectedCategory === category
-                            ? "border-[#1b1b1b] bg-[#1b1b1b] text-white dark:border-white dark:bg-white dark:text-[#1b1b1b]"
-                            : "border-gray-200 bg-white text-gray-600 hover:border-gray-400 dark:border-white/10 dark:bg-[#252525] dark:text-gray-300"
-                        }`}
-                      >
-                        {category}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
 
               <div className="mt-2 flex min-h-8 items-center justify-center gap-3 text-sm text-gray-500 dark:text-gray-400" aria-live="polite">
@@ -227,12 +206,19 @@ export default function StoresPage() {
           </div>
         </section>
 
-        <section className="px-6 py-12 sm:py-16">
+        <section id="public-store-search-results" className="scroll-mt-6 px-6 py-12 sm:py-16">
           <div className="mx-auto max-w-7xl">
             {loading ? (
               <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
                 {[1, 2, 3, 4, 5, 6].map((item) => (
-                  <div key={item} className="h-72 animate-pulse rounded-[1.75rem] bg-gray-100 dark:bg-[#242424]" />
+                  <div key={item} className="overflow-hidden rounded-[1.75rem] border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-[#202020]">
+                    <div className="flex items-start gap-4">
+                      <SkeletonBlock className="h-16 w-16 shrink-0 rounded-2xl" />
+                      <div className="min-w-0 flex-1 space-y-3"><SkeletonBlock className="h-5 w-3/4 rounded-lg" /><SkeletonBlock className="h-4 w-1/2 rounded-lg" /></div>
+                    </div>
+                    <div className="mt-6 space-y-3"><SkeletonBlock className="h-4 w-full rounded-lg" /><SkeletonBlock className="h-4 w-5/6 rounded-lg" /></div>
+                    <div className="mt-6 flex gap-3"><SkeletonBlock className="h-10 flex-1 rounded-xl" /><SkeletonBlock className="h-10 w-10 rounded-xl" /></div>
+                  </div>
                 ))}
               </div>
             ) : error ? (

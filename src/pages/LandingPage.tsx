@@ -14,7 +14,8 @@ import { getDisplayImageUrl } from "../lib/imageStorage";
 import { PageSkeleton, SkeletonBlock } from "../components/LoadingSkeleton";
 import { DirectionsButton } from "../components/DirectionsButton";
 import { MapBaseLayers } from "../components/MapBaseLayers";
-import { DirectoryStore, getStoreCategories, isStoreOpenNow, storeMatchesFilters } from "../lib/storeDirectory";
+import { DirectoryStore, getStoreCategories, isStoreOpenNow, storeMatchesCategorySearch } from "../lib/storeDirectory";
+import { CategorySearchInput } from "../components/CategorySearchInput";
 
 import { PartnerApplicationModal } from "../components/PartnerApplicationModal";
 import { PartnerApplicationTrackingModal } from "../components/PartnerApplicationTrackingModal";
@@ -78,7 +79,6 @@ export default function LandingPage() {
   const [stores, setStores] = useState<DirectoryStore[]>([]);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("All");
   const [openNowOnly, setOpenNowOnly] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showAppModal, setShowAppModal] = useState(false);
@@ -191,15 +191,15 @@ export default function LandingPage() {
     return <Navigate to={navigationState?.returnTo || "/dashboard"} replace />;
   }
 
-  const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+  const categories = getStoreCategories(stores);
   const filteredStores = stores.filter((store) =>
-    storeMatchesFilters(store, searchQuery, selectedCategory, openNowOnly)
+    storeMatchesCategorySearch(store, searchQuery, categories, [store.contact]) &&
+    (!openNowOnly || isStoreOpenNow(store.hours))
   );
   const mapCenter: [number, number] = stores[0]?.lat !== undefined && stores[0]?.lng !== undefined
     ? [stores[0].lat, stores[0].lng]
     : DEFAULT_MAP_CENTER;
-  const categories = getStoreCategories(stores);
-  const hasActiveFilters = selectedCategory !== "All" || openNowOnly || Boolean(normalizedQuery);
+  const hasActiveFilters = openNowOnly || Boolean(searchQuery.trim());
   const trustedBusinesses = config.usePartnerStores && stores.length > 0
     ? stores
     : config.trustedBusinesses?.length > 0
@@ -367,20 +367,14 @@ export default function LandingPage() {
                 Discover places where you can earn and redeem rewards. Find a partner near you.
               </p>
 
-              <div className="relative max-w-md mx-auto">
-                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 z-10">
-                  <Search className="h-5 w-5 text-gray-400 dark:text-gray-500" aria-hidden="true" />
-                </div>
-                <input
-                  type="text"
-                  name="search"
-                  id="search"
+              <CategorySearchInput
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="block w-full rounded-full border-0 py-4 pl-12 pr-4 text-gray-900 dark:text-white bg-white dark:bg-[#202020] shadow-sm ring-1 ring-inset ring-[#1b1b1b]/10 dark:ring-white/10 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-white sm:text-sm sm:leading-6 transition-colors"
-                  placeholder="Search by store name or category..."
-                />
-              </div>
+                  onChange={setSearchQuery}
+                  categories={categories}
+                  resultsId="landing-store-search-results"
+                  wrapperClassName="mx-auto max-w-md"
+                  className="block w-full rounded-full border-0 py-4 pl-12 pr-12 text-gray-900 dark:text-white bg-white dark:bg-[#202020] shadow-sm ring-1 ring-inset ring-[#1b1b1b]/10 dark:ring-white/10 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-white sm:text-sm sm:leading-6 transition-colors"
+              />
               <div className="mx-auto mt-5 max-w-3xl" aria-label="Store filters">
                 <div className="flex items-center gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <button
@@ -396,22 +390,6 @@ export default function LandingPage() {
                     <Clock3 className="h-4 w-4" />
                     Open now
                   </button>
-                  <span className="mx-1 h-6 w-px shrink-0 bg-gray-200 dark:bg-white/10" aria-hidden="true" />
-                  {categories.map((category) => (
-                    <button
-                      key={category}
-                      type="button"
-                      aria-pressed={selectedCategory === category}
-                      onClick={() => setSelectedCategory(category)}
-                      className={`shrink-0 rounded-full border px-4 py-2 text-sm transition-colors ${
-                        selectedCategory === category
-                          ? "border-[#1b1b1b] bg-[#1b1b1b] text-white dark:border-white dark:bg-white dark:text-[#1b1b1b]"
-                          : "border-gray-200 text-gray-600 hover:border-gray-400 dark:border-white/10 dark:text-gray-300 dark:hover:border-white/30"
-                      }`}
-                    >
-                      {category}
-                    </button>
-                  ))}
                 </div>
                 <div className="mt-2 flex min-h-8 items-center justify-center gap-3 text-sm text-gray-500 dark:text-gray-400" aria-live="polite">
                   <span>{filteredStores.length} {filteredStores.length === 1 ? "store" : "stores"} found</span>
@@ -420,7 +398,6 @@ export default function LandingPage() {
                       type="button"
                       onClick={() => {
                         setSearchQuery("");
-                        setSelectedCategory("All");
                         setOpenNowOnly(false);
                       }}
                       className="inline-flex items-center gap-1 font-medium text-gray-700 hover:text-black dark:text-gray-300 dark:hover:text-white"
@@ -433,7 +410,7 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <div className="rounded-[2rem] overflow-hidden border border-[#1b1b1b]/10 dark:border-white/10 shadow-sm h-[400px] sm:h-[600px] relative z-0 transition-colors">
+            <div id="landing-store-search-results" className="scroll-mt-6 rounded-[2rem] overflow-hidden border border-[#1b1b1b]/10 dark:border-white/10 shadow-sm h-[400px] sm:h-[600px] relative z-0 transition-colors">
                {mapLoaded ? (
                  <MapContainer
                    center={mapCenter}

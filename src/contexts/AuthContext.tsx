@@ -1,14 +1,12 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { User as AuthUser } from "@/src/lib/supabaseAuthCompat";
-import { doc, getDocFromServer, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
+import { clearDataCache, doc, getDocFromServer, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import {
   AUTH_REDIRECT_MESSAGE_KEY,
   GOOGLE_AUTH_INTENT_KEY,
   GOOGLE_SIGNUP_PENDING_KEY,
   auth,
   db,
-  handleDataError,
-  OperationType,
 } from "../lib/backend";
 import { signOut } from "@/src/lib/supabaseAuthCompat";
 import type { TrustedLoginDevice } from "@/src/lib/trustedDevice";
@@ -31,6 +29,7 @@ export interface AppUser {
   address?: string;
   storeId?: string;
   branchLimit?: number;
+  currency?: string;
   skipMfaOnTrustedDevice?: boolean;
   trustedLoginDevices?: TrustedLoginDevice[];
   forcePasswordReset?: boolean;
@@ -143,22 +142,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (sessionUser) => {
+      // Cached RLS-scoped rows must not survive an account/session change.
+      clearDataCache();
       setAuthUser(sessionUser);
-      if (sessionUser) {
-        try {
+      try {
+        if (sessionUser) {
           await loadUserProfile(sessionUser);
-        } catch (error) {
-          console.error("Auth init error:", error);
-          if (error instanceof Error && error.message.includes("Missing or insufficient permissions")) {
-            console.error("Permission denied. Could be a guest or unverified user.");
-          } else {
-            handleDataError(error, OperationType.GET, "users");
-          }
+        } else {
+          setUser(null);
         }
-      } else {
+      } catch (error) {
+        console.error("Auth profile initialization failed:", error);
         setUser(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();

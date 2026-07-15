@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Gift, Calendar, Star, ChevronRight, Users } from "lucide-react";
@@ -8,6 +8,7 @@ import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { getCompletedPromotionCount, getRemainingPromotionClaimsLabel } from "../../lib/promotionProgress";
 import { Pagination } from "../../components/Pagination";
 import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../../lib/dateTime";
+import { CategorySearchInput } from "../../components/CategorySearchInput";
 
 const PROMOTIONS_PER_PAGE = 6;
 
@@ -15,8 +16,40 @@ export default function StaffPromotions({ store }: { store: any }) {
   const [promotions, setPromotions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
-  const totalPages = Math.max(1, Math.ceil(promotions.length / PROMOTIONS_PER_PAGE));
-  const paginatedPromotions = promotions.slice(
+  const [searchQuery, setSearchQuery] = useState("");
+  const filteredPromotions = useMemo(() => {
+    const terms = searchQuery.toLocaleLowerCase().split(",").map((term) => term.trim()).filter(Boolean);
+    if (!terms.length) return promotions;
+    const now = Date.now();
+    const soonThreshold = now + 7 * 24 * 60 * 60 * 1000;
+    return promotions.filter((promotion) => {
+      const endTime = promotion.endDate ? getPhilippineDateTimeMillis(promotion.endDate) : Number.NaN;
+      const hasExpiry = Number.isFinite(endTime);
+      const expiringSoon = hasExpiry && endTime > now && endTime <= soonThreshold;
+      const hasClaimLimit = Number(promotion.maxRedemptions || 0) > 0;
+      const hasLinkedProduct = Boolean(promotion.linkedProductId || promotion.linkedProductName);
+      const searchable = [
+        promotion.title,
+        promotion.description,
+        promotion.redemptionInstructions,
+        promotion.linkedProductName,
+        `${promotion.requiredStamps || 0} stamps`,
+        promotion.endDate ? formatPhilippineDate(promotion.endDate) : "no expiry",
+        getRemainingPromotionClaimsLabel(promotion),
+      ].join(" ").toLocaleLowerCase();
+      return terms.every((term) => {
+        if (term === "expiring soon") return expiringSoon;
+        if (term === "no expiry") return !hasExpiry;
+        if (term === "limited claims") return hasClaimLimit;
+        if (term === "unlimited claims") return !hasClaimLimit;
+        if (term === "linked product") return hasLinkedProduct;
+        if (term === "general reward") return !hasLinkedProduct;
+        return searchable.includes(term);
+      });
+    });
+  }, [promotions, searchQuery]);
+  const totalPages = Math.max(1, Math.ceil(filteredPromotions.length / PROMOTIONS_PER_PAGE));
+  const paginatedPromotions = filteredPromotions.slice(
     (currentPage - 1) * PROMOTIONS_PER_PAGE,
     currentPage * PROMOTIONS_PER_PAGE,
   );
@@ -24,6 +57,10 @@ export default function StaffPromotions({ store }: { store: any }) {
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
 
   useEffect(() => {
     if (!store?.id) return;
@@ -62,20 +99,32 @@ export default function StaffPromotions({ store }: { store: any }) {
         <p className="text-gray-500 dark:text-gray-400 mt-2">Select a promotion to scan customer QR codes and manage rewards.</p>
       </div>
 
+      <CategorySearchInput
+        value={searchQuery}
+        onChange={setSearchQuery}
+        categories={["Expiring Soon", "No Expiry", "Limited Claims", "Unlimited Claims", "Linked Product", "General Reward"]}
+        placeholder="Search promotions or filter by expiry, claims..."
+        ariaLabel="Search and filter active promotions"
+        suggestionLabel="promotion filter"
+        collapsibleFilters
+        resultsId="staff-active-promotions-results"
+        className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-12 text-sm text-gray-900 shadow-sm outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
+      />
+
       {loading ? (
         <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
           {[1, 2, 3].map(i => (
             <SkeletonBlock key={i} className="h-[420px] rounded-[2rem]" />
           ))}
         </div>
-      ) : promotions.length === 0 ? (
-        <div className="bg-white dark:bg-gray-900 p-12 rounded-[2rem] border border-dashed border-gray-300 dark:border-gray-700 text-center flex flex-col items-center">
+      ) : filteredPromotions.length === 0 ? (
+        <div id="staff-active-promotions-results" className="scroll-mt-6 bg-white dark:bg-gray-900 p-12 rounded-[2rem] border border-dashed border-gray-300 dark:border-gray-700 text-center flex flex-col items-center">
           <Gift className="w-16 h-16 text-gray-400 mb-6" />
-          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">No Active Promotions</h3>
-          <p className="text-gray-500 max-w-sm mb-8">This store currently doesn't have any active promotions for customers.</p>
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{promotions.length ? "No promotions match your filters" : "No Active Promotions"}</h3>
+          <p className="text-gray-500 max-w-sm mb-8">{promotions.length ? "Try another search or clear the current filters." : "This store currently doesn't have any active promotions for customers."}</p>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div id="staff-active-promotions-results" className="scroll-mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {paginatedPromotions.map((promo) => (
             <Link
               key={promo.id}
@@ -124,7 +173,7 @@ export default function StaffPromotions({ store }: { store: any }) {
       <Pagination
         page={currentPage}
         pageSize={PROMOTIONS_PER_PAGE}
-        totalItems={promotions.length}
+        totalItems={filteredPromotions.length}
         itemLabel="promotions"
         onPageChange={setCurrentPage}
       />

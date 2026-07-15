@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState } from "react";
-import { Store, FileText, Layout, CreditCard, Menu, UserCircle, Scale } from "lucide-react";
+import { Store, FileText, Layout, CreditCard, Menu, UserCircle, Scale, Inbox } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { PageSkeleton } from "../components/LoadingSkeleton";
 import { useAuth } from "../contexts/AuthContext";
@@ -10,6 +10,7 @@ const AdminAccount = lazy(() => import("./admin/AdminAccount"));
 const AdminHomepage = lazy(() => import("./admin/AdminHomepage"));
 const AdminSubscriptions = lazy(() => import("./admin/AdminSubscriptions"));
 const AdminLegalPages = lazy(() => import("./admin/AdminLegalPages"));
+const AdminPublicEngagement = lazy(() => import("./admin/AdminPublicEngagement"));
 
 export default function AdminDashboard() {
   const location = useLocation();
@@ -24,6 +25,7 @@ export default function AdminDashboard() {
     requestedTab === 'applications' ||
     requestedTab === 'homepage' ||
     requestedTab === 'subscriptions' ||
+    requestedTab === 'inbox' ||
     (requestedTab === 'legal' && (user?.role === 'admin' || user?.role === 'assistant_admin'))
       ? requestedTab
       : 'stores';
@@ -39,6 +41,7 @@ export default function AdminDashboard() {
   const navigation = [
     { id: 'stores', label: 'Partner Stores', icon: Store },
     { id: 'applications', label: 'Applications', icon: FileText },
+    { id: 'inbox', label: 'Public Inbox', icon: Inbox },
     { id: 'homepage', label: 'Edit Homepage', icon: Layout },
     ...((user?.role === "admin" || user?.role === "assistant_admin")
       ? [{ id: 'legal' as const, label: 'Edit Legal Pages', icon: Scale }]
@@ -55,6 +58,7 @@ export default function AdminDashboard() {
   const fallbackVariant =
     isAccountPage ? 'form' :
     activeTab === 'applications' ? 'table' :
+    activeTab === 'inbox' ? 'table' :
     activeTab === 'homepage' ? 'homepage' :
     activeTab === 'subscriptions' ? 'subscriptions' :
     activeTab === 'legal' ? 'form' :
@@ -122,6 +126,7 @@ export default function AdminDashboard() {
             <>
               {activeTab === 'stores' && <AdminStores />}
               {activeTab === 'applications' && <AdminApplications />}
+              {activeTab === 'inbox' && <AdminPublicEngagement />}
               {activeTab === 'homepage' && <AdminHomepage />}
               {activeTab === 'legal' && <AdminLegalPages />}
               {activeTab === 'subscriptions' && <AdminSubscriptions />}

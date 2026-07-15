@@ -1,5 +1,6 @@
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useState } from "react";
 import AccountSecurity from "@/src/components/AccountSecurity";
+import CurrencyPreference from "@/src/components/CurrencyPreference";
 import { ProfileAvatarImage } from "@/src/components/ProfileAvatarImage";
 import { useAuth } from "../../contexts/AuthContext";
 import { logOut } from "../../lib/backend";
@@ -167,7 +168,7 @@ export default function CustomerProfile() {
   );
 
   return (
-    <div className="max-w-3xl space-y-8">
+    <div className="mx-auto w-full max-w-3xl space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Profile</h2>
@@ -317,6 +318,7 @@ export default function CustomerProfile() {
         </form>
       </div>
 
+      <CurrencyPreference />
       <AccountSecurity />
     </div>
   );

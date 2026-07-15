@@ -5,6 +5,7 @@ import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { getPasswordStrength, sanitizePasswordInput } from "../lib/passwordStrength";
 import { initialRecoveryCallbackDetected, supabase } from "../lib/supabase";
+import { SkeletonBlock } from "../components/LoadingSkeleton";
 
 type RecoveryStatus = "checking" | "ready" | "invalid" | "success";
 
@@ -119,10 +120,10 @@ export default function ResetPasswordPage() {
 
       <section className="relative w-full max-w-md rounded-[2rem] border border-gray-200 bg-white p-6 shadow-xl shadow-black/5 sm:p-8 dark:border-white/10 dark:bg-[#171717] dark:shadow-black/30">
         {status === "checking" && (
-          <div className="flex min-h-64 flex-col items-center justify-center text-center">
-            <Loader2 className="mb-4 h-8 w-8 animate-spin text-gray-500" />
-            <h1 className="text-xl font-bold">Verifying your reset link</h1>
-            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">This should only take a moment.</p>
+          <div className="min-h-64 space-y-5 py-3" aria-label="Verifying password reset link">
+            <SkeletonBlock className="h-12 w-12 rounded-2xl" />
+            <div className="space-y-3"><SkeletonBlock className="h-7 w-2/3 rounded-xl" /><SkeletonBlock className="h-4 w-full rounded-lg" /></div>
+            <div className="space-y-4 pt-2"><SkeletonBlock className="h-12 w-full rounded-xl" /><SkeletonBlock className="h-12 w-full rounded-xl" /><SkeletonBlock className="h-12 w-full rounded-xl" /></div>
           </div>
         )}
 

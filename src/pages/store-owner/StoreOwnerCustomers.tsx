@@ -1,12 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { collection, query, where, getDocs, doc, getDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { Search, User, Star, ArrowLeft, Minus, Plus, Users, Clock, MessageSquare, Heart, CheckCircle2, Gift, Loader2 } from "lucide-react";
+import { User, Star, ArrowLeft, Minus, Plus, Users, Clock, MessageSquare, Heart, CheckCircle2, FileText, Gift, Loader2 } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { Pagination } from "../../components/Pagination";
 import { formatCustomerCode } from "../../lib/customerId";
+import { CategorySearchInput } from "../../components/CategorySearchInput";
 
 const CUSTOMERS_PER_PAGE = 12;
 const SCROLL_PANEL_CLASS = "overflow-y-auto pr-1";
@@ -103,6 +104,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
         let email = "";
         let username = "";
         let avatarUrl = "";
+        let bio = "";
         let joinedAt = null;
         let lifetimeStars = Number(card.stars || 0);
         const customerScans = scansByCustomer[card.customerId] || [];
@@ -125,12 +127,14 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                email = profile.email || "";
                username = profile.username || "";
                avatarUrl = profile.avatarUrl || profile.photoURL || profile.profilePic || "";
+               bio = profile.bio || "";
                joinedAt = profile.createdAt || card.joinedAt || card.createdAt || null;
            }
            if (customerSnap.exists()) {
                const customer = customerSnap.data() as any;
                lifetimeStars = Number(customer.lifetimeStars ?? lifetimeStars);
                joinedAt = joinedAt || customer.createdAt || null;
+               bio = bio || customer.bio || "";
            }
         } catch (e) {
           console.error("Failed to load customer profile", card.customerId, e);
@@ -143,6 +147,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
           email,
           username,
           avatarUrl,
+          bio,
           joinedAt,
           lifetimeStars,
           stars: card.stars || 0,
@@ -238,13 +243,28 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
     }
   };
 
-  const filtered = customers.filter(c => {
-    const normalizedSearch = search.toLowerCase();
-    const customerCode = formatCustomerCode(c.customerId).toLowerCase();
-    return c.name.toLowerCase().includes(normalizedSearch)
-      || String(c.customerId || "").toLowerCase().includes(normalizedSearch)
-      || customerCode.includes(normalizedSearch);
-  });
+  const filtered = useMemo(() => {
+    const terms = search.toLocaleLowerCase().split(",").map((term) => term.trim()).filter(Boolean);
+    if (!terms.length) return customers;
+    return customers.filter((customer) => {
+      const segment = customer.lifetimeStars > 20 ? "loyal" : customer.lifetimeStars > 5 ? "regular" : "new";
+      const status = customer.accountDeleted ? "deleted" : "active";
+      const searchable = [
+        customer.name,
+        customer.email,
+        customer.username,
+        customer.customerId,
+        formatCustomerCode(customer.customerId),
+        segment,
+        status,
+      ].join(" ").toLocaleLowerCase();
+      return terms.every((term) => {
+        if (["loyal", "regular", "new"].includes(term)) return segment === term;
+        if (["active", "deleted"].includes(term)) return status === term;
+        return searchable.includes(term);
+      });
+    });
+  }, [customers, search]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / CUSTOMERS_PER_PAGE));
   const paginatedCustomers = filtered.slice((currentPage - 1) * CUSTOMERS_PER_PAGE, currentPage * CUSTOMERS_PER_PAGE);
 
@@ -265,7 +285,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
     return (
       <div className="space-y-6 pb-20">
          <button onClick={() => setSelectedCustomer(null)} className="flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors">
-            <ArrowLeft className="w-5 h-5" /> Back to Customers Directory
+            <ArrowLeft className="w-5 h-5" /> Back
          </button>
 
          {/* Header Info */}
@@ -295,7 +315,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
             <div className="shrink-0 bg-gray-50 dark:bg-gray-800 rounded-2xl p-4 text-center min-w-[120px] shadow-inner">
                <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Current Points</p>
                <div className="text-4xl font-black text-gray-900 dark:text-white flex items-center justify-center gap-1">
-                 {selectedCustomer.stars} <Star className="w-6 h-6 text-[#1b1b1b] fill-[#1b1b1b]" />
+                 {selectedCustomer.stars} <Star className="w-6 h-6 text-[#1b1b1b] fill-[#1b1b1b] dark:text-white dark:fill-white" />
                </div>
             </div>
          </div>
@@ -333,13 +353,19 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                     <div>
                       <p className="text-xs text-gray-500 mb-0.5">Lifetime Points Earned</p>
                       <p className="font-semibold text-gray-900 dark:text-white flex items-center gap-1">
-                        {selectedCustomer.lifetimeStars} <Star className="w-3 h-3 text-[#1b1b1b]" />
+                        {selectedCustomer.lifetimeStars} <Star className="w-3 h-3 text-[#1b1b1b] dark:text-white" />
                       </p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500 mb-0.5">Member Since</p>
                       <p className="font-semibold text-gray-900 dark:text-white">
                         {selectedCustomer.joinedAt ? (toDate(selectedCustomer.joinedAt) || new Date(selectedCustomer.joinedAt)).toLocaleDateString() : 'Unknown'}
+                      </p>
+                    </div>
+                    <div className="border-t border-gray-100 pt-4 dark:border-gray-800">
+                      <p className="mb-1 flex items-center gap-1.5 text-xs text-gray-500"><FileText className="h-3.5 w-3.5" /> Bio</p>
+                      <p className="whitespace-pre-wrap break-words text-sm font-medium leading-6 text-gray-900 dark:text-gray-200">
+                        {selectedCustomer.bio || "No bio added yet."}
                       </p>
                     </div>
                   </div>
@@ -352,7 +378,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                {/* Active Promos Showcase */}
                <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm flex flex-col">
                  <div className="flex items-center gap-2 mb-4">
-                   <Gift className="w-5 h-5 text-[#1b1b1b]" />
+                   <Gift className="w-5 h-5 text-[#1b1b1b] dark:text-white" />
                    <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest">Digital Stamp Cards</h3>
                  </div>
                  {promotions.length > 0 ? (
@@ -464,7 +490,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                      {selectedCustomer.feedback?.length > 0 ? (
                        selectedCustomer.feedback.map((item: any, i: number) => (
                          <div key={i} className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-2xl">
-                           <div className="flex text-[#1b1b1b] mb-2">
+                           <div className="flex text-[#1b1b1b] dark:text-white mb-2">
                              {[...Array(5)].map((_, idx) => (
                                <Star key={idx} className={`w-3 h-3 ${idx < item.rating ? 'fill-current' : 'text-gray-300 dark:text-gray-700'}`} />
                              ))}
@@ -495,19 +521,21 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Customer Database</h2>
           <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Manage regulars, add points, and see activity histories.</p>
         </div>
-        <div className="relative w-full sm:w-auto">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input 
-            type="text" 
-            placeholder="Search name or ID..." 
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full sm:w-72 pl-9 pr-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#1b1b1b] text-gray-900 dark:text-white shadow-sm"
-          />
-        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <CategorySearchInput
+        value={search}
+        onChange={setSearch}
+        categories={["Active", "Deleted", "Loyal", "Regular", "New"]}
+        placeholder="Search customers or filter by segment, status..."
+        ariaLabel="Search and filter customer database"
+        suggestionLabel="customer filter"
+        collapsibleFilters
+        resultsId="customer-database-results"
+        className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-12 text-sm text-gray-900 shadow-sm outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
+      />
+
+      <div id="customer-database-results" className="scroll-mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filtered.length === 0 ? (
            <div className="col-span-full text-center py-16 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl">
              <Users className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-700 mb-4" />
@@ -525,11 +553,11 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                   {c.avatarUrl && !c.accountDeleted ? (
                     <img src={getDisplayImageUrl(c.avatarUrl)} alt="" loading="lazy" className="h-full w-full rounded-full object-cover" />
                   ) : (
-                    <User className="w-5 h-5 text-[#1b1b1b]" />
+                    <User className="w-5 h-5 text-[#1b1b1b] dark:text-white" />
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded-xl border border-gray-100 dark:border-gray-700">
-                  <Star className="w-3.5 h-3.5 text-[#1b1b1b] fill-[#1b1b1b]" />
+                  <Star className="w-3.5 h-3.5 text-[#1b1b1b] fill-[#1b1b1b] dark:text-white dark:fill-white" />
                   <span className="font-black text-sm text-gray-900 dark:text-white leading-none">{c.stars}</span>
                 </div>
               </div>

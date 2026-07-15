@@ -10,6 +10,7 @@ import { submitPartnerApplication } from '../lib/partnerApplication';
 import { MapBaseLayers } from './MapBaseLayers';
 import { ImageCropEditor } from './ImageCropEditor';
 import { formatApplicationTrackingCode } from '../lib/applicationTracking';
+import { useCurrency } from '../contexts/CurrencyContext';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -57,6 +58,7 @@ interface PartnerApplicationModalProps {
 }
 
 export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationModalProps) {
+  const { formatCurrency } = useCurrency();
   const [step, setStep] = useState(1);
   const [plans, setPlans] = useState<any[]>([]);
 
@@ -463,7 +465,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                          )}
                          <h4 className={`pr-8 font-bold ${isSelected ? 'text-green-950 dark:text-green-50' : 'text-gray-900 dark:text-white'}`}>{plan.name}</h4>
                          <div className="mt-2 mb-4">
-                           <span className={`text-2xl font-bold ${isSelected ? 'text-green-900 dark:text-green-100' : 'text-gray-900 dark:text-white'}`}>₱{plan.price}</span>
+                           <span className={`text-2xl font-bold ${isSelected ? 'text-green-900 dark:text-green-100' : 'text-gray-900 dark:text-white'}`}>{formatCurrency(Number(plan.price || 0), { maximumFractionDigits: 2 })}</span>
                            <span className={`text-sm ${isSelected ? 'text-green-700 dark:text-green-200' : 'text-gray-500'}`}>/{plan.interval}</span>
                          </div>
                          <ul className={`space-y-2 text-sm ${isSelected ? 'text-green-900 dark:text-green-100' : 'text-gray-600 dark:text-gray-300'}`}>

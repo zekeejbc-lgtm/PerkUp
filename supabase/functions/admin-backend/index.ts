@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
+import { sessionNeedsMfa } from "../_shared/auth.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
@@ -73,6 +74,9 @@ Deno.serve(async (req) => {
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) return jsonResponse({ error: "Authentication required." }, 401);
+    if (await sessionNeedsMfa(userClient, authorization)) {
+      return jsonResponse({ error: "Complete multi-factor authentication to continue.", code: "mfa_required" }, 403);
+    }
 
     const { data: actorRow, error: actorError } = await admin
       .from("users")
@@ -83,8 +87,84 @@ Deno.serve(async (req) => {
 
     const actor = (actorRow?.data || {}) as UserProfile;
     const actorIsAdmin = actor.role === "admin" || actor.role === "assistant_admin";
+    const actorCanReview = actorIsAdmin || actor.role === "auditor";
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const action = cleanText(body.action, 40);
+
+    if (action === "list_public_engagement") {
+      if (!actorCanReview) return jsonResponse({ error: "Admin access required." }, 403);
+
+      const [feedbackResult, newsletterResult] = await Promise.all([
+        admin
+          .from("site_feedback_submissions")
+          .select("id,name,email,category,message,reference_number,status,public_response,internal_notes,created_at,status_updated_at,updated_at")
+          .order("created_at", { ascending: false })
+          .limit(1000),
+        admin
+          .from("newsletter_subscribers")
+          .select("id,email,created_at")
+          .order("created_at", { ascending: false })
+          .limit(1000),
+      ]);
+      if (feedbackResult.error) throw feedbackResult.error;
+      if (newsletterResult.error) throw newsletterResult.error;
+
+      return jsonResponse({
+        feedback: (feedbackResult.data || []).map((row) => ({
+          id: row.id,
+          name: row.name || "",
+          email: row.email || "",
+          category: row.category,
+          message: row.message,
+          referenceNumber: row.reference_number,
+          status: row.status,
+          publicResponse: row.public_response || "",
+          internalNotes: row.internal_notes || "",
+          createdAt: row.created_at,
+          statusUpdatedAt: row.status_updated_at,
+          updatedAt: row.updated_at,
+        })),
+        subscribers: newsletterResult.data || [],
+      });
+    }
+
+    if (action === "update_public_feedback") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const feedbackId = cleanText(body.feedbackId, 100);
+      const status = cleanText(body.status, 30).toLowerCase();
+      const publicResponse = cleanText(body.publicResponse, 2000);
+      const internalNotes = cleanText(body.internalNotes, 4000);
+      if (!feedbackId || !["received", "reviewing", "planned", "in_progress", "resolved", "closed"].includes(status)) {
+        return jsonResponse({ error: "A feedback record and valid status are required." }, 400);
+      }
+
+      const now = new Date().toISOString();
+      const { data, error } = await admin
+        .from("site_feedback_submissions")
+        .update({
+          status,
+          public_response: publicResponse || null,
+          internal_notes: internalNotes || null,
+          status_updated_at: now,
+          updated_at: now,
+        })
+        .eq("id", feedbackId)
+        .select("id,status,public_response,internal_notes,status_updated_at,updated_at")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return jsonResponse({ error: "Feedback was not found." }, 404);
+
+      return jsonResponse({
+        feedback: {
+          id: data.id,
+          status: data.status,
+          publicResponse: data.public_response || "",
+          internalNotes: data.internal_notes || "",
+          statusUpdatedAt: data.status_updated_at,
+          updatedAt: data.updated_at,
+        },
+      });
+    }
 
     if (action === "update_subscription_access") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
@@ -127,6 +207,8 @@ Deno.serve(async (req) => {
         paymentInstructions: cleanText(input.paymentInstructions, 2000) || "Contact PerkUp support for payment instructions and send your proof of payment for verification.",
         paymentLink: cleanText(input.paymentLink, 2000),
         paymentContact: cleanText(input.paymentContact, 254) || "perkup.shop@youthserviceph.org",
+        automationEnabled: input.automationEnabled === true,
+        warningLeadDays: Math.max(0, Math.min(365, Math.trunc(Number(input.warningLeadDays ?? 7) || 0))),
         updatedAt: now.toISOString(),
         updatedBy: authData.user.id,
       };
@@ -173,7 +255,7 @@ Deno.serve(async (req) => {
         createdAt: timestamp(),
         updatedAt: timestamp(),
       };
-      const store = {
+      const store: Record<string, unknown> = {
         ...storeInput,
         name: storeName,
         businessName: cleanText(storeInput.businessName, 120) || storeName,
@@ -198,6 +280,20 @@ Deno.serve(async (req) => {
         await admin.from("users").delete().eq("id", ownerId);
         await admin.auth.admin.deleteUser(ownerId).catch(() => undefined);
         throw storeError;
+      }
+
+      const storeLogoFileId = extractDriveFileId(storeInput.logoUrl);
+      if (storeLogoFileId) {
+        const { error: ownershipError } = await admin
+          .from("drive_files")
+          .update({ owner_id: ownerId, purpose: "store-logo" })
+          .eq("file_id", storeLogoFileId);
+        if (ownershipError) {
+          await admin.from("stores").delete().eq("id", storeId);
+          await admin.from("users").delete().eq("id", ownerId);
+          await admin.auth.admin.deleteUser(ownerId).catch(() => undefined);
+          throw ownershipError;
+        }
       }
 
       const applicationId = cleanText(body.applicationId, 100);
@@ -867,8 +963,11 @@ Deno.serve(async (req) => {
       return jsonResponse({ progress: nextProgress });
     }
 
-    if (action === "delete_store") {
+    if (action === "delete_store" || action === "delete_store_group") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const lastSignInAt = new Date(String(authData.user.last_sign_in_at || ""));
+      const recentlyAuthenticated = !Number.isNaN(lastSignInAt.getTime()) && Date.now() - lastSignInAt.getTime() <= 5 * 60_000;
+      if (!recentlyAuthenticated) return jsonResponse({ error: "Please re-authenticate before deleting a store or branch." }, 401);
       const storeId = cleanText(body.storeId, 100);
       if (!storeId) return jsonResponse({ error: "Store is required." }, 400);
 
@@ -881,41 +980,99 @@ Deno.serve(async (req) => {
       if (!storeRow) return jsonResponse({ error: "Store was not found." }, 404);
 
       const ownerId = cleanText(storeRow.data?.ownerId, 100);
-      const { data: staffRows, error: usersError } = await admin
-        .from("users")
-        .select("id")
-        .eq("data->>storeId", storeId);
-      if (usersError) throw usersError;
-      const { count: remainingBranchCount, error: branchCountError } = ownerId
+      const deleteGroup = action === "delete_store_group";
+      const { data: groupStoreRows, error: groupStoreError } = deleteGroup && ownerId
+        ? await admin.from("stores").select("id,data").eq("data->>ownerId", ownerId)
+        : { data: [{ id: storeId, data: storeRow.data }], error: null };
+      if (groupStoreError) throw groupStoreError;
+      const targetStores = groupStoreRows || [];
+      const storeIds = targetStores.map((row: any) => String(row.id));
+      if (!storeIds.length) return jsonResponse({ error: "No store branches were found." }, 404);
+      const { data: remainingStoreRows, error: remainingStoresError } = !deleteGroup && ownerId
         ? await admin
           .from("stores")
-          .select("id", { count: "exact", head: true })
+          .select("id,data")
           .eq("data->>ownerId", ownerId)
           .neq("id", storeId)
-        : { count: 0, error: null };
-      if (branchCountError) throw branchCountError;
-      const deleteOwner = Boolean(ownerId) && (remainingBranchCount || 0) === 0;
+          .order("created_at", { ascending: true })
+        : { data: [], error: null };
+      if (remainingStoresError) throw remainingStoresError;
+      const { data: staffRows, error: usersError } = await admin
+        .from("users")
+        .select("id,data")
+        .in("data->>storeId", storeIds);
+      if (usersError) throw usersError;
+      const deleteOwner = Boolean(ownerId) && (deleteGroup || (remainingStoreRows || []).length === 0);
       const userIds = Array.from(new Set([
         ...(staffRows || []).map((row) => String(row.id)),
         ...(deleteOwner ? [ownerId] : []),
       ]));
 
       const driveFileIds = new Set<string>();
-      collectDriveFileIds(storeRow.data, driveFileIds);
-      for (const table of ["promotions_scanned", "feedback", "cards", "products", "promotions"]) {
+      for (const targetStore of targetStores) collectDriveFileIds(targetStore.data, driveFileIds);
+      for (const staffRow of staffRows || []) collectDriveFileIds(staffRow.data, driveFileIds);
+      if (deleteOwner && ownerId) {
+        const { data: ownerRow, error: ownerReadError } = await admin.from("users").select("data").eq("id", ownerId).maybeSingle();
+        if (ownerReadError) throw ownerReadError;
+        collectDriveFileIds(ownerRow?.data, driveFileIds);
+      }
+      if (userIds.length) {
+        const { data: ownedFiles, error: ownedFilesError } = await admin.from("drive_files").select("file_id").in("owner_id", userIds);
+        if (ownedFilesError) throw ownedFilesError;
+        for (const file of ownedFiles || []) driveFileIds.add(String(file.file_id));
+      }
+      for (const table of ["promotions_scanned", "feedback", "store_reviews", "cards", "products", "promotions"]) {
         if (table === "products" || table === "promotions") {
           const { data: rows, error: readError } = await admin
             .from(table)
             .select("data")
-            .eq("data->>storeId", storeId);
+            .in("data->>storeId", storeIds);
           if (readError) throw readError;
           for (const row of rows || []) collectDriveFileIds(row.data, driveFileIds);
         }
-        const { error } = await admin.from(table).delete().eq("data->>storeId", storeId);
+        const { error } = await admin.from(table).delete().in("data->>storeId", storeIds);
         if (error) throw error;
       }
-      const { error: deleteStoreError } = await admin.from("stores").delete().eq("id", storeId);
+      if (deleteGroup && ownerId) {
+        const { error: requestDeleteError } = await admin.from("branch_requests").delete().eq("data->>ownerId", ownerId);
+        if (requestDeleteError) throw requestDeleteError;
+      }
+      const { error: referralDeleteError } = await admin.from("store_referral_redemptions").delete().in("store_id", storeIds);
+      if (referralDeleteError) throw referralDeleteError;
+      const { error: deleteStoreError } = await admin.from("stores").delete().in("id", storeIds);
       if (deleteStoreError) throw deleteStoreError;
+      let primaryStoreId: string | null = null;
+      if (!deleteGroup && ownerId && (remainingStoreRows || []).length > 0) {
+        const remainingStores = remainingStoreRows || [];
+        const existingPrimary = remainingStores.find((row: any) => row.data?.isPrimaryBranch === true);
+        const promotedStore = existingPrimary || remainingStores[0];
+        primaryStoreId = String(promotedStore.id);
+
+        if (!existingPrimary) {
+          const subscriptionFields = [
+            "subscriptionLevel", "subscriptionDependencies", "subscriptionStart", "subscriptionEnd",
+            "paymentSchedule", "owedAmount", "pendingOwedAmount", "pendingOwedAmountEffectiveAt",
+            "branchLimit", "subscriptionAccess",
+          ];
+          const promotedData = { ...promotedStore.data };
+          for (const field of subscriptionFields) {
+            if (storeRow.data?.[field] !== undefined) promotedData[field] = storeRow.data[field];
+          }
+          const { error: promoteError } = await admin.from("stores").update({
+            data: { ...promotedData, isPrimaryBranch: true, parentStoreId: primaryStoreId, updatedAt: timestamp() },
+          }).eq("id", primaryStoreId);
+          if (promoteError) throw promoteError;
+        }
+
+        for (const remainingStore of remainingStores) {
+          if (String(remainingStore.id) === primaryStoreId) continue;
+          const { error: relinkError } = await admin.from("stores").update({
+            data: { ...remainingStore.data, isPrimaryBranch: false, parentStoreId: primaryStoreId, updatedAt: timestamp() },
+          }).eq("id", remainingStore.id);
+          if (relinkError) throw relinkError;
+        }
+        await mergeUserData(admin, ownerId, { storeId: primaryStoreId });
+      }
       if (userIds.length) {
         const { error: deleteProfilesError } = await admin.from("users").delete().in("id", userIds);
         if (deleteProfilesError) throw deleteProfilesError;
@@ -934,6 +1091,8 @@ Deno.serve(async (req) => {
 
       return jsonResponse({
         deleted: true,
+        deletedStoreIds: storeIds,
+        primaryStoreId,
         deletedUsers: userIds.length,
         deletedFiles: driveFileIds.size,
       });
@@ -992,6 +1151,15 @@ const DRIVE_FILE_ID_PATTERNS = [
   /[?&]fileId=([a-zA-Z0-9_-]+)/,
   /\/d\/([a-zA-Z0-9_-]+)/,
 ];
+
+const extractDriveFileId = (value: unknown) => {
+  const url = String(value || "").trim();
+  for (const pattern of DRIVE_FILE_ID_PATTERNS) {
+    const match = url.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return "";
+};
 
 const collectDriveFileIds = (value: unknown, result: Set<string>) => {
   if (typeof value === "string") {

@@ -1,12 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { collection, doc, query, where, getDoc, getDocs } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Cake, CreditCard, Star, Users, X } from "lucide-react";
+import { Cake, CreditCard, FileText, Heart, Star, Users, X } from "lucide-react";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { getBirthdayStatus } from "@/src/lib/birthday";
 import { Pagination } from "../../components/Pagination";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { formatCustomerCode } from "../../lib/customerId";
+import { CategorySearchInput } from "../../components/CategorySearchInput";
 
 const CUSTOMERS_PER_PAGE = 10;
 
@@ -39,17 +40,64 @@ const formatCardDate = (value: any) => {
   return date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString() : "Recently";
 };
 
+const buildUsuals = (scans: any[]) => {
+  const counts = new Map<string, number>();
+  scans.forEach((scan) => {
+    const label = String(scan.promotionTitle || "").trim();
+    if (!label) return;
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 4)
+    .map(([label]) => label);
+};
+
 export default function StaffCustomers({ store }: { store: any }) {
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
-  const totalPages = Math.max(1, Math.ceil(customers.length / CUSTOMERS_PER_PAGE));
-  const paginatedCustomers = customers.slice((currentPage - 1) * CUSTOMERS_PER_PAGE, currentPage * CUSTOMERS_PER_PAGE);
+  const [searchQuery, setSearchQuery] = useState("");
+  const filteredCustomers = useMemo(() => {
+    const terms = searchQuery.toLocaleLowerCase().split(",").map((term) => term.trim()).filter(Boolean);
+    if (!terms.length) return customers;
+    return customers.filter((customer) => {
+      const birthday = getBirthdayStatus(customer.customerProfile?.birthday);
+      const status = customer.accountDeleted ? "account deleted" : String(customer.status || "active").toLocaleLowerCase();
+      const birthdayStatus = birthday.isToday ? "birthday today" : birthday.hasBirthday ? "birthday set" : "birthday not set";
+      const searchable = [
+        getCustomerName(customer),
+        getCustomerSubtext(customer),
+        customer.customerProfile?.email,
+        customer.customerProfile?.username,
+        customer.customerId,
+        customer.customerId ? formatCustomerCode(customer.customerId) : "",
+        getCardAppName(customer, store),
+        customer.customerProfile?.bio,
+        ...(customer.usuals || []),
+        `${customer.stars || 0} stars`,
+        status,
+        birthdayStatus,
+        birthday.label,
+      ].join(" ").toLocaleLowerCase();
+      return terms.every((term) => {
+        if (["active", "inactive", "account deleted"].includes(term)) return status === term;
+        if (["birthday today", "birthday set", "birthday not set"].includes(term)) return birthdayStatus === term;
+        return searchable.includes(term);
+      });
+    });
+  }, [customers, searchQuery, store]);
+  const totalPages = Math.max(1, Math.ceil(filteredCustomers.length / CUSTOMERS_PER_PAGE));
+  const paginatedCustomers = filteredCustomers.slice((currentPage - 1) * CUSTOMERS_PER_PAGE, currentPage * CUSTOMERS_PER_PAGE);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
 
   useEffect(() => {
     if (!selectedCustomer) return;
@@ -64,12 +112,22 @@ export default function StaffCustomers({ store }: { store: any }) {
     if (!store?.id) return;
     async function fetchCustomers() {
       try {
+        const scansQuery = query(collection(db, "promotions_scanned"), where("storeId", "==", store.id));
+        const scansSnap = await getDocs(scansQuery);
+        const scansByCustomer = scansSnap.docs.reduce<Record<string, any[]>>((acc, scanDoc) => {
+          const scan = { id: scanDoc.id, ...scanDoc.data() } as any;
+          if (!scan.customerId) return acc;
+          acc[scan.customerId] = [...(acc[scan.customerId] || []), scan];
+          return acc;
+        }, {});
+
         const q = query(collection(db, "cards"), where("storeId", "==", store.id));
         const snap = await getDocs(q);
         
         const custData = await Promise.all(snap.docs.map(async (d) => {
           const card = { id: d.id, ...d.data() } as any;
           if (!card.customerId) return card;
+          const usuals = buildUsuals(scansByCustomer[card.customerId] || []);
 
           try {
             const [userDoc, customerDoc] = await Promise.all([
@@ -80,6 +138,7 @@ export default function StaffCustomers({ store }: { store: any }) {
             const customerProfile = customerDoc.exists() ? customerDoc.data() : {};
             return {
               ...card,
+              usuals,
               customerProfile: {
                 ...customerProfile,
                 ...userProfile,
@@ -87,7 +146,7 @@ export default function StaffCustomers({ store }: { store: any }) {
             };
           } catch (profileError) {
             console.warn("Failed to load customer profile", card.customerId, profileError);
-            return card;
+            return { ...card, usuals };
           }
         }));
         setCustomers(custData);
@@ -107,20 +166,32 @@ export default function StaffCustomers({ store }: { store: any }) {
         <p className="text-gray-500 dark:text-gray-400 mt-2">View customers and their card progress.</p>
       </div>
 
+      <CategorySearchInput
+        value={searchQuery}
+        onChange={setSearchQuery}
+        categories={["Active", "Inactive", "Account Deleted", "Birthday Today", "Birthday Set", "Birthday Not Set"]}
+        placeholder="Search customers or filter by status, birthday..."
+        ariaLabel="Search and filter store customers"
+        suggestionLabel="customer filter"
+        collapsibleFilters
+        resultsId="staff-store-customers-results"
+        className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-12 text-sm text-gray-900 shadow-sm outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
+      />
+
       {loading ? (
         <div className="space-y-4">
           {[1, 2, 3].map(i => (
             <SkeletonBlock key={i} className="h-20 rounded-2xl" />
           ))}
         </div>
-      ) : customers.length === 0 ? (
-        <div className="bg-white dark:bg-gray-900 p-12 rounded-[2rem] border border-dashed border-gray-300 dark:border-gray-700 text-center flex flex-col items-center">
+      ) : filteredCustomers.length === 0 ? (
+        <div id="staff-store-customers-results" className="scroll-mt-6 bg-white dark:bg-gray-900 p-12 rounded-[2rem] border border-dashed border-gray-300 dark:border-gray-700 text-center flex flex-col items-center">
           <Users className="w-16 h-16 text-gray-400 mb-6" />
-          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">No customers yet</h3>
-          <p className="text-gray-500 max-w-sm mb-8">When a customer joins your store's program, they will appear here.</p>
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{customers.length ? "No customers match your filters" : "No customers yet"}</h3>
+          <p className="text-gray-500 max-w-sm mb-8">{customers.length ? "Try another search or clear the current filters." : "When a customer joins your store's program, they will appear here."}</p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl overflow-hidden shadow-sm">
+        <div id="staff-store-customers-results" className="scroll-mt-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -198,7 +269,7 @@ export default function StaffCustomers({ store }: { store: any }) {
                       </td>
                       <td className="px-6 py-4">
                          <span className="flex items-center gap-2 font-bold text-gray-900 dark:text-white" title={`Total Stars: ${c.stars || 0}`}>
-                           <Star className="w-4 h-4 text-[#1b1b1b] fill-[#1b1b1b] cursor-help" />
+                           <Star className="w-4 h-4 text-[#1b1b1b] fill-[#1b1b1b] cursor-help dark:text-white dark:fill-white" />
                            {c.stars || 0}
                          </span>
                       </td>
@@ -211,7 +282,7 @@ export default function StaffCustomers({ store }: { store: any }) {
           <Pagination
             page={currentPage}
             pageSize={CUSTOMERS_PER_PAGE}
-            totalItems={customers.length}
+            totalItems={filteredCustomers.length}
             itemLabel="customers"
             onPageChange={setCurrentPage}
           />
@@ -231,7 +302,7 @@ export default function StaffCustomers({ store }: { store: any }) {
               if (event.target === event.currentTarget) setSelectedCustomer(null);
             }}
           >
-            <div role="dialog" aria-modal="true" aria-labelledby="staff-customer-details-title" className="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-800 dark:bg-gray-900">
+            <div role="dialog" aria-modal="true" aria-labelledby="staff-customer-details-title" className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-800 dark:bg-gray-900">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800">
@@ -274,6 +345,36 @@ export default function StaffCustomers({ store }: { store: any }) {
                 <div className="mt-3 rounded-2xl border border-gray-200 px-4 py-3 dark:border-gray-700">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Customer ID</p>
                   <p className="mt-1 font-mono text-sm font-semibold text-gray-900 dark:text-white">{formatCustomerCode(selectedCustomer.customerId)}</p>
+                </div>
+              )}
+
+              {!selectedCustomer.accountDeleted && (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <section className="rounded-2xl border border-gray-200 px-4 py-3 dark:border-gray-700" aria-labelledby="staff-customer-bio-title">
+                    <div className="flex items-center gap-2 text-gray-500">
+                      <FileText className="h-4 w-4" />
+                      <h4 id="staff-customer-bio-title" className="text-[11px] font-bold uppercase tracking-wider">Bio</h4>
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-gray-700 dark:text-gray-300">
+                      {selectedCustomer.customerProfile?.bio || "No bio added yet."}
+                    </p>
+                  </section>
+
+                  <section className="rounded-2xl border border-gray-200 px-4 py-3 dark:border-gray-700" aria-labelledby="staff-customer-usual-title">
+                    <div className="flex items-center gap-2 text-gray-500">
+                      <Heart className="h-4 w-4" />
+                      <h4 id="staff-customer-usual-title" className="text-[11px] font-bold uppercase tracking-wider">The Usual</h4>
+                    </div>
+                    {selectedCustomer.usuals?.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {selectedCustomer.usuals.map((usual: string) => (
+                          <span key={usual} className="rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700 dark:bg-gray-800 dark:text-gray-300">{usual}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm leading-6 text-gray-500">No repeat activity yet.</p>
+                    )}
+                  </section>
                 </div>
               )}
             </div>

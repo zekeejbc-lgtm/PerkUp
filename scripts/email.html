@@ -98,6 +98,17 @@
           </div>
         <? } ?>
 
+        <? if (feedback) { ?>
+          <div class="store-card">
+            <div class="store-name">Feedback receipt</div>
+            <div class="store-detail"><span class="store-label">Reference number:</span> <?= feedback.referenceNumber ?></div>
+            <div class="store-detail"><span class="store-label">Type:</span> <?= feedback.category ?></div>
+            <? if (feedback.message) { ?>
+              <div class="store-detail"><span class="store-label">Message:</span> <?= feedback.message ?></div>
+            <? } ?>
+          </div>
+        <? } ?>
+
         <p><?= secondaryText ?></p>
 
         <? if (showButton) { ?>

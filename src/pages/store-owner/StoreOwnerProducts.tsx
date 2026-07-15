@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { collection, query, where, getDocs, doc, addDoc, updateDoc, deleteDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Plus, Edit2, Trash2, X, Image as ImageIcon, Upload, Loader2 } from "lucide-react";
@@ -7,10 +7,13 @@ import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { ImageCropEditor } from "../../components/ImageCropEditor";
 import { Pagination } from "../../components/Pagination";
+import { useCurrency } from "../../contexts/CurrencyContext";
+import { CategorySearchInput } from "../../components/CategorySearchInput";
 
 const PRODUCTS_PER_PAGE = 9;
 
 export default function StoreOwnerProducts({ store }: { store: any }) {
+  const { currency, convertFromPhp, convertToPhp, formatCurrency } = useCurrency();
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -29,8 +32,31 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
   const [imageEditorFile, setImageEditorFile] = useState<File | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const totalPages = Math.max(1, Math.ceil(products.length / PRODUCTS_PER_PAGE));
-  const paginatedProducts = products.slice((currentPage - 1) * PRODUCTS_PER_PAGE, currentPage * PRODUCTS_PER_PAGE);
+  const [searchQuery, setSearchQuery] = useState("");
+  const filteredProducts = useMemo(() => {
+    const terms = searchQuery.toLocaleLowerCase().split(",").map((term) => term.trim()).filter(Boolean);
+    if (!terms.length) return products;
+    return products.filter((product) => {
+      const isAvailable = product.available ?? true;
+      const searchable = [
+        product.name,
+        product.ingredients,
+        Number.isFinite(Number(product.price)) ? formatCurrency(Number(product.price)) : "",
+        isAvailable ? "available" : "unavailable",
+      ].join(" ").toLocaleLowerCase();
+      return terms.every((term) => {
+        if (term === "available") return isAvailable;
+        if (term === "unavailable") return !isAvailable;
+        return searchable.includes(term);
+      });
+    });
+  }, [formatCurrency, products, searchQuery]);
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / PRODUCTS_PER_PAGE));
+  const paginatedProducts = filteredProducts.slice((currentPage - 1) * PRODUCTS_PER_PAGE, currentPage * PRODUCTS_PER_PAGE);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
@@ -58,7 +84,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
       setEditingProduct(product);
       setFormData({
         name: product.name || "",
-        price: product.price?.toString() || "",
+        price: Number.isFinite(Number(product.price)) ? convertFromPhp(Number(product.price)).toFixed(2) : "",
         imageUrl: product.imageUrl || "",
         ingredients: product.ingredients || "",
         available: product.available ?? true
@@ -79,6 +105,8 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    let uploadedImageUrl = "";
+    let productPersisted = false;
     try {
       const imageUrl = pendingImageFile
         ? await uploadImageFileToDriveSecure(pendingImageFile, {
@@ -86,10 +114,11 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
             purpose: "product-image",
           })
         : formData.imageUrl;
+      if (pendingImageFile) uploadedImageUrl = imageUrl;
       const productData = {
         storeId: store.id,
         name: formData.name,
-        price: parseFloat(formData.price),
+        price: convertToPhp(parseFloat(formData.price)),
         imageUrl,
         ingredients: formData.ingredients,
         available: formData.available,
@@ -98,17 +127,22 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
 
       if (editingProduct) {
         await updateDoc(doc(db, "products", editingProduct.id), productData);
+        productPersisted = true;
         if (editingProduct.imageUrl && editingProduct.imageUrl !== productData.imageUrl) {
           await deleteImageFromDriveSecure(editingProduct.imageUrl).catch(console.error);
         }
         setProducts(products.map(p => p.id === editingProduct.id ? { ...p, ...productData } : p));
       } else {
         const docRef = await addDoc(collection(db, "products"), { ...productData, createdAt: serverTimestamp() });
+        productPersisted = true;
         setProducts([...products, { id: docRef.id, ...productData }]);
       }
       setIsModalOpen(false);
       setPendingImageFile(null);
     } catch (error) {
+      if (!productPersisted && uploadedImageUrl) {
+        await deleteImageFromDriveSecure(uploadedImageUrl).catch(console.error);
+      }
       alert("Failed to save product");
     } finally {
       setSaving(false);
@@ -167,21 +201,34 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Store Catalog</h2>
           <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Manage your products, prices, and availability.</p>
         </div>
-        <button 
+        <button
           onClick={() => handleOpenModal()}
+          aria-label="Add product"
           className="flex items-center gap-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-4 py-2 rounded-xl font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors text-sm shrink-0"
         >
           <Plus className="w-4 h-4" />
-          Add Product
+          Add
         </button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {products.length === 0 ? (
+      <CategorySearchInput
+        value={searchQuery}
+        onChange={setSearchQuery}
+        categories={["Available", "Unavailable"]}
+        placeholder="Search products or filter by availability..."
+        ariaLabel="Search and filter store catalog"
+        suggestionLabel="catalog filter"
+        collapsibleFilters
+        resultsId="store-catalog-results"
+        className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-12 text-sm text-gray-900 shadow-sm outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
+      />
+
+      <div id="store-catalog-results" className="scroll-mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {filteredProducts.length === 0 ? (
           <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-[#1b1b1b] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
             <ImageIcon className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-700 mb-3" />
-            <p className="font-medium text-gray-900 dark:text-white">No products yet</p>
-            <p className="text-sm text-gray-500 mt-1">Add your first product to build your catalog.</p>
+            <p className="font-medium text-gray-900 dark:text-white">{products.length ? "No products match your filters" : "No products yet"}</p>
+            <p className="text-sm text-gray-500 mt-1">{products.length ? "Try another search or clear the current filters." : "Add your first product to build your catalog."}</p>
           </div>
         ) : (
           paginatedProducts.map(product => (
@@ -203,7 +250,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
               <div className="p-4 flex flex-col flex-1">
                 <div className="flex justify-between items-start gap-2 mb-2">
                   <h3 className="font-bold text-gray-900 dark:text-white line-clamp-1">{product.name}</h3>
-                  <span className="font-black text-gray-900 dark:text-white shrink-0 text-[#1b1b1b] dark:text-white">₱{parseFloat(product.price).toFixed(2)}</span>
+                  <span className="shrink-0 font-black text-gray-900 dark:text-white">{formatCurrency(Number(product.price))}</span>
                 </div>
                 {product.ingredients && (
                   <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 flex-1">{product.ingredients}</p>
@@ -263,7 +310,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
       <Pagination
         page={currentPage}
         pageSize={PRODUCTS_PER_PAGE}
-        totalItems={products.length}
+        totalItems={filteredProducts.length}
         itemLabel="products"
         onPageChange={setCurrentPage}
       />
@@ -300,7 +347,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
                       <ImageIcon className="w-8 h-8 mb-2 opacity-50" />
-                      <span className="text-xs font-semibold">Upload Photo</span>
+                      <span className="text-xs font-semibold">Upload</span>
                     </div>
                   )}
                 </div>
@@ -320,10 +367,10 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
               </div>
               
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Price (PHP)</label>
+                <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Price ({currency})</label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold">₱</span>
-                  <input required type="number" step="0.01" min="0" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} className="w-full pl-8 pr-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none" placeholder="0.00" />
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-500">{currency}</span>
+                  <input required type="number" step="0.01" min="0" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} className="w-full py-2.5 pl-14 pr-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none" placeholder="0.00" />
                 </div>
               </div>
               
@@ -339,8 +386,8 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
               
               <div className="pt-4 flex justify-end gap-3 border-t border-gray-100 dark:border-gray-800 mt-2">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Cancel</button>
-                <button type="submit" disabled={saving} className="bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-6 py-2 rounded-xl text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50">
-                  {saving ? 'Saving...' : 'Save Product'}
+                <button type="submit" disabled={saving} aria-label="Save product" className="bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-6 py-2 rounded-xl text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50">
+                  {saving ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </form>
@@ -363,7 +410,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
         isOpen={Boolean(productToDelete)}
         title="Delete product?"
         description={`“${productToDelete?.name || "This product"}” will be removed from your catalog. This action cannot be undone.`}
-        confirmLabel="Delete product"
+        confirmLabel="Delete"
         isLoading={isDeleting}
         onClose={() => setProductToDelete(null)}
         onConfirm={handleDelete}

@@ -3,17 +3,18 @@ import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, where } from "@/src/lib/dataCompat";
 import { db } from "../lib/backend";
-import { ArrowLeft, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send, Image as ImageIcon, Store as StoreIcon, Utensils, Gift, CalendarDays, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send, Image as ImageIcon, Store as StoreIcon, Utensils, Gift, CalendarDays, X } from "lucide-react";
 import { MapContainer, Marker, Popup } from "react-leaflet";
 import * as ReactDOMServer from "react-dom/server";
 import L from "leaflet";
 import { PageSkeleton } from "../components/LoadingSkeleton";
 import { useAuth } from "../contexts/AuthContext";
+import { useCurrency } from "../contexts/CurrencyContext";
 import { DirectionsButton } from "../components/DirectionsButton";
 import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { MapBaseLayers } from "../components/MapBaseLayers";
-import { getDisplayImageUrl, uploadImageFileToDriveSecure } from "../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../lib/imageStorage";
 import { PublicSiteFooter } from "../components/PublicPageShell";
 import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../lib/dateTime";
 
@@ -115,6 +116,131 @@ const getCoordinates = (store: StoreContent): [number, number] | null => {
   return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
 };
 
+function StoreGalleryCarousel({ images, storeName }: { images: string[]; storeName: string }) {
+  const galleryImages = useMemo(() => images.filter(Boolean).slice(0, 10), [images]);
+  const [slidePosition, setSlidePosition] = useState(0);
+  const [transitionEnabled, setTransitionEnabled] = useState(true);
+  const activeIndex = galleryImages.length > 0 ? slidePosition % galleryImages.length : 0;
+  const carouselImages = galleryImages.length > 1 ? [...galleryImages, galleryImages[0]] : galleryImages;
+  const visibleDotIndexes = useMemo(() => {
+    if (galleryImages.length <= 5) return galleryImages.map((_, index) => index);
+    const firstVisibleIndex = Math.min(Math.max(activeIndex - 2, 0), galleryImages.length - 5);
+    return Array.from({ length: 5 }, (_, offset) => firstVisibleIndex + offset);
+  }, [activeIndex, galleryImages]);
+
+  useEffect(() => {
+    setTransitionEnabled(false);
+    setSlidePosition(0);
+    const animationFrame = window.requestAnimationFrame(() => setTransitionEnabled(true));
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [galleryImages]);
+
+  useEffect(() => {
+    if (galleryImages.length <= 1) return;
+
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion) return;
+
+    const slideshowTimer = window.setTimeout(() => {
+      setTransitionEnabled(true);
+      setSlidePosition((current) => current + 1);
+    }, 5000);
+
+    return () => window.clearTimeout(slideshowTimer);
+  }, [slidePosition, galleryImages]);
+
+  if (galleryImages.length === 0) return null;
+
+  return (
+    <div className="relative aspect-[4/3] overflow-hidden rounded-3xl border border-gray-200 bg-gray-100 shadow-sm dark:border-gray-800 dark:bg-gray-900 sm:aspect-[16/7]">
+      <div
+        className={`flex h-full motion-reduce:transition-none ${transitionEnabled ? "transition-transform duration-700 ease-in-out" : ""}`}
+        style={{ transform: `translateX(-${slidePosition * 100}%)` }}
+        onTransitionEnd={() => {
+          if (slidePosition !== galleryImages.length) return;
+          setTransitionEnabled(false);
+          setSlidePosition(0);
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => setTransitionEnabled(true));
+          });
+        }}
+      >
+        {carouselImages.map((image, index) => {
+          const logicalIndex = index % galleryImages.length;
+          const isVisibleSlide = index === slidePosition;
+          return (
+            <img
+              key={`${image}-${index}`}
+              src={getDisplayImageUrl(image)}
+              alt={`${storeName} store photo ${logicalIndex + 1} of ${galleryImages.length}`}
+              aria-hidden={!isVisibleSlide}
+              data-image-viewer-ignore={isVisibleSlide ? undefined : "true"}
+              tabIndex={isVisibleSlide ? 0 : -1}
+              role={isVisibleSlide ? "button" : undefined}
+              aria-label={isVisibleSlide ? `View ${storeName} store photo ${logicalIndex + 1}` : undefined}
+              className="h-full w-full shrink-0 cursor-zoom-in object-cover"
+              loading={index === 0 ? "lazy" : "eager"}
+            />
+          );
+        })}
+      </div>
+
+      {galleryImages.length > 1 && (
+        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full border border-white/20 bg-black/55 px-3 py-2 shadow-lg backdrop-blur-md sm:bottom-4 sm:right-4" aria-label={`Gallery image ${activeIndex + 1} of ${galleryImages.length}`}>
+          <button
+            type="button"
+            onClick={() => {
+              if (activeIndex > 0) {
+                setTransitionEnabled(true);
+                setSlidePosition(activeIndex - 1);
+                return;
+              }
+
+              setTransitionEnabled(false);
+              setSlidePosition(galleryImages.length);
+              window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
+                  setTransitionEnabled(true);
+                  setSlidePosition(galleryImages.length - 1);
+                });
+              });
+            }}
+            aria-label="Show previous gallery image"
+            className="mr-0.5 flex h-6 w-6 items-center justify-center rounded-full text-white/80 transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+          {visibleDotIndexes.map((index) => (
+            <button
+              key={index}
+              type="button"
+              onClick={() => {
+                setTransitionEnabled(true);
+                setSlidePosition(index);
+              }}
+              aria-label={`Show gallery image ${index + 1}`}
+              aria-current={index === activeIndex ? "true" : undefined}
+              className={`h-2 rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${index === activeIndex ? "w-5 bg-white" : "w-2 bg-white/55 hover:bg-white/80"}`}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              if (slidePosition >= galleryImages.length) return;
+              setTransitionEnabled(true);
+              setSlidePosition((current) => current + 1);
+            }}
+            aria-label="Show next gallery image"
+            className="ml-0.5 flex h-6 w-6 items-center justify-center rounded-full text-white/80 transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          >
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const createBranchPin = (branch: StoreContent, selected: boolean) => {
   const markerContent = branch.logoUrl
     ? ReactDOMServer.renderToString(
@@ -150,6 +276,7 @@ export default function StorePage() {
   const { storeId } = useParams();
   const location = useLocation();
   const { user } = useAuth();
+  const { formatCurrency } = useCurrency();
   const [store, setStore] = useState<StoreContent | null>(null);
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [promotions, setPromotions] = useState<StorePromotion[]>([]);
@@ -335,13 +462,17 @@ export default function StorePage() {
 
     setSubmittingFeedback(true);
     setFeedbackSent(false);
+    let uploadedImageUrls: string[] = [];
+    let reviewPersisted = false;
     try {
-      const imageUrls = await Promise.all(
-        reviewImageFiles.map((file, index) => uploadImageFileToDriveSecure(file, {
+      await Promise.all(reviewImageFiles.map(async (file, index) => {
+        const uploadedUrl = await uploadImageFileToDriveSecure(file, {
           owner: user.username || user.email || user.id,
           purpose: `store-review-${storeId}-${index + 1}`,
-        })),
-      );
+        });
+        uploadedImageUrls.push(uploadedUrl);
+      }));
+      const imageUrls = uploadedImageUrls;
       const customerInitials = getInitials(user.name);
       await addDoc(collection(db, "store_reviews"), {
         storeId,
@@ -357,6 +488,7 @@ export default function StorePage() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+      reviewPersisted = true;
       setComment("");
       setRating(5);
       setAnonymousReview(false);
@@ -367,6 +499,9 @@ export default function StorePage() {
       setFeedbackSent(true);
       await fetchReviews();
     } catch (error) {
+      if (!reviewPersisted && uploadedImageUrls.length) {
+        await Promise.allSettled(uploadedImageUrls.map((url) => deleteImageFromDriveSecure(url)));
+      }
       console.error("Failed to submit feedback:", error);
       const message = error instanceof Error && /duplicate|unique/i.test(error.message)
         ? "You have already reviewed this store."
@@ -624,17 +759,7 @@ export default function StorePage() {
               <ImageIcon className="h-5 w-5 text-gray-400 dark:text-gray-500" />
               <h2 id="gallery-heading" className="text-xl font-bold text-gray-900 dark:text-white">Store Gallery</h2>
             </div>
-            <div className={`grid gap-3 ${store.images.length > 1 ? "sm:grid-cols-2" : ""}`}>
-              {store.images.filter(Boolean).map((image, index) => (
-                <img
-                  key={`${image}-${index}`}
-                  src={getDisplayImageUrl(image)}
-                  alt={`${store.name} store photo ${index + 1}`}
-                  className={`h-64 w-full rounded-3xl border border-gray-200 object-cover dark:border-gray-800 ${store.images!.length === 3 && index === 0 ? "sm:col-span-2 sm:h-80" : ""}`}
-                  loading="lazy"
-                />
-              ))}
-            </div>
+            <StoreGalleryCarousel key={store.id} images={store.images} storeName={store.name} />
           </section>
         )}
 
@@ -652,15 +777,24 @@ export default function StorePage() {
 
         {promotions.length > 0 && (
           <section className="mb-10" aria-labelledby="promotions-heading">
-            <div className="mb-4 flex items-center gap-3">
-              <Gift className="h-5 w-5 text-gray-400 dark:text-gray-500" />
-              <div>
-                <h2 id="promotions-heading" className="text-xl font-bold text-gray-900 dark:text-white">Current Promotions</h2>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Offers available at this shop right now.</p>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <Gift className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                <div>
+                  <h2 id="promotions-heading" className="text-xl font-bold text-gray-900 dark:text-white">Current Promotions</h2>
+                  <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">A preview of offers available at this shop right now.</p>
+                </div>
               </div>
+              <Link
+                to={`/store/${store.id}/promotions`}
+                className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
+              >
+                {promotions.length > 1 ? `Show ${promotions.length - 1} more` : "View promotions"}
+                <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {promotions.map((promotion) => (
+              {promotions.slice(0, 1).map((promotion) => (
                 <button
                   key={promotion.id}
                   type="button"
@@ -698,12 +832,24 @@ export default function StorePage() {
 
         {products.length > 0 && (
           <section className="mb-10" aria-labelledby="products-heading">
-            <div className="mb-4 flex items-center gap-3">
-              <Utensils className="h-5 w-5 text-gray-400 dark:text-gray-500" />
-              <h2 id="products-heading" className="text-xl font-bold text-gray-900 dark:text-white">Food & Products</h2>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <Utensils className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                <div>
+                  <h2 id="products-heading" className="text-xl font-bold text-gray-900 dark:text-white">Food & Products</h2>
+                  <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">A preview from this store's catalog.</p>
+                </div>
+              </div>
+              <Link
+                to={`/store/${store.id}/products`}
+                className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
+              >
+                {products.length > 1 ? `Show ${products.length - 1} more` : "View catalog"}
+                <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {products.map((product) => {
+              {products.slice(0, 1).map((product) => {
                 const numericPrice = Number(product.price);
                 return (
                   <button
@@ -725,7 +871,7 @@ export default function StorePage() {
                       <div className="flex items-start justify-between gap-3">
                         <h3 className="font-bold text-gray-900 dark:text-white">{product.name}</h3>
                         {Number.isFinite(numericPrice) && (
-                          <span className="shrink-0 font-bold text-gray-900 dark:text-white">₱{numericPrice.toFixed(2)}</span>
+                          <span className="shrink-0 font-bold text-gray-900 dark:text-white">{formatCurrency(numericPrice)}</span>
                         )}
                       </div>
                       {product.ingredients && <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{product.ingredients}</p>}
@@ -830,7 +976,7 @@ export default function StorePage() {
                         <div className="min-w-0">
                           <p className="font-bold text-gray-900 dark:text-white">{selectedPromotionProduct.name}</p>
                           {Number.isFinite(Number(selectedPromotionProduct.price)) && (
-                            <p className="mt-1 text-sm font-semibold text-gray-600 dark:text-gray-300">₱{Number(selectedPromotionProduct.price).toFixed(2)}</p>
+                            <p className="mt-1 text-sm font-semibold text-gray-600 dark:text-gray-300">{formatCurrency(Number(selectedPromotionProduct.price))}</p>
                           )}
                           <p className="mt-1 text-xs font-bold uppercase tracking-[0.16em] text-gray-400 dark:text-gray-500">View product</p>
                         </div>
@@ -887,7 +1033,7 @@ export default function StorePage() {
                     <h2 id="product-dialog-title" className="mt-2 text-3xl font-bold tracking-tight text-gray-900 dark:text-white">{selectedProduct.name}</h2>
                   </div>
                   {Number.isFinite(Number(selectedProduct.price)) && (
-                    <p className="shrink-0 text-xl font-black text-gray-900 dark:text-white">₱{Number(selectedProduct.price).toFixed(2)}</p>
+                    <p className="shrink-0 text-xl font-black text-gray-900 dark:text-white">{formatCurrency(Number(selectedProduct.price))}</p>
                   )}
                 </div>
                 <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">

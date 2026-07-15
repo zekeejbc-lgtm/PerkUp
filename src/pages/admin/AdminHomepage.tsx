@@ -371,21 +371,26 @@ export default function AdminHomepage() {
     }
 
     setSaving(true);
+    const uploadedImageUrls: string[] = [];
+    let configPersisted = false;
     try {
       const heroImageUrl = pendingImageFiles[config.heroImageUrl]
         ? await uploadImageFileToDriveSecure(pendingImageFiles[config.heroImageUrl], { purpose: "homepage-hero" })
         : config.heroImageUrl;
-      const trustedBusinesses = await Promise.all(config.trustedBusinesses.map(async (business) => ({
-        ...business,
-        logoUrl: pendingImageFiles[business.logoUrl]
+      if (pendingImageFiles[config.heroImageUrl]) uploadedImageUrls.push(heroImageUrl);
+      const trustedBusinesses = await Promise.all(config.trustedBusinesses.map(async (business) => {
+        const logoUrl = pendingImageFiles[business.logoUrl]
           ? await uploadImageFileToDriveSecure(pendingImageFiles[business.logoUrl], {
               owner: business.name,
               purpose: "trusted-business-logo",
             })
-          : business.logoUrl,
-      })));
+          : business.logoUrl;
+        if (pendingImageFiles[business.logoUrl]) uploadedImageUrls.push(logoUrl);
+        return { ...business, logoUrl };
+      }));
       const nextConfig = { ...config, heroImageUrl, trustedBusinesses };
       await setDoc(doc(db, "settings", "homepage"), { ...nextConfig, updatedAt: serverTimestamp() }, { merge: true });
+      configPersisted = true;
       const previousImages = [
         savedConfig.heroImageUrl,
         ...savedConfig.trustedBusinesses.map((business) => business.logoUrl),
@@ -406,6 +411,9 @@ export default function AdminHomepage() {
       setIsEditing(false);
       showToast("Homepage configuration saved successfully.", "success");
     } catch (error) {
+      if (!configPersisted && uploadedImageUrls.length) {
+        await Promise.allSettled(uploadedImageUrls.map((url) => deleteImageFromDriveSecure(url)));
+      }
       console.error(error);
       showToast("Failed to save configuration.", "error");
     } finally {

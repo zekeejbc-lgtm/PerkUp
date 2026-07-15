@@ -11,6 +11,7 @@ type PageSkeletonVariant =
   | "store"
   | "table"
   | "landing"
+  | "directory"
   | "content"
   | "marketing"
   | "pricing"
@@ -104,6 +105,36 @@ export function PageSkeleton({ variant = "dashboard" }: { variant?: PageSkeleton
     );
   }
 
+  if (variant === "directory") {
+    return (
+      <div className="min-h-screen bg-white dark:bg-[#1b1b1b]">
+        <div className="flex h-16 items-center justify-between border-b px-6 dark:border-white/10">
+          <SkeletonBlock className="h-9 w-28 rounded-xl" />
+          <div className="flex gap-3"><SkeletonBlock className="h-9 w-16 rounded-full" /><SkeletonBlock className="h-9 w-24 rounded-full" /></div>
+        </div>
+        <main>
+          <div className="border-b border-gray-100 px-6 py-14 dark:border-white/10">
+            <div className="mx-auto max-w-3xl space-y-5 text-center">
+              <SkeletonBlock className="mx-auto h-10 w-80 max-w-full rounded-xl" />
+              <SkeletonBlock className="mx-auto h-5 w-[34rem] max-w-full rounded-lg" />
+              <SkeletonBlock className="h-14 w-full rounded-2xl" />
+              <div className="mx-auto flex max-w-md gap-3"><SkeletonBlock className="h-10 flex-1 rounded-xl" /><SkeletonBlock className="h-10 flex-1 rounded-xl" /></div>
+            </div>
+          </div>
+          <div className="mx-auto grid max-w-7xl gap-5 px-6 py-12 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }, (_, item) => (
+              <div key={item} className="overflow-hidden rounded-[1.75rem] border border-gray-200 p-5 dark:border-gray-800">
+                <div className="flex items-start gap-4"><SkeletonBlock className="h-16 w-16 shrink-0 rounded-2xl" /><div className="min-w-0 flex-1 space-y-3"><SkeletonBlock className="h-5 w-3/4 rounded-lg" /><SkeletonBlock className="h-4 w-1/2 rounded-lg" /></div></div>
+                <div className="mt-6 space-y-3"><SkeletonBlock className="h-4 w-full rounded-lg" /><SkeletonBlock className="h-4 w-5/6 rounded-lg" /></div>
+                <div className="mt-6 flex gap-3"><SkeletonBlock className="h-10 flex-1 rounded-xl" /><SkeletonBlock className="h-10 w-10 rounded-xl" /></div>
+              </div>
+            ))}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   if (variant === "content" || variant === "marketing") {
     return (
       <div className="min-h-screen bg-white dark:bg-[#1b1b1b]">
@@ -123,12 +154,17 @@ export function PageSkeleton({ variant = "dashboard" }: { variant?: PageSkeleton
   if (variant === "table") return <div className="space-y-6"><PageHeading /><RowList /></div>;
 
   if (variant === "cards" || variant === "promotions" || variant === "products") {
-    const height = variant === "promotions" ? "h-[420px]" : variant === "products" ? "h-72" : "h-44";
+    const imageHeight = variant === "promotions" ? "h-40" : variant === "products" ? "h-36" : "h-20";
     return (
       <div className="space-y-6">
         <PageHeading />
         <div className="grid gap-6 sm:grid-cols-2">
-          {[0, 1, 2, 3].map(item => <SkeletonBlock key={item} className={clsx(height, "rounded-3xl")} />)}
+          {[0, 1, 2, 3].map(item => (
+            <div key={item} className="overflow-hidden rounded-3xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+              <SkeletonBlock className={clsx(imageHeight, "rounded-none")} />
+              <div className="space-y-4 p-5"><SkeletonBlock className="h-6 w-2/3 rounded-lg" /><Lines widths={["w-full", "w-4/5"]} /><SkeletonBlock className="h-10 w-full rounded-xl" /></div>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -173,7 +209,7 @@ export function PageSkeleton({ variant = "dashboard" }: { variant?: PageSkeleton
           <SkeletonBlock className="h-10 w-28 rounded-xl" />
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
-          {[0, 1, 2, 3].map(i => <SkeletonBlock key={i} className="h-36 rounded-3xl" />)}
+          {[0, 1, 2, 3].map(i => <div key={i} className="rounded-3xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900"><div className="flex items-start justify-between gap-4"><div className="flex flex-1 gap-3"><SkeletonBlock className="h-12 w-12 shrink-0 rounded-2xl" /><div className="flex-1 space-y-3"><SkeletonBlock className="h-5 w-2/3 rounded-lg" /><SkeletonBlock className="h-4 w-1/2 rounded-lg" /></div></div><SkeletonBlock className="h-6 w-16 rounded-full" /></div><div className="mt-5 flex gap-3"><SkeletonBlock className="h-9 flex-1 rounded-xl" /><SkeletonBlock className="h-9 w-24 rounded-xl" /></div></div>)}
         </div>
       </div>
     );

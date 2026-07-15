@@ -243,7 +243,7 @@ export default function CustomerOverview() {
   };
 
   const downloadQrPng = async () => {
-    if (!user?.username) return;
+    if (!user?.username || !qrTicket?.token) return;
 
     const qrCanvas = document.getElementById("customer-overview-download-qr") as HTMLCanvasElement | null;
     if (!qrCanvas) return;
@@ -309,8 +309,7 @@ export default function CustomerOverview() {
 
     ctx.fillStyle = secondaryText;
     drawFittedText(ctx, user.name || "PerkUp customer", width / 2, 844, 650, 600, 21, 13, "Inter, Arial, sans-serif");
-    drawFittedText(ctx, "Scan in PerkUp to earn rewards", width / 2, 880, 650, 500, 17, 12, "Inter, Arial, sans-serif");
-    drawFittedText(ctx, "A phone camera opens the PerkUp app", width / 2, 908, 650, 500, 16, 12, "Inter, Arial, sans-serif");
+    drawFittedText(ctx, "Scan in Perktoday.com to earn rewards!", width / 2, 880, 650, 500, 17, 12, "Inter, Arial, sans-serif");
 
     const footerRows = [
       appContact?.email ? `Email: ${appContact.email}` : null,
@@ -343,7 +342,7 @@ export default function CustomerOverview() {
     link.click();
   };
 
-  if (loading) return <PageSkeleton />;
+  if (loading) return <PageSkeleton variant="overview" />;
 
   return (
     <div className="space-y-8">
@@ -367,7 +366,7 @@ export default function CustomerOverview() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         <div className="bg-white dark:bg-gray-900 p-6 rounded-[2rem] border border-gray-200 dark:border-gray-800 shadow-sm transition-colors flex items-center gap-4 xl:gap-6 min-w-0">
           <div className="w-12 h-12 xl:w-14 xl:h-14 bg-gray-100 dark:bg-white/10 rounded-2xl flex items-center justify-center shrink-0">
-            <Star className="w-6 h-6 xl:w-7 xl:h-7 text-[#1b1b1b] dark:text-white fill-[#1b1b1b] dark:fill-[#1b1b1b]" />
+            <Star className="w-6 h-6 xl:w-7 xl:h-7 text-[#1b1b1b] fill-[#1b1b1b] dark:text-white dark:fill-white" />
           </div>
           <div className="min-w-0">
             <h3 className="text-xs xl:text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-widest truncate">Lifetime Stars</h3>
@@ -509,7 +508,7 @@ export default function CustomerOverview() {
             </form>
             <button
               onClick={downloadQrPng}
-              disabled={!user?.username}
+              disabled={!user?.username || !qrTicket?.token}
               className="mt-5 inline-flex w-full items-center justify-center gap-2 px-4 py-3 bg-[#1b1b1b] text-white rounded-xl text-sm font-semibold hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="w-4 h-4" />
@@ -528,7 +527,7 @@ export default function CustomerOverview() {
 
         <div className="bg-white dark:bg-gray-900 p-8 rounded-[2rem] border border-gray-200 dark:border-gray-800 shadow-sm transition-colors">
           <div className="flex items-center gap-3 mb-6">
-            <Info className="w-6 h-6 text-[#1b1b1b]" />
+            <Info className="w-6 h-6 text-[#1b1b1b] dark:text-white" />
             <h2 className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">How it Works</h2>
           </div>
           

@@ -53,10 +53,12 @@ const timestamp = () => ({
 });
 
 const callDrive = async (payload: Record<string, unknown>) => {
+  const secret = Deno.env.get("DRIVE_CRUD_SECRET");
+  if (!secret) throw new Error("DRIVE_CRUD_SECRET is not configured.");
   const response = await fetch(Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") || DEFAULT_GAS_UPLOAD_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, secret }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.success) throw new Error(data.error || `Drive request failed with HTTP ${response.status}.`);
@@ -164,7 +166,7 @@ Deno.serve(async (req) => {
     if (limitError) throw limitError;
     const windowStarted = limitRow ? new Date(limitRow.window_started_at) : null;
     const inWindow = windowStarted && now.getTime() - windowStarted.getTime() < RATE_WINDOW_MS;
-    if (inWindow && Number(limitRow.request_count) >= RATE_LIMIT) {
+    if (inWindow && Number(limitRow?.request_count || 0) >= RATE_LIMIT) {
       return jsonResponse({ error: "Too many applications were submitted. Please try again later." }, 429);
     }
     const { error: rateWriteError } = await admin.from("partner_application_limits").upsert({

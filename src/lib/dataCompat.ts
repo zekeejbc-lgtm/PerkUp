@@ -59,6 +59,10 @@ const tableNames = new Set([
 const READ_CACHE_TTL_MS = 45_000;
 const readCache = new Map<string, { expiresAt: number; value: unknown }>();
 
+export const clearDataCache = () => {
+  readCache.clear();
+};
+
 const timestampNow = (): ServerTimestampValue => ({
   seconds: Math.floor(Date.now() / 1000),
   nanoseconds: 0,

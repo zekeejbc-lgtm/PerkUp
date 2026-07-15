@@ -634,7 +634,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       <div className="text-center p-8 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl mt-4">
         <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
         <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Promotion Not Found</h3>
-        <Link to="/staff/promotions" className="text-[#1b1b1b] hover:underline">Return to Promotions</Link>
+        <Link to="/staff/promotions" className="text-[#1b1b1b] hover:underline dark:text-white">Return to Promotions</Link>
       </div>
     );
   }
@@ -690,7 +690,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
           <div className="w-full flex flex-col gap-4 mb-8">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <Camera className="w-5 h-5 text-[#1b1b1b]" /> Scanner Control
+                <Camera className="w-5 h-5 text-[#1b1b1b] dark:text-white" /> Scanner Control
               </h3>
               <button
                  onClick={() => setIsScannerActive(!isScannerActive)}
@@ -986,7 +986,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                 </div>
                 <div className="w-8 h-px bg-gray-300 dark:bg-gray-600"></div>
                 <div className="text-center">
-                  <p className="text-xs text-[#1b1b1b] font-bold uppercase tracking-widest mb-1">Add</p>
+                  <p className="text-xs text-[#1b1b1b] dark:text-white font-bold uppercase tracking-widest mb-1">Add</p>
                   <p className="text-lg font-bold text-[#1b1b1b] dark:text-white">+{pointsToAdd}</p>
                 </div>
                 <div className="w-8 h-px bg-gray-300 dark:bg-gray-600"></div>

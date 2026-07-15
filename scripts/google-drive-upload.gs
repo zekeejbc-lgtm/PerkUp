@@ -87,7 +87,20 @@ function doPost(e) {
       });
     }
 
+    if (action === "feedback_received" || action === "feedbackreceived") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        email: sendFeedbackReceivedEmail(
+          data.recipientEmail,
+          data.userName,
+          data.feedback
+        )
+      });
+    }
+
     if (action === "upload") {
+      requireCrudSecret(data.secret);
       return createJsonResponse(uploadImage(data));
     }
 

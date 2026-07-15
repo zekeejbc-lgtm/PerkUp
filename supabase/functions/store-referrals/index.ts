@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
+import { sessionNeedsMfa } from "../_shared/auth.ts";
 
 const REFERRAL_POINTS = 1;
 const MAX_SIGNUP_REDEMPTION_AGE_MS = 60 * 60 * 1000;
@@ -57,7 +58,7 @@ const activeReferralCode = (storeData: Record<string, unknown>) => {
   return { code, expiresAtMillis };
 };
 
-const countStorePromotions = async (admin: ReturnType<typeof createClient>, storeId: string) => {
+const countStorePromotions = async (admin: any, storeId: string) => {
   const { count, error } = await admin
     .from("promotions")
     .select("id", { count: "exact", head: true })
@@ -67,7 +68,7 @@ const countStorePromotions = async (admin: ReturnType<typeof createClient>, stor
 };
 
 const countStoreReferralRedemptions = async (
-  admin: ReturnType<typeof createClient>,
+  admin: any,
   storeId: string,
 ) => {
   const { count, error } = await admin
@@ -78,7 +79,7 @@ const countStoreReferralRedemptions = async (
   return Number(count || 0);
 };
 
-const findStoreByReferralCode = async (admin: ReturnType<typeof createClient>, referralCode: string) => {
+const findStoreByReferralCode = async (admin: any, referralCode: string) => {
   const { data, error } = await admin
     .from("stores")
     .select("id,data")
@@ -89,7 +90,7 @@ const findStoreByReferralCode = async (admin: ReturnType<typeof createClient>, r
 };
 
 const getOrCreateReferralCode = async (
-  admin: ReturnType<typeof createClient>,
+  admin: any,
   storeRow: { id: string; data: Record<string, unknown> },
 ) => {
   const existing = activeReferralCode(storeRow.data);
@@ -169,6 +170,9 @@ Deno.serve(async (req) => {
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) return jsonResponse({ error: "Authentication required." }, 401);
+    if (await sessionNeedsMfa(userClient, authorization)) {
+      return jsonResponse({ error: "Complete multi-factor authentication to continue.", code: "mfa_required" }, 403);
+    }
 
     if (action === "get-code" || action === "stats") {
       if (!storeId) return jsonResponse({ error: "Store is required." }, 400);

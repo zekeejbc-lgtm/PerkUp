@@ -1,4 +1,5 @@
 import AccountSecurity from "@/src/components/AccountSecurity";
+import CurrencyPreference from "@/src/components/CurrencyPreference";
 import { useAuth } from "../../contexts/AuthContext";
 import { doc, updateDoc } from "@/src/lib/dataCompat";
 import { db, logOut } from "../../lib/backend";
@@ -50,6 +51,8 @@ export default function StaffAccount() {
 
     setSaving(true);
     setSaved(false);
+    let uploadedAvatarUrl = "";
+    let profilePersisted = false;
     try {
       const avatarUrl = pendingAvatarFile
         ? await uploadImageFileToDriveSecure(pendingAvatarFile, {
@@ -57,6 +60,7 @@ export default function StaffAccount() {
             purpose: "staff-avatar",
           })
         : formData.avatarUrl;
+      if (pendingAvatarFile) uploadedAvatarUrl = avatarUrl;
       await updateDoc(doc(db, "users", user.id), {
         name: formData.name,
         username: formData.username,
@@ -67,6 +71,7 @@ export default function StaffAccount() {
         avatarUrl,
         photoURL: avatarUrl,
       });
+      profilePersisted = true;
       const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
       if (previousAvatarUrl && previousAvatarUrl !== avatarUrl) {
         await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
@@ -77,6 +82,9 @@ export default function StaffAccount() {
       setSaved(true);
       window.setTimeout(() => setSaved(false), 3000);
     } catch (error) {
+      if (!profilePersisted && uploadedAvatarUrl) {
+        await deleteImageFromDriveSecure(uploadedAvatarUrl).catch(console.error);
+      }
       console.error("Failed to update staff profile:", error);
       alert("Failed to update profile.");
     } finally {
@@ -109,7 +117,7 @@ export default function StaffAccount() {
   );
 
   return (
-    <div className="max-w-3xl space-y-8">
+    <div className="mx-auto w-full max-w-3xl space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Profile</h2>
@@ -234,6 +242,7 @@ export default function StaffAccount() {
         )}
       </form>
 
+      <CurrencyPreference />
       <AccountSecurity />
     </div>
   );

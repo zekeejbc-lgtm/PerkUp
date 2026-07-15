@@ -3,12 +3,12 @@ import { useSearchParams } from "react-router-dom";
 import { deleteField, doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { AlertTriangle, ArrowLeft, BellRing, Building2, Check, Clock3, Edit, Key, Loader2, Plus, RotateCcw, Save, Snowflake, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BellRing, Building2, Check, ChevronDown, Clock3, Edit, Key, Loader2, MessageSquare, Plus, RotateCcw, Save, Snowflake, Star, Trash2, Upload, X } from "lucide-react";
 
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { StoreLocationPicker } from "../../components/StoreLocationPicker";
-import { getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
   dateInputToDate,
@@ -30,8 +30,11 @@ import { formatPhilippineDateTime, formatStoreHours, formatTime12Hour } from "..
 import { Pagination } from "../../components/Pagination";
 import { sanitizePasswordInput } from "../../lib/passwordStrength";
 import { getEffectiveSubscriptionStatus, normalizeSubscriptionAccess } from "../../lib/subscriptionAccess";
+import { supabase } from "../../lib/supabase";
+import { StoreBranchesMap } from "../../components/StoreBranchesMap";
 
 const ACTIVITY_LOGS_PER_PAGE = 8;
+type SubscriptionAccessAction = "active" | "warning" | "grace" | "frozen";
 
 export default function AdminStoreDetail({
   storeId,
@@ -40,7 +43,7 @@ export default function AdminStoreDetail({
 }: {
   storeId: string;
   onBack: () => void;
-  onDeleted?: (deletedStoreId: string) => void;
+  onDeleted?: (deletedStoreIds: string[]) => void;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [store, setStore] = useState<any>(null);
@@ -53,9 +56,10 @@ export default function AdminStoreDetail({
 
   // Analytics State
   const requestedTab = searchParams.get("detailTab");
-  const activeTab: 'overview' | 'branches' | 'accounts' | 'analytics' =
-    requestedTab === 'branches' || requestedTab === 'accounts' || requestedTab === 'analytics' ? requestedTab : 'overview';
-  const setActiveTab = (tab: 'overview' | 'branches' | 'accounts' | 'analytics') => {
+  const isStorePhase = searchParams.get("dashboard") === "store";
+  const activeTab: 'overview' | 'branches' | 'accounts' | 'analytics' | 'subscription' | 'feedback' =
+    requestedTab === 'branches' || requestedTab === 'accounts' || requestedTab === 'analytics' || requestedTab === 'subscription' || requestedTab === 'feedback' ? requestedTab : 'overview';
+  const setActiveTab = (tab: 'overview' | 'branches' | 'accounts' | 'analytics' | 'subscription' | 'feedback') => {
     const nextParams = new URLSearchParams(searchParams);
     if (tab === 'overview') nextParams.delete("detailTab");
     else nextParams.set("detailTab", tab);
@@ -66,6 +70,7 @@ export default function AdminStoreDetail({
     promotions: 0,
     claims: 0
   });
+  const [branchAnalytics, setBranchAnalytics] = useState<Array<{ id: string; name: string; customers: number; promotions: number; claims: number; reviews: number }>>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [activityPage, setActivityPage] = useState(1);
 
@@ -80,15 +85,19 @@ export default function AdminStoreDetail({
   const [newBranchLocationSelected, setNewBranchLocationSelected] = useState(false);
   const [branchBusy, setBranchBusy] = useState(false);
   const [branchError, setBranchError] = useState("");
+  const [branchRequestsOpen, setBranchRequestsOpen] = useState(true);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteScope, setDeleteScope] = useState<"store" | "branch">("store");
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [deleteNameConfirmation, setDeleteNameConfirmation] = useState("");
   const [deleteWordConfirmation, setDeleteWordConfirmation] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
   const [subscriptionAccessForm, setSubscriptionAccessForm] = useState(() => normalizeSubscriptionAccess(null));
   const [subscriptionAccessBusy, setSubscriptionAccessBusy] = useState(false);
   const [subscriptionAccessMessage, setSubscriptionAccessMessage] = useState("");
   const [subscriptionAccessError, setSubscriptionAccessError] = useState("");
+  const [pendingSubscriptionAccessAction, setPendingSubscriptionAccessAction] = useState<SubscriptionAccessAction | null>(null);
   const subscriptionStore = (store?.isPrimaryBranch !== false ? store : null) ||
     branches.find(branch => branch.isPrimaryBranch === true) ||
     branches.find(branch => branch.subscriptionLevel || branch.subscriptionDependencies) || null;
@@ -97,29 +106,56 @@ export default function AdminStoreDetail({
   const predictedPaymentDates = subscriptionStore
     ? predictPaymentDates(subscriptionStore.paymentSchedule, subscriptionStore.subscriptionStart, subscriptionStore.subscriptionEnd, 6)
     : [];
-  const subscriptionAccessStatus = getEffectiveSubscriptionStatus(subscriptionStore?.subscriptionAccess);
+  const subscriptionAccessStatus = getEffectiveSubscriptionStatus(subscriptionStore?.subscriptionAccess, new Date(), subscriptionStore?.subscriptionEnd);
+  const subscriptionAccessConfirmation = pendingSubscriptionAccessAction === "warning" ? {
+    title: "Publish subscription warning?",
+    description: "The warning message will immediately be shown to the store owner and staff. Their access will remain available.",
+    confirmLabel: "Publish",
+  } : pendingSubscriptionAccessAction === "grace" ? {
+    title: "Start the grace period?",
+    description: `This immediately starts ${subscriptionAccessForm.gracePeriodDays} day${subscriptionAccessForm.gracePeriodDays === 1 ? "" : "s"} of grace access. Starting it again resets the countdown, and access will freeze when it expires.`,
+    confirmLabel: "Start",
+  } : pendingSubscriptionAccessAction === "frozen" ? {
+    title: "Freeze store access now?",
+    description: "The store owner and every staff member will immediately lose portal access until an administrator restores it.",
+    confirmLabel: "Freeze",
+  } : pendingSubscriptionAccessAction === "active" ? {
+    title: "Restore store access?",
+    description: "The current warning, grace period, or frozen state will be cleared, and the store owner and staff will regain normal portal access.",
+    confirmLabel: "Restore",
+  } : null;
+  const branchStaff = staff.filter((staffMember) => staffMember.storeId === storeId);
+  const selectedBranchAnalytics = branchAnalytics.find((branch) => branch.id === storeId) || { id: storeId, name: store?.branchName || store?.name || "Branch", customers: 0, promotions: 0, claims: 0, reviews: 0 };
+  const selectedBranchReviews = reviews.filter((review) => review.storeId === storeId);
+  const selectedBranchAverageRating = selectedBranchReviews.length
+    ? selectedBranchReviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / selectedBranchReviews.length
+    : 0;
+  const selectedBranchRatingDistribution = [5, 4, 3, 2, 1].map((rating) => ({ rating, count: selectedBranchReviews.filter((review) => Number(review.rating || 0) === rating).length }));
   
   // Password reset state
   const [resetModalUser, setResetModalUser] = useState<any>(null);
   const [newPasswordType, setNewPasswordType] = useState<'default' | 'random' | 'custom'>('default');
   const [customPassword, setCustomPassword] = useState('');
   const [requirePasswordChange, setRequirePasswordChange] = useState(false);
-  const deleteNameMatches = String(store?.name || "").trim() !== "" && deleteNameConfirmation.trim() === String(store?.name || "").trim();
+  const deleteTargetName = deleteScope === "store"
+    ? String(store?.businessName || store?.name || "").trim()
+    : String(store?.branchName || store?.name || "").trim();
+  const deleteNameMatches = deleteTargetName !== "" && deleteNameConfirmation.trim() === deleteTargetName;
   const deleteWordMatches = deleteWordConfirmation.trim() === "DELETE";
-  const canConfirmDelete = deleteNameMatches && deleteWordMatches && !isDeleting;
+  const canConfirmDelete = deleteNameMatches && deleteWordMatches && Boolean(deletePassword) && !isDeleting;
   const activityRows = store
     ? [
-        {
-          id: "store-created",
-          date: formatPhilippineDateTime(store.createdAt),
-          event: "Store Profile Created",
+        ...branches.map((branch) => ({
+          id: `branch-created-${branch.id}`,
+          date: formatPhilippineDateTime(branch.createdAt),
+          event: `${branch.branchName || branch.name || "Branch"} Profile Created`,
           actor: "System",
-        },
+        })),
         ...staff.map((staffMember) => ({
           id: `staff-${staffMember.id}`,
           date: "Unknown",
           event: "Staff Account Registered",
-          actor: `${staffMember.name} (${staffMember.email})`,
+          actor: `${staffMember.name} · ${branches.find((branch) => branch.id === staffMember.storeId)?.branchName || "Unassigned branch"}`,
         })),
         ...(analytics.promotions > 0
           ? [{
@@ -139,8 +175,16 @@ export default function AdminStoreDetail({
           : []),
       ]
     : [];
-  const activityTotalPages = Math.max(1, Math.ceil(activityRows.length / ACTIVITY_LOGS_PER_PAGE));
-  const paginatedActivityRows = activityRows.slice((activityPage - 1) * ACTIVITY_LOGS_PER_PAGE, activityPage * ACTIVITY_LOGS_PER_PAGE);
+  const branchActivityRows = store ? [
+    { id: `branch-created-${store.id}`, date: formatPhilippineDateTime(store.createdAt), event: "Branch Profile Created", actor: "System" },
+    ...branchStaff.map((staffMember) => ({ id: `staff-${staffMember.id}`, date: "Unknown", event: "Staff Account Registered", actor: `${staffMember.name} (${staffMember.email})` })),
+    ...(selectedBranchAnalytics.promotions ? [{ id: "promotions-published", date: "Multiple", event: `${selectedBranchAnalytics.promotions} Promotion(s) Published`, actor: "Store Owner" }] : []),
+    ...(selectedBranchAnalytics.claims ? [{ id: "claims-processed", date: "Multiple", event: `${selectedBranchAnalytics.claims} Customer Scan(s) Processed`, actor: "Staff" }] : []),
+    ...(selectedBranchReviews.length ? [{ id: "reviews-received", date: "Multiple", event: `${selectedBranchReviews.length} Customer Review(s) Received`, actor: "Customers" }] : []),
+  ] : [];
+  const visibleActivityRows = isStorePhase ? activityRows : branchActivityRows;
+  const activityTotalPages = Math.max(1, Math.ceil(visibleActivityRows.length / ACTIVITY_LOGS_PER_PAGE));
+  const paginatedActivityRows = visibleActivityRows.slice((activityPage - 1) * ACTIVITY_LOGS_PER_PAGE, activityPage * ACTIVITY_LOGS_PER_PAGE);
 
   useEffect(() => {
     async function fetchDetails() {
@@ -181,6 +225,8 @@ export default function AdminStoreDetail({
 
           setPlans(loadedPlans);
           setStore({ id: storeDoc.id, ...normalizedStoreData });
+          let loadedBranches: any[] = [{ id: storeDoc.id, ...normalizedStoreData }];
+          setBranches(loadedBranches);
           setEditData({
             name: storeData.name || '',
             ownerName: "",
@@ -212,38 +258,40 @@ export default function AdminStoreDetail({
               }));
             }
             const branchSnap = await getDocs(query(collection(db, "stores"), where("ownerId", "==", storeData.ownerId)));
-            setBranches(branchSnap.docs
+            loadedBranches = branchSnap.docs
               .map(d => ({ id: d.id, ...d.data() }))
               .sort((left, right) => {
                 const leftPrimary = left.isPrimaryBranch === true || !left.parentStoreId;
                 const rightPrimary = right.isPrimaryBranch === true || !right.parentStoreId;
                 if (leftPrimary !== rightPrimary) return leftPrimary ? -1 : 1;
                 return String(left.branchName || "Main").localeCompare(String(right.branchName || "Main"));
-              }));
+              });
+            setBranches(loadedBranches);
             const branchRequestSnap = await getDocs(query(collection(db, "branch_requests"), where("ownerId", "==", storeData.ownerId)));
             setBranchRequests(branchRequestSnap.docs.map(d => ({ id: d.id, ...d.data() })));
           }
 
           // Fetch staff
-          const staffQuery = query(collection(db, "users"), where("storeId", "==", storeId), where("role", "==", "staff"));
+          const branchIds = loadedBranches.map((branch) => branch.id);
+          const staffQuery = query(collection(db, "users"), where("storeId", "in", branchIds), where("role", "==", "staff"));
           const staffSnap = await getDocs(staffQuery);
           setStaff(staffSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
           // Fetch Analytics (Mocked up via actual queries)
-          const customersQuery = query(collection(db, "cards"), where("storeId", "==", storeId));
+          const customersQuery = query(collection(db, "cards"), where("storeId", "in", branchIds));
           const customersSnap = await getDocs(customersQuery);
           const uniqueCustomerCount = new Set(
             customersSnap.docs.map((customerCard) => customerCard.data().customerId).filter(Boolean),
           ).size;
           
-          const promosQuery = query(collection(db, "promotions"), where("storeId", "==", storeId));
+          const promosQuery = query(collection(db, "promotions"), where("storeId", "in", branchIds));
           const promosSnap = await getDocs(promosQuery);
 
-          const claimsQuery = query(collection(db, "promotions_scanned"), where("storeId", "==", storeId));
+          const claimsQuery = query(collection(db, "promotions_scanned"), where("storeId", "in", branchIds));
           const claimsSnap = await getDocs(claimsQuery);
 
           // Fetch reviews for this store
-          const reviewsQuery = query(collection(db, "store_reviews"), where("storeId", "==", storeId));
+          const reviewsQuery = query(collection(db, "store_reviews"), where("storeId", "in", branchIds));
           const reviewsSnap = await getDocs(reviewsQuery);
           const loadedReviews = reviewsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
@@ -253,6 +301,17 @@ export default function AdminStoreDetail({
             claims: claimsSnap.size
           });
           setReviews(loadedReviews.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
+          setBranchAnalytics(loadedBranches.map((branch) => {
+            const branchCards = customersSnap.docs.filter((row) => row.data().storeId === branch.id);
+            return {
+              id: branch.id,
+              name: branch.branchName || branch.name || "Branch",
+              customers: new Set(branchCards.map((row) => row.data().customerId).filter(Boolean)).size,
+              promotions: promosSnap.docs.filter((row) => row.data().storeId === branch.id).length,
+              claims: claimsSnap.docs.filter((row) => row.data().storeId === branch.id).length,
+              reviews: loadedReviews.filter((row) => row.storeId === branch.id).length,
+            };
+          }));
 
         }
       } catch (error) {
@@ -279,10 +338,11 @@ export default function AdminStoreDetail({
   useEffect(() => {
     setSubscriptionAccessMessage("");
     setSubscriptionAccessError("");
+    setPendingSubscriptionAccessAction(null);
   }, [storeId]);
 
-  const updateSubscriptionAccess = async (status: "active" | "warning" | "grace" | "frozen") => {
-    if (!subscriptionStore || !canEditSubscription) return;
+  const updateSubscriptionAccess = async (status: SubscriptionAccessAction) => {
+    if (!subscriptionStore || !canEditSubscription) return false;
     setSubscriptionAccessBusy(true);
     setSubscriptionAccessMessage("");
     setSubscriptionAccessError("");
@@ -305,21 +365,38 @@ export default function AdminStoreDetail({
         status === "grace" ? `Grace access started for ${subscriptionAccessForm.gracePeriodDays} day${subscriptionAccessForm.gracePeriodDays === 1 ? "" : "s"}.` :
         "Store owner and staff access frozen.",
       );
+      return true;
     } catch (error) {
       setSubscriptionAccessError((error as Error).message);
+      return false;
     } finally {
       setSubscriptionAccessBusy(false);
     }
   };
 
+  const requestSubscriptionAccessUpdate = (status: SubscriptionAccessAction) => {
+    setSubscriptionAccessError("");
+    setPendingSubscriptionAccessAction(status);
+  };
+
+  const confirmSubscriptionAccessUpdate = async () => {
+    if (!pendingSubscriptionAccessAction) return;
+    const updated = await updateSubscriptionAccess(pendingSubscriptionAccessAction);
+    if (updated) setPendingSubscriptionAccessAction(null);
+  };
+
   const handleUpdateStore = async () => {
+    let uploadedLogoUrl = "";
+    let storePersisted = false;
     try {
       const logoUrl = pendingLogo
         ? await uploadImageFileToDriveSecure(pendingLogo, {
-            owner: store.ownerId || store.name,
-            purpose: "admin-store-logo",
+          owner: store.ownerId || store.name,
+          ownerId: store.ownerId,
+          purpose: "admin-store-logo",
           })
         : editData.logoUrl;
+      if (pendingLogo) uploadedLogoUrl = logoUrl;
       const isPrimaryBranch = store.isPrimaryBranch !== false;
       const dependencies = getSubscriptionDependencies(plans, editData.subscriptionLevel);
       const currentAmount = Number(store.owedAmount || 0);
@@ -377,6 +454,10 @@ export default function AdminStoreDetail({
       }
 
       await updateDoc(doc(db, "stores", storeId), nextData);
+      storePersisted = true;
+      if (store.logoUrl && store.logoUrl !== logoUrl) {
+        await deleteImageFromDriveSecure(store.logoUrl).catch(console.error);
+      }
       if (owner) {
         const nextOwnerData = {
           ...(nextOwnerName ? { name: nextOwnerName } : {}),
@@ -400,6 +481,9 @@ export default function AdminStoreDetail({
       setIsEditing(false);
       setPendingLogo(null);
     } catch (error) {
+      if (!storePersisted && uploadedLogoUrl) {
+        await deleteImageFromDriveSecure(uploadedLogoUrl).catch(console.error);
+      }
       console.error(error);
       alert("Failed to update store");
     }
@@ -437,13 +521,19 @@ export default function AdminStoreDetail({
   };
 
   const openBranchDashboard = (branchId: string) => {
-    if (branchId === storeId) {
-      setActiveTab("overview");
-      return;
-    }
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("store", branchId);
     nextParams.delete("detailTab");
+    nextParams.delete("dashboard");
+    setSearchParams(nextParams);
+  };
+
+  const returnToStoreDashboard = () => {
+    const primaryBranch = branches.find((branch) => branch.isPrimaryBranch === true || !branch.parentStoreId) || branches[0] || store;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("store", primaryBranch.id);
+    nextParams.set("detailTab", "branches");
+    nextParams.set("dashboard", "store");
     setSearchParams(nextParams);
   };
 
@@ -495,12 +585,20 @@ export default function AdminStoreDetail({
     }
   };
 
-  const handleDeleteStore = async () => {
+  const openDeleteDialog = (scope: "store" | "branch") => {
+    setDeleteScope(scope);
+    setDeleteError("");
+    setDeleteNameConfirmation("");
+    setDeleteWordConfirmation("");
+    setDeletePassword("");
+    setShowDeleteModal(true);
+  };
+
+  const handleDelete = async () => {
     if (!store) return;
 
-    const expectedStoreName = String(store.name || "").trim();
-    if (deleteNameConfirmation.trim() !== expectedStoreName) {
-      setDeleteError(`Type the exact store name: ${expectedStoreName}`);
+    if (deleteNameConfirmation.trim() !== deleteTargetName) {
+      setDeleteError(`Type the exact ${deleteScope} name: ${deleteTargetName}`);
       return;
     }
 
@@ -512,13 +610,34 @@ export default function AdminStoreDetail({
     setIsDeleting(true);
     setDeleteError("");
     try {
-      await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_store", storeId });
-      onDeleted?.(storeId);
+      const { data: authData } = await supabase.auth.getUser();
+      const email = authData.user?.email;
+      if (!email) throw new Error("Your administrator email could not be verified.");
+      const { error: reauthError } = await supabase.auth.signInWithPassword({ email, password: deletePassword });
+      if (reauthError) throw new Error("Administrator password is incorrect.");
+      const result = await invokeAdminBackend<{ deleted: boolean; deletedStoreIds: string[]; primaryStoreId?: string }>({
+        action: deleteScope === "store" ? "delete_store_group" : "delete_store",
+        storeId,
+      });
+      onDeleted?.(result.deletedStoreIds || [storeId]);
       setShowDeleteModal(false);
-      onBack();
+      if (deleteScope === "store") {
+        onBack();
+      } else {
+        const remainingBranch = branches.find((branch) => branch.id === result.primaryStoreId) || branches.find((branch) => branch.id !== storeId);
+        if (!remainingBranch) {
+          onBack();
+          return;
+        }
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.set("store", remainingBranch.id);
+        nextParams.set("detailTab", "branches");
+        nextParams.set("dashboard", "store");
+        setSearchParams(nextParams);
+      }
     } catch (error) {
       console.error(error);
-      setDeleteError("The store could not be deleted. Please try again.");
+      setDeleteError((error as Error).message || `The ${deleteScope} could not be deleted. Please try again.`);
       setIsDeleting(false);
     }
   };
@@ -553,56 +672,56 @@ export default function AdminStoreDetail({
   }
 
   return (
-    <div className="flex flex-col h-full animate-in slide-in-from-right-4 duration-300">
-      <div className="p-6 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 sticky top-0 z-10 backdrop-blur-sm">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-4">
-            <button onClick={onBack} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-colors">
+    <div className="dark-high-contrast-text flex flex-col h-full animate-in slide-in-from-right-4 duration-300">
+      <div className="sticky top-0 z-10 border-b border-gray-100 bg-gray-50/50 p-4 backdrop-blur-sm dark:border-gray-800 dark:bg-gray-900/50 sm:p-6">
+        <div className="mb-4 flex items-start justify-between gap-2 sm:items-center sm:gap-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+            <button onClick={isStorePhase ? onBack : returnToStoreDashboard} className="shrink-0 p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-colors sm:p-2">
               <ArrowLeft className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </button>
-            <h3 className="font-bold text-gray-900 dark:text-white text-xl">{store.name} Dashboard</h3>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {!isEditing ? (
-              <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors">
-                <Edit className="w-4 h-4" /> Edit
-              </button>
-            ) : (
-              <>
-                <button onClick={handleCancelEdit} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-                  <X className="w-4 h-4" /> Cancel
-                </button>
-                <button onClick={handleUpdateStore} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-white bg-green-600 hover:bg-green-700 transition-colors">
-                  <Save className="w-4 h-4" /> Save
-                </button>
-              </>
-            )}
-            <button
-              onClick={() => {
-                setDeleteError("");
-                setDeleteNameConfirmation("");
-                setDeleteWordConfirmation("");
-                setShowDeleteModal(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-red-700 bg-red-100 hover:bg-red-200 transition-colors"
-            >
-              <Trash2 className="w-4 h-4" /> Delete Store
-            </button>
+            <div className="min-w-0"><h3 className="truncate text-base font-bold leading-tight text-gray-900 dark:text-white sm:text-xl">{store.businessName || store.name} Dashboard</h3>{!isStorePhase && <p className="mt-0.5 text-xs text-gray-500">Branch: {store.branchName || store.name}</p>}</div>
           </div>
         </div>
-        <div className="flex gap-4">
-          <button onClick={() => setActiveTab('overview')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'overview' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Overview</button>
-          <button onClick={() => setActiveTab('branches')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'branches' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Branches</button>
-          <button onClick={() => setActiveTab('accounts')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'accounts' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Accounts</button>
-          <button onClick={() => setActiveTab('analytics')} className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'analytics' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Analytics & Logs</button>
+        <div className="flex max-w-full gap-4 overflow-x-auto overscroll-x-contain" role="tablist" aria-label="Store dashboard sections">
+          {isStorePhase ? <>
+            <button onClick={() => setActiveTab('branches')} className={`shrink-0 whitespace-nowrap border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${activeTab === 'branches' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:border-white dark:text-white' : 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'}`}>Branch Selection</button>
+            <button onClick={() => setActiveTab('analytics')} className={`shrink-0 whitespace-nowrap border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${activeTab === 'analytics' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:border-white dark:text-white' : 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'}`}>Analytics & Logs</button>
+            <button onClick={() => setActiveTab('subscription')} className={`shrink-0 whitespace-nowrap border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${activeTab === 'subscription' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:border-white dark:text-white' : 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'}`}>Subscription</button>
+            <button onClick={() => setActiveTab('accounts')} className={`shrink-0 whitespace-nowrap border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${activeTab === 'accounts' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:border-white dark:text-white' : 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'}`}>Store Info</button>
+          </> : <>
+            <button onClick={() => setActiveTab('overview')} className={`shrink-0 whitespace-nowrap border-b-2 px-1 pb-2 text-sm font-medium transition-colors ${activeTab === 'overview' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:border-white dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Detailed Overview</button>
+            <button onClick={() => setActiveTab('accounts')} className={`shrink-0 whitespace-nowrap border-b-2 px-1 pb-2 text-sm font-medium transition-colors ${activeTab === 'accounts' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:border-white dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Accounts</button>
+            <button onClick={() => setActiveTab('analytics')} className={`shrink-0 whitespace-nowrap border-b-2 px-1 pb-2 text-sm font-medium transition-colors ${activeTab === 'analytics' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:border-white dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Analytics & Logs</button>
+            <button onClick={() => setActiveTab('feedback')} className={`shrink-0 whitespace-nowrap border-b-2 px-1 pb-2 text-sm font-medium transition-colors ${activeTab === 'feedback' ? 'border-[#1b1b1b] text-[#1b1b1b] dark:border-white dark:text-white' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>Ratings & Feedback</button>
+          </>}
         </div>
       </div>
 
-      <div className="p-6">
-        {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start animate-in fade-in slide-in-from-bottom-2">
+      <div className="p-4 sm:p-6 lg:p-8">
+        {((!isStorePhase && activeTab === 'overview') || (isStorePhase && activeTab === 'subscription')) && (
+          <div className={`grid grid-cols-1 items-start animate-in fade-in slide-in-from-bottom-2 ${activeTab === 'subscription' ? 'gap-8 2xl:grid-cols-2' : 'gap-6 md:grid-cols-2'}`}>
+            {activeTab === 'overview' && <>
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
-              <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-4">Store Config</h4>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Branch configuration</h4>
+                  <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Profile and operating details for this branch.</p>
+                </div>
+                {!isEditing ? (
+                  <button type="button" onClick={() => setIsEditing(true)} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-800 shadow-sm transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-900 dark:text-white dark:hover:bg-gray-800">
+                    <Edit className="h-4 w-4" /> Edit branch
+                  </button>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={handleCancelEdit} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800">
+                      <X className="h-4 w-4" /> Cancel
+                    </button>
+                    <button type="button" onClick={handleUpdateStore} className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-green-700">
+                      <Save className="h-4 w-4" /> Save changes
+                    </button>
+                  </div>
+                )}
+              </div>
               
               <div className="space-y-4">
                 <div>
@@ -718,16 +837,69 @@ export default function AdminStoreDetail({
               </div>
             </div>
 
-            <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
-              <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-4">Subscription & Billing</h4>
+            <div className="space-y-6">
+              <section className="rounded-2xl border border-gray-100 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-800/50">
+                <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Branch Snapshot</h4>
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  {[{ label: "Customers", value: selectedBranchAnalytics.customers }, { label: "Staff", value: branchStaff.length }, { label: "Scans", value: selectedBranchAnalytics.claims }, { label: "Rating", value: selectedBranchReviews.length ? selectedBranchAverageRating.toFixed(1) : "—" }].map((item) => <div key={item.label} className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900"><p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{item.label}</p><p className="mt-2 text-2xl font-black text-gray-900 dark:text-white">{item.value}</p></div>)}
+                </div>
+              </section>
+              <section className="rounded-2xl border border-gray-100 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-800/50">
+                <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Operational Summary</h4>
+                <dl className="mt-4 divide-y divide-gray-200 text-sm dark:divide-gray-700">
+                  <div className="flex justify-between gap-4 py-3"><dt className="text-gray-500">Branch label</dt><dd className="font-semibold text-gray-900 dark:text-white">{store.branchName || "Main"}</dd></div>
+                  <div className="flex justify-between gap-4 py-3"><dt className="text-gray-500">Location</dt><dd className="text-right font-semibold text-gray-900 dark:text-white">{store.address || store.location || "Not provided"}</dd></div>
+                  <div className="flex justify-between gap-4 py-3"><dt className="text-gray-500">Business hours</dt><dd className="text-right font-semibold text-gray-900 dark:text-white">{store.openingTime && store.closingTime ? `${formatTime12Hour(store.openingTime)} – ${formatTime12Hour(store.closingTime)} PHT` : "Not set"}</dd></div>
+                  <div className="flex justify-between gap-4 py-3"><dt className="text-gray-500">Promotions</dt><dd className="font-semibold text-gray-900 dark:text-white">{selectedBranchAnalytics.promotions}</dd></div>
+                </dl>
+              </section>
+            </div>
+
+            <section className="md:col-span-2 overflow-hidden rounded-2xl border border-red-200 bg-red-50/70 dark:border-red-900/70 dark:bg-red-950/20">
+              <div className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600 dark:bg-red-950/70 dark:text-red-400">
+                    <AlertTriangle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold uppercase tracking-widest text-red-700 dark:text-red-300">Danger zone</h4>
+                    <p className="mt-1 max-w-2xl text-sm leading-6 text-red-800/80 dark:text-red-200/80">Permanently delete this branch, its staff accounts, customer activity, promotions, and branch files. Other branches remain available.</p>
+                  </div>
+                </div>
+                <button type="button" onClick={() => openDeleteDialog("branch")} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-700">
+                  <Trash2 className="h-4 w-4" /> Delete branch
+                </button>
+              </div>
+            </section>
+
+            </>}
+            {activeTab === 'subscription' && <>
+            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 shadow-sm dark:border-gray-800 dark:bg-gray-800/50 sm:p-7">
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+                <h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">Subscription & Billing</h4>
+                {canEditSubscription && (!isEditing ? (
+                  <button type="button" onClick={() => setIsEditing(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-800 shadow-sm transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-900 dark:text-white dark:hover:bg-gray-800">
+                    <Edit className="h-3.5 w-3.5" /> Edit
+                  </button>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={handleCancelEdit} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800">
+                      <X className="h-3.5 w-3.5" /> Cancel
+                    </button>
+                    <button type="button" onClick={handleUpdateStore} className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-green-700">
+                      <Save className="h-3.5 w-3.5" /> Save
+                    </button>
+                  </div>
+                ))}
+              </div>
               {!canEditSubscription && (
                 <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-300">
                   This branch uses the store owner's subscription. Billing can only be changed from the primary branch.
                 </div>
               )}
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1">Subscription Level</label>
+                  <label className="mb-1 block text-xs font-semibold text-gray-600 dark:text-gray-300">Subscription Level</label>
                   {isEditing && canEditSubscription ? (
                     <CustomDropdown
                       options={plans.map(p => ({ label: p.name, value: p.name }))}
@@ -739,7 +911,7 @@ export default function AdminStoreDetail({
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1">Owed Amount</label>
+                  <label className="mb-1 block text-xs font-semibold text-gray-600 dark:text-gray-300">Owed Amount</label>
                   {isEditing && canEditSubscription ? (
                     <div className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm font-medium text-gray-900 dark:text-white">
                       {formatMoney(editData.owedAmount)}
@@ -748,16 +920,16 @@ export default function AdminStoreDetail({
                     <div>
                       <p className="text-red-600 font-medium">{formatMoney(Number(subscriptionStore?.owedAmount || 0))}</p>
                       {Number.isFinite(Number(subscriptionStore?.pendingOwedAmount)) && Number(subscriptionStore?.pendingOwedAmount) !== Number(subscriptionStore?.owedAmount || 0) && (
-                        <p className="mt-1 text-xs text-gray-500">
+                        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
                           {formatMoney(Number(subscriptionStore?.pendingOwedAmount))} starts on {formatBillingDate(subscriptionStore?.pendingOwedAmountEffectiveAt)}.
                         </p>
                       )}
                     </div>
                   )}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">Subscription Start</label>
+                    <label className="mb-1 block text-xs font-semibold text-gray-600 dark:text-gray-300">Subscription Start</label>
                     {isEditing && canEditSubscription ? (
                       <input type="date" value={editData.subscriptionStart || ""} onChange={e => setEditData({...editData, subscriptionStart: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
                     ) : (
@@ -765,15 +937,15 @@ export default function AdminStoreDetail({
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">Subscription End</label>
+                    <label className="mb-1 block text-xs font-semibold text-gray-600 dark:text-gray-300">Subscription End</label>
                     {isEditing && canEditSubscription ? (
                       <input type="date" value={editData.subscriptionEnd || ""} onChange={e => setEditData({...editData, subscriptionEnd: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
                     ) : (
                       <p className="text-sm text-gray-900 dark:text-gray-300">{formatBillingDate(subscriptionStore?.subscriptionEnd)}</p>
                     )}
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">Payment Schedule</label>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-xs font-semibold text-gray-600 dark:text-gray-300">Payment Schedule</label>
                     {isEditing && canEditSubscription ? (
                       <CustomDropdown
                         options={PAYMENT_SCHEDULE_OPTIONS}
@@ -786,10 +958,10 @@ export default function AdminStoreDetail({
                     )}
                   </div>
                 </div>
-                <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+                <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
                   <div className="mb-3">
                     <h5 className="text-sm font-bold text-gray-900 dark:text-white">Predicted payment dates</h5>
-                    <p className="mt-1 text-xs text-gray-500">Calculated from the saved payment schedule and subscription period.</p>
+                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Calculated from the saved payment schedule and subscription period.</p>
                   </div>
                   {predictedPaymentDates.length > 0 ? (
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -800,17 +972,17 @@ export default function AdminStoreDetail({
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-500">No upcoming dates within the subscription period.</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">No upcoming dates within the subscription period.</p>
                   )}
                 </div>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-800/50">
+            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 shadow-sm dark:border-gray-800 dark:bg-gray-800/50 sm:p-7">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Subscription access control</h4>
-                  <p className="mt-1 text-sm text-gray-500">Warn the store team, allow a timed grace period, or block owner and staff portal access.</p>
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">Subscription access control</h4>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Warn the store team, allow a timed grace period, or block owner and staff portal access.</p>
                 </div>
                 <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${
                   subscriptionAccessStatus === "frozen" ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300" :
@@ -825,9 +997,9 @@ export default function AdminStoreDetail({
                   Access controls are shared by all branches. Open the primary branch to change them.
                 </div>
               ) : (
-                <div className="mt-5 space-y-4">
+                <div className="mt-6 space-y-5">
                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
-                    Warning shown at the top of the owner and staff screens
+                    Warning shown to the store owner
                     <textarea
                       rows={3}
                       maxLength={500}
@@ -837,7 +1009,16 @@ export default function AdminStoreDetail({
                     />
                   </label>
 
+                  <label className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+                    <input type="checkbox" checked={subscriptionAccessForm.automationEnabled} onChange={(event) => setSubscriptionAccessForm({ ...subscriptionAccessForm, automationEnabled: event.target.checked })} className="mt-1 h-4 w-4" />
+                    <span><span className="block text-sm font-semibold text-gray-900 dark:text-white">Automatic subscription issuing</span><span className="mt-1 block text-xs leading-5 text-gray-600 dark:text-gray-400">Warn before expiry, begin grace access on the subscription end date, then freeze access automatically. Manual controls remain available.</span></span>
+                  </label>
+
                   <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                      Warning lead time (days)
+                      <input type="number" min="0" max="365" value={subscriptionAccessForm.warningLeadDays} onChange={(event) => setSubscriptionAccessForm({ ...subscriptionAccessForm, warningLeadDays: Math.max(0, Math.min(365, Math.trunc(Number(event.target.value) || 0))) })} className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white" />
+                    </label>
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
                       Grace period (days)
                       <input
@@ -850,7 +1031,7 @@ export default function AdminStoreDetail({
                         className="mt-1.5 block w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                       />
                     </label>
-                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 sm:col-span-2">
                       Payment contact
                       <input
                         type="text"
@@ -890,29 +1071,30 @@ export default function AdminStoreDetail({
                   {subscriptionAccessMessage && <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-300">{subscriptionAccessMessage}</p>}
                   {subscriptionAccessError && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{subscriptionAccessError}</p>}
 
-                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                    <button type="button" disabled={subscriptionAccessBusy || !subscriptionAccessForm.warningMessage.trim()} onClick={() => updateSubscriptionAccess("warning")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-bold text-amber-950 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50">
-                      <BellRing className="h-4 w-4" /> Publish warning
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" disabled={subscriptionAccessBusy || !subscriptionAccessForm.warningMessage.trim()} onClick={() => requestSubscriptionAccessUpdate("warning")} className="inline-flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-amber-400 bg-amber-400 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-amber-300 hover:shadow disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0">
+                      <BellRing className="h-3.5 w-3.5" /> Warn
                     </button>
-                    <button type="button" disabled={subscriptionAccessBusy || subscriptionAccessForm.gracePeriodDays < 1} onClick={() => updateSubscriptionAccess("grace")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50">
-                      <Clock3 className="h-4 w-4" /> Start grace period
+                    <button type="button" disabled={subscriptionAccessBusy || subscriptionAccessForm.gracePeriodDays < 1} onClick={() => requestSubscriptionAccessUpdate("grace")} className="inline-flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-orange-500 bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-orange-600 hover:shadow disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0">
+                      <Clock3 className="h-3.5 w-3.5" /> Grace
                     </button>
-                    <button type="button" disabled={subscriptionAccessBusy} onClick={() => updateSubscriptionAccess("frozen")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50">
-                      <Snowflake className="h-4 w-4" /> Freeze now
+                    <button type="button" disabled={subscriptionAccessBusy} onClick={() => requestSubscriptionAccessUpdate("frozen")} className="inline-flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-red-600 bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-red-700 hover:shadow disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0">
+                      <Snowflake className="h-3.5 w-3.5" /> Freeze
                     </button>
-                    <button type="button" disabled={subscriptionAccessBusy || subscriptionAccessStatus === "active"} onClick={() => updateSubscriptionAccess("active")} className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-bold text-gray-800 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:hover:bg-gray-800">
-                      {subscriptionAccessBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Restore access
+                    <button type="button" disabled={subscriptionAccessBusy} onClick={() => requestSubscriptionAccessUpdate("active")} className="inline-flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-800 shadow-sm transition hover:-translate-y-0.5 hover:border-gray-400 hover:bg-gray-100 hover:shadow disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 dark:border-gray-600 dark:bg-gray-900 dark:text-white dark:hover:border-gray-500 dark:hover:bg-gray-800">
+                      {subscriptionAccessBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Restore
                     </button>
                   </div>
-                  <p className="text-xs leading-5 text-gray-500">Starting a grace period restarts its countdown. When it expires, the owner and staff screens freeze automatically until you restore access.</p>
+                  <p className="text-xs leading-5 text-gray-600 dark:text-gray-400">Starting a grace period restarts its countdown. When it expires, the owner and staff screens freeze automatically until you restore access.</p>
                 </div>
               )}
             </div>
+            </>}
 
           </div>
         )}
 
-        {activeTab === 'branches' && (
+        {isStorePhase && activeTab === 'branches' && (
           <div className="animate-in fade-in slide-in-from-bottom-2">
             <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-800/50">
               <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
@@ -921,29 +1103,48 @@ export default function AdminStoreDetail({
                   <p className="mt-1 text-sm text-gray-500">{branches.length} of {branchLimit} branch slots used under the {subscriptionStore?.subscriptionLevel || "current"} subscription.</p>
                 </div>
               </div>
+              <div className="mb-6">
+                <div className="mb-3 flex items-end justify-between gap-4">
+                  <div><h5 className="text-xs font-bold uppercase tracking-widest text-gray-500">All branch locations</h5><p className="mt-1 text-sm text-gray-500">Select a logo pin or a branch card to open that branch dashboard.</p></div>
+                  <span className="text-xs font-semibold text-gray-500">{branches.length} mapped branches</span>
+                </div>
+                <StoreBranchesMap branches={branches} onOpenBranch={openBranchDashboard} />
+              </div>
               <div className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {branches.map(branch => (
                   <button
                     key={branch.id}
                     type="button"
                     onClick={() => openBranchDashboard(branch.id)}
-                    className={`rounded-xl border bg-white p-3 text-left transition-colors hover:border-green-500 hover:bg-green-50 dark:bg-gray-900 dark:hover:border-green-500 dark:hover:bg-green-950/20 ${
-                      branch.id === storeId ? "border-green-500 ring-2 ring-green-500/20" : "border-gray-200 dark:border-gray-700"
-                    }`}
+                    className="rounded-xl border border-gray-200 bg-white p-3 text-left transition-colors hover:border-green-500 hover:bg-green-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-green-500 dark:hover:bg-green-950/20"
                   >
                     <span className="flex items-center justify-between gap-2">
                       <span className="font-medium text-gray-900 dark:text-white">{branch.branchName || branch.name}</span>
-                      {branch.id === storeId && <span className="text-[10px] font-bold uppercase tracking-wider text-green-600">Current</span>}
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${branch.status === "suspended" ? "text-red-500" : "text-green-600"}`}>{branch.status || "active"}</span>
                     </span>
                     {branch.businessName && <p className="mt-1 truncate text-xs text-gray-600 dark:text-gray-300">{branch.businessName}</p>}
                     <p className="mt-1 truncate text-xs text-gray-500">{branch.address || branch.location || "No address"}</p>
-                    <p className="mt-2 text-xs font-medium text-green-600">{branch.id === storeId ? "View overview" : "Open dashboard"}</p>
+                    <p className="mt-2 text-xs font-medium text-green-600">Open branch dashboard</p>
                   </button>
                 ))}
               </div>
               <div className="mb-6 border-t border-gray-200 pt-5 dark:border-gray-700">
-                <h5 className="text-xs font-bold uppercase tracking-widest text-gray-500">Branch requests</h5>
-                <div className="mt-3 space-y-3">
+                <button
+                  type="button"
+                  aria-expanded={branchRequestsOpen}
+                  aria-controls="admin-branch-requests"
+                  onClick={() => setBranchRequestsOpen((open) => !open)}
+                  className="flex w-full items-center justify-between gap-4 rounded-xl px-1 py-2 text-left transition-colors hover:text-gray-900 dark:hover:text-white"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-widest text-gray-500">Branch requests</span>
+                    {branchRequests.filter((request) => request.status === "pending").length > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">{branchRequests.filter((request) => request.status === "pending").length} pending</span>}
+                  </span>
+                  <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform duration-300 ease-out ${branchRequestsOpen ? "rotate-180" : "rotate-0"}`} />
+                </button>
+                <div id="admin-branch-requests" className={`grid transition-[grid-template-rows,opacity] duration-500 ease-in-out motion-reduce:transition-none ${branchRequestsOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
+                  <div className="min-h-0 overflow-hidden">
+                  <div className="mt-3 space-y-3">
                   {branchRequests.filter(request => request.status === "pending").length === 0 ? (
                     <p className="text-sm text-gray-500">No pending branch requests.</p>
                   ) : branchRequests.filter(request => request.status === "pending").map(request => (
@@ -963,9 +1164,8 @@ export default function AdminStoreDetail({
                       </div>
                     </div>
                   ))}
-                </div>
-              </div>
-              <div className="space-y-3">
+                  </div>
+                  <div className="mt-6 space-y-3 border-t border-gray-200 pt-5 dark:border-gray-700">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="space-y-1 text-xs font-semibold text-gray-500">
                     Branch label
@@ -996,8 +1196,11 @@ export default function AdminStoreDetail({
                 <button type="button" disabled={branchBusy || !newBranchName.trim() || !newBranchAddress.trim() || !newBranchLocationSelected || branches.length >= branchLimit} onClick={handleAddBranch} className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 sm:w-auto">
                   <Plus className="h-4 w-4" /> Add branch
                 </button>
+                  </div>
+                  {branchError && <p className="mt-3 text-sm text-red-600">{branchError}</p>}
+                  </div>
+                </div>
               </div>
-              {branchError && <p className="mt-3 text-sm text-red-600">{branchError}</p>}
             </div>
           </div>
         )}
@@ -1006,7 +1209,8 @@ export default function AdminStoreDetail({
         {activeTab === 'accounts' && (
           <div className="max-w-3xl space-y-6 animate-in fade-in slide-in-from-bottom-2">
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
-              <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-4">Owner & Staff Accounts</h4>
+              <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-1">{isStorePhase ? "Store Information" : "Branch Accounts"}</h4>
+              <p className="mb-5 text-sm text-gray-500">{isStorePhase ? `Owner and staff accounts across all ${branches.length} branches.` : `Accounts with access to ${store.branchName || store.name}.`}</p>
               
               <div className="mb-6">
                 <h5 className="text-xs font-semibold text-gray-500 mb-3 border-b border-gray-200 dark:border-gray-700 pb-1">Store Owner</h5>
@@ -1025,6 +1229,7 @@ export default function AdminStoreDetail({
                         <p className="font-medium text-sm text-gray-900 dark:text-white">{owner.name}</p>
                       )}
                       <p className="text-xs text-gray-500">{owner.email}</p>
+                      <p className="mt-1 text-xs font-medium text-gray-500">{isStorePhase ? `Owner of ${store.businessName || store.name} · ${branches.length} branch${branches.length === 1 ? "" : "es"}` : `Store owner · Access to ${store.branchName || store.name}`}</p>
                     </div>
                     <button onClick={() => setResetModalUser(owner)} className="p-2 text-gray-500 hover:text-[#1b1b1b] bg-gray-50 dark:bg-gray-800 rounded-lg" title="Reset Password">
                       <Key className="w-4 h-4" />
@@ -1036,14 +1241,17 @@ export default function AdminStoreDetail({
               </div>
 
               <div>
-                <h5 className="text-xs font-semibold text-gray-500 mb-3 border-b border-gray-200 dark:border-gray-700 pb-1">Staff Accounts ({staff.length})</h5>
-                {staff.length > 0 ? (
+                <h5 className="text-xs font-semibold text-gray-500 mb-3 border-b border-gray-200 dark:border-gray-700 pb-1">Staff Accounts ({(isStorePhase ? staff : branchStaff).length})</h5>
+                {(isStorePhase ? staff : branchStaff).length > 0 ? (
                   <div className="space-y-2">
-                    {staff.map(s => (
+                    {(isStorePhase ? staff : branchStaff).map(s => (
                       <div key={s.id} className="flex items-center justify-between bg-white dark:bg-gray-900 p-3 rounded-xl border border-gray-100 dark:border-gray-800">
-                        <div>
+                        <div className="min-w-0">
                           <p className="font-medium text-sm text-gray-900 dark:text-white">{s.name}</p>
                           <p className="text-xs text-gray-500">{s.email}</p>
+                          <span className="mt-2 inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                            {branches.find((branch) => branch.id === s.storeId)?.branchName || branches.find((branch) => branch.id === s.storeId)?.name || "Unassigned branch"}
+                          </span>
                         </div>
                         <button onClick={() => setResetModalUser(s)} className="p-2 text-gray-500 hover:text-[#1b1b1b] bg-gray-50 dark:bg-gray-800 rounded-lg" title="Reset Password">
                           <Key className="w-4 h-4" />
@@ -1056,39 +1264,95 @@ export default function AdminStoreDetail({
                 )}
               </div>
             </div>
+            {isStorePhase && (
+              <section className="overflow-hidden rounded-2xl border border-red-200 bg-red-50/70 dark:border-red-900/70 dark:bg-red-950/20">
+                <div className="border-b border-red-200/80 px-6 py-4 dark:border-red-900/60">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-100 text-red-600 dark:bg-red-950/70 dark:text-red-400">
+                      <AlertTriangle className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold uppercase tracking-widest text-red-700 dark:text-red-300">Danger zone</h4>
+                      <p className="mt-1 text-sm text-red-800/80 dark:text-red-200/80">Destructive store-level actions require administrator verification.</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h5 className="font-semibold text-gray-900 dark:text-white">Delete this store and every branch</h5>
+                    <p className="mt-1 max-w-xl text-sm leading-6 text-gray-600 dark:text-gray-300">Permanently removes all {branches.length} branches, store data, staff accounts, and the store owner account. This cannot be undone.</p>
+                  </div>
+                  <button type="button" onClick={() => openDeleteDialog("store")} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-700">
+                    <Trash2 className="h-4 w-4" /> Delete store
+                  </button>
+                </div>
+              </section>
+            )}
           </div>
         )}
 
         {/* Analytics & Logs Subpage */}
-        {activeTab === 'analytics' && (
+        {isStorePhase && activeTab === 'analytics' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+            <div><h2 className="text-2xl font-bold text-gray-900 dark:text-white">Store-wide analytics</h2><p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Cumulative performance from all {branches.length} branches, followed by the per-branch breakdown and activity table.</p></div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 text-center">
-                 <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-2">Customers</p>
+                 <p className="mb-2 text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-300">Customers</p>
                  <p className="text-4xl font-black text-gray-900 dark:text-white">{analytics.customers}</p>
                </div>
                <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 text-center">
-                 <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-2">Promotions</p>
+                 <p className="mb-2 text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-300">Promotions</p>
                  <p className="text-4xl font-black text-gray-900 dark:text-white">{analytics.promotions}</p>
                </div>
                <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 text-center">
-                 <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-2">Claims Scanned</p>
+                 <p className="mb-2 text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-300">Claims Scanned</p>
                  <p className="text-4xl font-black text-gray-900 dark:text-white">{analytics.claims}</p>
                </div>
               <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 text-center">
-                <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-2">Reviews</p>
+                <p className="mb-2 text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-300">Reviews</p>
                 <p className="text-4xl font-black text-gray-900 dark:text-white">{reviews.length}</p>
-                <p className="text-sm text-gray-500 mt-1">{reviews.length ? `${(reviews.reduce((s, r) => s + Number(r.rating || 0), 0) / reviews.length).toFixed(1)} / 5` : "—"}</p>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{reviews.length ? `${(reviews.reduce((s, r) => s + Number(r.rating || 0), 0) / reviews.length).toFixed(1)} / 5` : "—"}</p>
               </div>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <section className="rounded-2xl border border-gray-100 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-800/50">
+                <div className="mb-5"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">Branch performance chart</h4><p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Customers and completed scans across the whole store.</p></div>
+                <div className="space-y-5">
+                  {branchAnalytics.map((branch) => {
+                    const scale = Math.max(1, ...branchAnalytics.flatMap((row) => [row.customers, row.claims]));
+                    return <div key={branch.id}>
+                      <div className="mb-2 flex items-center justify-between gap-3"><span className="truncate text-sm font-semibold text-gray-900 dark:text-white">{branch.name}</span><span className="text-xs text-gray-600 dark:text-gray-400">{branch.customers} customers · {branch.claims} scans</span></div>
+                      <div className="space-y-1.5">
+                        <div className="h-2.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"><div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.max(branch.customers ? 5 : 0, (branch.customers / scale) * 100)}%` }} /></div>
+                        <div className="h-2.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"><div className="h-full rounded-full bg-green-500" style={{ width: `${Math.max(branch.claims ? 5 : 0, (branch.claims / scale) * 100)}%` }} /></div>
+                      </div>
+                    </div>;
+                  })}
+                  {!branchAnalytics.length && <p className="py-8 text-center text-sm text-gray-600 dark:text-gray-400">No branch activity is available yet.</p>}
+                </div>
+                <div className="mt-5 flex flex-wrap gap-4 border-t border-gray-200 pt-4 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-400"><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-blue-500" /> Customers</span><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-green-500" /> Scans</span></div>
+              </section>
+
+              <section className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
+                <div className="border-b border-gray-200 p-5 dark:border-gray-700"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">Branch analytics table</h4><p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Cumulative totals are shown above; this table provides the branch breakdown.</p></div>
+                <div className="overflow-x-auto">
+                  <table className="w-full whitespace-nowrap text-left text-sm">
+                    <thead className="bg-gray-100 text-xs uppercase tracking-wider text-gray-600 dark:bg-gray-900 dark:text-gray-300"><tr><th className="px-5 py-3">Branch</th><th className="px-4 py-3 text-right">Customers</th><th className="px-4 py-3 text-right">Promotions</th><th className="px-4 py-3 text-right">Scans</th><th className="px-5 py-3 text-right">Reviews</th></tr></thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">{branchAnalytics.map((branch) => <tr key={branch.id}><td className="px-5 py-3 font-semibold text-gray-900 dark:text-white">{branch.name}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.customers}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.promotions}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.claims}</td><td className="px-5 py-3 text-right text-gray-600 dark:text-gray-300">{branch.reviews}</td></tr>)}</tbody>
+                    <tfoot className="border-t-2 border-gray-300 bg-white font-bold text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-white"><tr><td className="px-5 py-3">All branches</td><td className="px-4 py-3 text-right">{analytics.customers}</td><td className="px-4 py-3 text-right">{analytics.promotions}</td><td className="px-4 py-3 text-right">{analytics.claims}</td><td className="px-5 py-3 text-right">{reviews.length}</td></tr></tfoot>
+                  </table>
+                </div>
+              </section>
             </div>
 
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
                <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-black/20">
-                 <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">System Activity Log</h4>
+                 <h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">System Activity Log</h4>
                </div>
                <div className="p-0 overflow-x-auto">
                  <table className="w-full text-sm text-left whitespace-nowrap">
-                   <thead className="bg-gray-100 dark:bg-gray-800/80 text-gray-500 dark:text-gray-400">
+                   <thead className="bg-gray-100 text-gray-600 dark:bg-gray-800/80 dark:text-gray-300">
                      <tr>
                        <th className="px-6 py-3 font-semibold">Date</th>
                        <th className="px-6 py-3 font-semibold">Event</th>
@@ -1100,7 +1364,7 @@ export default function AdminStoreDetail({
                        <tr key={row.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
                          <td className="px-6 py-3 font-mono text-xs">{row.date}</td>
                          <td className="px-6 py-3 font-medium">{row.event}</td>
-                         <td className="px-6 py-3 text-gray-500">{row.actor}</td>
+                         <td className="px-6 py-3 text-gray-600 dark:text-gray-300">{row.actor}</td>
                        </tr>
                      ))}
                    </tbody>
@@ -1116,14 +1380,134 @@ export default function AdminStoreDetail({
             </div>
           </div>
         )}
+
+        {!isStorePhase && activeTab === 'analytics' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+            <div><h2 className="text-2xl font-bold text-gray-900 dark:text-white">{store.branchName || store.name} analytics</h2><p className="mt-1 text-sm text-gray-500">Detailed engagement totals and system activity for this branch only.</p></div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {[{ label: "Customers", value: selectedBranchAnalytics.customers, color: "bg-blue-500" }, { label: "Promotions", value: selectedBranchAnalytics.promotions, color: "bg-purple-500" }, { label: "Scans", value: selectedBranchAnalytics.claims, color: "bg-green-500" }, { label: "Reviews", value: selectedBranchReviews.length, color: "bg-amber-500" }].map((metric) => <div key={metric.label} className="rounded-2xl border border-gray-100 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-800/50"><div className={`mb-4 h-1.5 w-10 rounded-full ${metric.color}`} /><p className="text-xs font-bold uppercase tracking-widest text-gray-500">{metric.label}</p><p className="mt-2 text-3xl font-black text-gray-900 dark:text-white">{metric.value}</p></div>)}
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2">
+              <section className="rounded-2xl border border-gray-100 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-800/50">
+                <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Engagement chart</h4>
+                <div className="mt-6 space-y-5">{[
+                  { label: "Customers", value: selectedBranchAnalytics.customers, color: "bg-blue-500" },
+                  { label: "Promotions", value: selectedBranchAnalytics.promotions, color: "bg-purple-500" },
+                  { label: "Scans", value: selectedBranchAnalytics.claims, color: "bg-green-500" },
+                  { label: "Reviews", value: selectedBranchReviews.length, color: "bg-amber-500" },
+                ].map((metric) => {
+                  const maximum = Math.max(1, selectedBranchAnalytics.customers, selectedBranchAnalytics.promotions, selectedBranchAnalytics.claims, selectedBranchReviews.length);
+                  return <div key={metric.label}><div className="mb-2 flex justify-between text-sm"><span className="font-semibold text-gray-700 dark:text-gray-200">{metric.label}</span><span className="text-gray-500">{metric.value}</span></div><div className="h-3 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"><div className={`h-full rounded-full ${metric.color}`} style={{ width: `${Math.max(metric.value ? 5 : 0, metric.value / maximum * 100)}%` }} /></div></div>;
+                })}</div>
+              </section>
+              <section className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
+                <div className="border-b border-gray-200 p-5 dark:border-gray-700"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Analytics table</h4></div>
+                <table className="w-full text-sm"><thead className="bg-gray-100 text-left text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-900"><tr><th className="px-5 py-3">Metric</th><th className="px-5 py-3 text-right">Total</th><th className="px-5 py-3">Branch context</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{[
+                  ["Unique customers", selectedBranchAnalytics.customers, "Loyalty cards"], ["Published promotions", selectedBranchAnalytics.promotions, "All promotion records"], ["Completed scans", selectedBranchAnalytics.claims, "Staff transactions"], ["Customer reviews", selectedBranchReviews.length, selectedBranchReviews.length ? `${selectedBranchAverageRating.toFixed(1)} average` : "No ratings"],
+                ].map(([label, value, context]) => <tr key={String(label)}><td className="px-5 py-4 font-semibold text-gray-900 dark:text-white">{label}</td><td className="px-5 py-4 text-right font-bold text-gray-900 dark:text-white">{value}</td><td className="px-5 py-4 text-gray-500">{context}</td></tr>)}</tbody></table>
+              </section>
+            </div>
+
+            <section className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
+              <div className="border-b border-gray-200 p-5 dark:border-gray-700"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Branch activity log</h4></div>
+              <div className="overflow-x-auto"><table className="w-full whitespace-nowrap text-left text-sm"><thead className="bg-gray-100 text-gray-500 dark:bg-gray-900"><tr><th className="px-6 py-3">Date</th><th className="px-6 py-3">Event</th><th className="px-6 py-3">Actor</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{paginatedActivityRows.map((row) => <tr key={row.id}><td className="px-6 py-3 font-mono text-xs text-gray-500">{row.date}</td><td className="px-6 py-3 font-medium text-gray-900 dark:text-white">{row.event}</td><td className="px-6 py-3 text-gray-500">{row.actor}</td></tr>)}</tbody></table></div>
+              <Pagination page={activityPage} pageSize={ACTIVITY_LOGS_PER_PAGE} totalItems={visibleActivityRows.length} itemLabel="events" onPageChange={setActivityPage} />
+            </section>
+          </div>
+        )}
+
+        {!isStorePhase && activeTab === 'feedback' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+            <div><h2 className="text-2xl font-bold text-gray-900 dark:text-white">Ratings & Feedback</h2><p className="mt-1 text-sm text-gray-500">Customer ratings, comments, and owner response status for {store.branchName || store.name}.</p></div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-800/50"><Star className="h-5 w-5 fill-amber-400 text-amber-400" /><p className="mt-4 text-xs font-bold uppercase tracking-widest text-gray-500">Average rating</p><p className="mt-2 text-3xl font-black text-gray-900 dark:text-white">{selectedBranchReviews.length ? selectedBranchAverageRating.toFixed(1) : "—"}</p></div>
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-800/50"><MessageSquare className="h-5 w-5 text-blue-500" /><p className="mt-4 text-xs font-bold uppercase tracking-widest text-gray-500">Total reviews</p><p className="mt-2 text-3xl font-black text-gray-900 dark:text-white">{selectedBranchReviews.length}</p></div>
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-800/50"><Check className="h-5 w-5 text-green-500" /><p className="mt-4 text-xs font-bold uppercase tracking-widest text-gray-500">Owner responses</p><p className="mt-2 text-3xl font-black text-gray-900 dark:text-white">{selectedBranchReviews.filter((review) => review.ownerReply).length}</p></div>
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-800/50"><AlertTriangle className="h-5 w-5 text-red-500" /><p className="mt-4 text-xs font-bold uppercase tracking-widest text-gray-500">Needs attention</p><p className="mt-2 text-3xl font-black text-gray-900 dark:text-white">{selectedBranchReviews.filter((review) => Number(review.rating || 0) <= 3).length}</p></div>
+            </div>
+
+            <section className="rounded-2xl border border-gray-100 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-800/50">
+              <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Rating distribution</h4>
+              <div className="mt-5 space-y-3">{selectedBranchRatingDistribution.map(({ rating, count }) => <div key={rating} className="grid grid-cols-[4rem_1fr_2rem] items-center gap-3"><span className="flex items-center gap-1 text-sm font-semibold text-gray-700 dark:text-gray-200">{rating} <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" /></span><div className="h-3 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"><div className="h-full rounded-full bg-amber-400" style={{ width: `${selectedBranchReviews.length ? count / selectedBranchReviews.length * 100 : 0}%` }} /></div><span className="text-right text-sm text-gray-500">{count}</span></div>)}</div>
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
+              <div className="border-b border-gray-200 p-5 dark:border-gray-700"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Customer feedback table</h4></div>
+              {selectedBranchReviews.length ? <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-gray-100 text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-900"><tr><th className="px-5 py-3">Customer</th><th className="px-5 py-3">Rating</th><th className="px-5 py-3">Comment</th><th className="px-5 py-3">Response</th><th className="px-5 py-3">Date</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{selectedBranchReviews.map((review) => <tr key={review.id}><td className="px-5 py-4 font-semibold text-gray-900 dark:text-white">{review.anonymous ? "Anonymous" : review.customerName || "Customer"}</td><td className="px-5 py-4"><span className="inline-flex items-center gap-1 font-bold text-amber-600">{Number(review.rating || 0)} <Star className="h-3.5 w-3.5 fill-current" /></span></td><td className="max-w-sm px-5 py-4 text-gray-600 dark:text-gray-300"><p className="line-clamp-3">{review.comment || "No written comment"}</p></td><td className="px-5 py-4">{review.ownerReply ? <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-700 dark:bg-green-950/40 dark:text-green-300">Responded</span> : <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">Awaiting response</span>}</td><td className="px-5 py-4 text-xs text-gray-500">{formatPhilippineDateTime(review.createdAt)}</td></tr>)}</tbody></table></div> : <div className="p-12 text-center"><MessageSquare className="mx-auto h-10 w-10 text-gray-300" /><p className="mt-3 font-semibold text-gray-900 dark:text-white">No ratings or feedback yet</p><p className="mt-1 text-sm text-gray-500">Customer reviews for this branch will appear here.</p></div>}
+            </section>
+          </div>
+        )}
       </div>
+
+      {pendingSubscriptionAccessAction && subscriptionAccessConfirmation && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4 backdrop-blur-sm animate-in fade-in duration-200 dark:bg-black/70"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="subscription-action-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !subscriptionAccessBusy) setPendingSubscriptionAccessAction(null);
+          }}
+        >
+          <div className="w-full max-w-md overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
+            <div className="p-6 sm:p-7">
+              <div className="flex items-start gap-4">
+                <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${
+                  pendingSubscriptionAccessAction === "frozen" ? "bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400" :
+                  pendingSubscriptionAccessAction === "grace" ? "bg-orange-100 text-orange-600 dark:bg-orange-950/60 dark:text-orange-400" :
+                  pendingSubscriptionAccessAction === "warning" ? "bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400" :
+                  "bg-green-100 text-green-600 dark:bg-green-950/60 dark:text-green-400"
+                }`}>
+                  {pendingSubscriptionAccessAction === "frozen" ? <Snowflake className="h-6 w-6" /> :
+                   pendingSubscriptionAccessAction === "grace" ? <Clock3 className="h-6 w-6" /> :
+                   pendingSubscriptionAccessAction === "warning" ? <BellRing className="h-6 w-6" /> :
+                   <RotateCcw className="h-6 w-6" />}
+                </div>
+                <div>
+                  <h3 id="subscription-action-title" className="text-xl font-bold text-gray-900 dark:text-white">{subscriptionAccessConfirmation.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">{subscriptionAccessConfirmation.description}</p>
+                  <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-gray-500">Store: {subscriptionStore?.businessName || subscriptionStore?.name}</p>
+                </div>
+              </div>
+
+              {subscriptionAccessError && <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{subscriptionAccessError}</p>}
+
+              <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  disabled={subscriptionAccessBusy}
+                  onClick={() => setPendingSubscriptionAccessAction(null)}
+                  className="rounded-lg bg-gray-100 px-3.5 py-2 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={subscriptionAccessBusy}
+                  onClick={confirmSubscriptionAccessUpdate}
+                  className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                    pendingSubscriptionAccessAction === "frozen" ? "bg-red-600 hover:bg-red-700" :
+                    pendingSubscriptionAccessAction === "grace" ? "bg-orange-500 hover:bg-orange-600" :
+                    pendingSubscriptionAccessAction === "warning" ? "bg-amber-500 text-amber-950 hover:bg-amber-400" :
+                    "bg-green-600 hover:bg-green-700"
+                  }`}
+                >
+                  {subscriptionAccessBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {subscriptionAccessBusy ? "Wait..." : subscriptionAccessConfirmation.confirmLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDeleteModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 dark:bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="delete-store-title"
+          aria-labelledby="delete-target-title"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget && !isDeleting) setShowDeleteModal(false);
           }}
@@ -1138,9 +1522,11 @@ export default function AdminStoreDetail({
                   <AlertTriangle className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 id="delete-store-title" className="text-xl font-bold text-gray-900 dark:text-white">Delete {store.name}?</h3>
+                  <h3 id="delete-target-title" className="text-xl font-bold text-gray-900 dark:text-white">Delete {deleteTargetName}?</h3>
                   <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
-                    This permanently deletes this branch and its branch data. The shared owner account is removed only when this is the owner's last branch. This action cannot be undone.
+                    {deleteScope === "store"
+                      ? `This permanently deletes the entire store, all ${branches.length} branches, branch data, staff accounts, and the store owner account.`
+                      : "This permanently deletes this branch, its staff accounts, customer activity, promotions, reviews, and uploaded files."} Re-authentication is required. This action cannot be undone.
                   </p>
                 </div>
               </div>
@@ -1148,7 +1534,7 @@ export default function AdminStoreDetail({
               <div className="mt-6 space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
-                    Type the store name exactly
+                    Type the {deleteScope} name exactly
                   </label>
                   <input
                     type="text"
@@ -1158,7 +1544,7 @@ export default function AdminStoreDetail({
                       if (deleteError) setDeleteError("");
                     }}
                     disabled={isDeleting}
-                    placeholder={store.name}
+                    placeholder={deleteTargetName}
                     className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none transition-colors focus:border-red-300 focus:ring-2 focus:ring-red-200 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:border-red-700 dark:focus:ring-red-900/40"
                   />
                 </div>
@@ -1179,6 +1565,21 @@ export default function AdminStoreDetail({
                     className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none transition-colors focus:border-red-300 focus:ring-2 focus:ring-red-200 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:border-red-700 dark:focus:ring-red-900/40"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">Confirm your administrator password</label>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={deletePassword}
+                    onChange={(event) => {
+                      setDeletePassword(event.target.value);
+                      if (deleteError) setDeleteError("");
+                    }}
+                    disabled={isDeleting}
+                    className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none transition-colors focus:border-red-300 focus:ring-2 focus:ring-red-200 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
               </div>
 
               {deleteError && (
@@ -1194,16 +1595,16 @@ export default function AdminStoreDetail({
                   onClick={() => setShowDeleteModal(false)}
                   className="rounded-xl bg-gray-100 px-5 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
                 >
-                  Keep Store
+                  Keep {deleteScope}
                 </button>
                 <button
                   type="button"
                   disabled={!canConfirmDelete}
-                  onClick={handleDeleteStore}
+                  onClick={handleDelete}
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                  {isDeleting ? "Deleting..." : "Delete Store"}
+                  {isDeleting ? "Deleting..." : deleteScope === "store" ? "Delete store and branches" : "Delete branch"}
                 </button>
               </div>
             </div>

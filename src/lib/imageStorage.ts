@@ -11,12 +11,24 @@ const GOOGLE_DRIVE_FILE_ID_PATTERNS = [
 type UploadOptions = {
   purpose: string;
   owner?: string | null;
+  ownerId?: string | null;
 };
 
 type DriveImageResponse = {
   fileId?: string;
   url?: string;
   deleted?: boolean;
+  error?: string;
+  updated?: boolean;
+  file?: Record<string, unknown>;
+  registry?: Record<string, unknown>;
+};
+
+export type DriveImageMetadata = {
+  fileId: string;
+  url: string;
+  file?: Record<string, unknown>;
+  registry?: Record<string, unknown>;
 };
 
 export function extractDriveFileId(url: string): string | null {
@@ -96,6 +108,7 @@ export async function uploadImageFileToDriveSecure(file: File, options: UploadOp
       mimeType: file.type,
       base64,
       owner: options.owner,
+      ownerId: options.ownerId,
       purpose: options.purpose,
     },
   });
@@ -111,14 +124,43 @@ export async function deleteImageFromDriveSecure(url: string): Promise<void> {
   const fileId = extractDriveFileId(url);
   if (!fileId) return;
 
-  const { error } = await supabase.functions.invoke<DriveImageResponse>("drive-image", {
+  const { data, error } = await supabase.functions.invoke<DriveImageResponse>("drive-image", {
     body: {
       action: "delete",
       fileId,
     },
   });
 
-  if (error) {
-    throw new Error(error.message || "Google Drive delete failed.");
+  if (error || !data?.deleted) {
+    throw new Error(data?.error || error?.message || "Google Drive delete failed.");
   }
+}
+
+export async function readImageFromDriveSecure(url: string): Promise<DriveImageMetadata> {
+  const fileId = extractDriveFileId(url);
+  if (!fileId) throw new Error("The image URL does not contain a valid Drive file ID.");
+
+  const { data, error } = await supabase.functions.invoke<DriveImageResponse>("drive-image", {
+    body: { action: "read", fileId },
+  });
+  if (error || !data?.fileId || !data.url) {
+    throw new Error(data?.error || error?.message || "Google Drive image lookup failed.");
+  }
+  return { fileId: data.fileId, url: data.url, file: data.file, registry: data.registry };
+}
+
+export async function updateImageMetadataInDriveSecure(
+  url: string,
+  updates: { fileName?: string; description?: string },
+): Promise<DriveImageMetadata> {
+  const fileId = extractDriveFileId(url);
+  if (!fileId) throw new Error("The image URL does not contain a valid Drive file ID.");
+
+  const { data, error } = await supabase.functions.invoke<DriveImageResponse>("drive-image", {
+    body: { action: "update", fileId, ...updates },
+  });
+  if (error || !data?.updated || !data.url) {
+    throw new Error(data?.error || error?.message || "Google Drive image update failed.");
+  }
+  return { fileId, url: data.url, file: data.file };
 }

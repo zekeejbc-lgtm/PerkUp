@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
+import { sessionNeedsMfa } from "../_shared/auth.ts";
 
 const requiredEnv = (name: string) => {
   const value = Deno.env.get(name);
@@ -38,6 +39,9 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) return jsonResponse({ error: "Authentication required." }, 401);
+    if (await sessionNeedsMfa(userClient, authorization)) {
+      return jsonResponse({ error: "Complete multi-factor authentication to continue.", code: "mfa_required" }, 403);
+    }
 
     const body = await req.json().catch(() => ({}));
     const action = clean(body.action, 30);

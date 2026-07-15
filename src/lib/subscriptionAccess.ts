@@ -10,6 +10,8 @@ export interface SubscriptionAccessPolicy {
   paymentLink: string;
   paymentContact: string;
   updatedAt: string;
+  automationEnabled: boolean;
+  warningLeadDays: number;
 }
 
 const DEFAULT_WARNING = "Your PerkUp subscription is almost ending. Please settle your balance to avoid an interruption.";
@@ -46,17 +48,41 @@ export const normalizeSubscriptionAccess = (value: unknown): SubscriptionAccessP
     paymentLink: text(source.paymentLink),
     paymentContact: text(source.paymentContact) || "perkup.shop@youthserviceph.org",
     updatedAt: timestampToDate(source.updatedAt)?.toISOString() || "",
+    automationEnabled: source.automationEnabled === true,
+    warningLeadDays: Math.max(0, Math.min(365, Math.trunc(Number(source.warningLeadDays ?? 7) || 0))),
   };
+};
+
+export const resolveSubscriptionAccess = (
+  value: unknown,
+  subscriptionEnd?: unknown,
+  now = new Date(),
+): SubscriptionAccessPolicy => {
+  const policy = normalizeSubscriptionAccess(value);
+  if (policy.status === "grace") {
+    const graceEndsAt = timestampToDate(policy.graceEndsAt);
+    return { ...policy, status: graceEndsAt && graceEndsAt.getTime() <= now.getTime() ? "frozen" : "grace" };
+  }
+  if (policy.status !== "active" || !policy.automationEnabled) return policy;
+
+  const end = timestampToDate(subscriptionEnd);
+  if (!end) return policy;
+  const warningStartsAt = new Date(end.getTime() - policy.warningLeadDays * 86_400_000);
+  const graceEndsAt = new Date(end.getTime() + policy.gracePeriodDays * 86_400_000);
+  if (now.getTime() < warningStartsAt.getTime()) return policy;
+  if (now.getTime() < end.getTime()) return { ...policy, status: "warning" };
+  if (policy.gracePeriodDays > 0 && now.getTime() < graceEndsAt.getTime()) {
+    return { ...policy, status: "grace", graceStartedAt: end.toISOString(), graceEndsAt: graceEndsAt.toISOString() };
+  }
+  return { ...policy, status: "frozen", graceStartedAt: end.toISOString(), graceEndsAt: graceEndsAt.toISOString() };
 };
 
 export const getEffectiveSubscriptionStatus = (
   value: unknown,
   now = new Date(),
+  subscriptionEnd?: unknown,
 ): SubscriptionAccessStatus => {
-  const policy = normalizeSubscriptionAccess(value);
-  if (policy.status !== "grace") return policy.status;
-  const graceEndsAt = timestampToDate(policy.graceEndsAt);
-  return graceEndsAt && graceEndsAt.getTime() <= now.getTime() ? "frozen" : "grace";
+  return resolveSubscriptionAccess(value, subscriptionEnd, now).status;
 };
 
 export const getGraceTimeLabel = (value: unknown, now = new Date()) => {
@@ -83,5 +109,5 @@ export const safePaymentLink = (value: unknown) => {
 
 export const subscriptionNoticeDismissKey = (storeId: string, value: unknown) => {
   const policy = normalizeSubscriptionAccess(value);
-  return `perkup:subscription-notice:${storeId}:${policy.updatedAt || policy.status}`;
+  return `perkup:subscription-notice:${storeId}:${policy.updatedAt}:${policy.status}`;
 };

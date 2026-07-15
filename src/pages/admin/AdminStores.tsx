@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo } from "react";
 import { collection, getDocs, doc, updateDoc, serverTimestamp, getDoc } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { ShieldAlert, CheckCircle, Ban, Store, Plus, X, Upload, Image as ImageIcon, Search, SlidersHorizontal, UserRound, MapPin } from "lucide-react";
+import { ShieldAlert, CheckCircle, Ban, Store, Plus, X, Upload, Image as ImageIcon, UserRound, MapPin } from "lucide-react";
 import AdminStoreDetail from "./AdminStoreDetail";
 import { CustomDropdown } from "../../components/CustomDropdown";
-import { getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
   dateInputToDate,
@@ -20,11 +20,12 @@ import { useSearchParams } from "react-router-dom";
 import { TemporaryPasswordField } from "../../components/TemporaryPasswordField";
 import { validateStrongPassword } from "../../lib/passwordStrength";
 import { StoreLocationPicker } from "../../components/StoreLocationPicker";
-import { getAvailableStoreCategories, normalizeStoreCategory, splitStoreCategories } from "../../lib/storeDirectory";
+import { getAvailableStoreCategories, splitStoreCategories, storeMatchesCategorySearch } from "../../lib/storeDirectory";
 import { TimeInput } from "../../components/TimeInput";
 import { formatStoreHours } from "../../lib/dateTime";
 import { CategoryInput } from "../../components/CategoryInput";
 import { Pagination } from "../../components/Pagination";
+import { CategorySearchInput } from "../../components/CategorySearchInput";
 
 const STORES_PER_PAGE = 8;
 
@@ -34,11 +35,9 @@ export default function AdminStores() {
   const [ownerProfiles, setOwnerProfiles] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [branchSelectorGroup, setBranchSelectorGroup] = useState<{ businessName: string; branches: any[] } | null>(null);
   const selectedStoreId = searchParams.get("store");
   const [subscriptionPlans, setSubscriptionPlans] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("All");
   const [currentPage, setCurrentPage] = useState(1);
 
   // New store form state
@@ -76,26 +75,21 @@ export default function AdminStores() {
   const selectedBranchLimit = selectedSubscriptionDependencies.branchLimit > 0 ? selectedSubscriptionDependencies.branchLimit : 100;
   const categories = useMemo(() => getAvailableStoreCategories(stores), [stores]);
   const filteredStores = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-
     return stores.filter((store) => {
-      const storeCategories = splitStoreCategories(store.category);
-      const matchesCategory =
-        selectedCategory === "All" ||
-        storeCategories.some((category) => normalizeStoreCategory(category) === normalizeStoreCategory(selectedCategory));
-      const searchableText = [store.name, store.businessName, store.branchName, store.location, store.description, store.category, store.status, store.subscriptionLevel]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      return matchesCategory && (!query || searchableText.includes(query));
+      return storeMatchesCategorySearch(store, searchQuery, categories, [
+        store.businessName,
+        store.branchName,
+        store.location,
+        store.status,
+        store.subscriptionLevel,
+      ]);
     }).sort((left, right) => {
       const leftBusiness = String(left.businessName || left.name || "");
       const rightBusiness = String(right.businessName || right.name || "");
       return leftBusiness.localeCompare(rightBusiness) ||
         String(left.branchName || "Main").localeCompare(String(right.branchName || "Main"));
     });
-  }, [searchQuery, selectedCategory, stores]);
+  }, [categories, searchQuery, stores]);
   const filteredStoreGroups = useMemo(() => {
     const groupMap = new Map<string, any[]>();
 
@@ -124,18 +118,17 @@ export default function AdminStores() {
         return leftName.localeCompare(rightName);
       });
   }, [filteredStores]);
-  const hasActiveFilters = Boolean(searchQuery.trim()) || selectedCategory !== "All";
+  const hasActiveFilters = Boolean(searchQuery.trim());
   const totalPages = Math.max(1, Math.ceil(filteredStoreGroups.length / STORES_PER_PAGE));
   const paginatedStoreGroups = filteredStoreGroups.slice((currentPage - 1) * STORES_PER_PAGE, currentPage * STORES_PER_PAGE);
 
   const clearFilters = () => {
     setSearchQuery("");
-    setSelectedCategory("All");
   };
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedCategory]);
+  }, [searchQuery]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
@@ -209,15 +202,16 @@ export default function AdminStores() {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("store", storeId);
     setSearchParams(nextParams);
-    setBranchSelectorGroup(null);
   };
 
-  const openBranchSelector = (businessName: string, branches: any[]) => {
-    if (branches.length <= 1) {
-      openStoreDashboard(branches[0]?.id);
-      return;
-    }
-    setBranchSelectorGroup({ businessName, branches });
+  const openBranchSelector = (_businessName: string, branches: any[]) => {
+    const primaryBranch = branches.find((branch) => branch.isPrimaryBranch === true || !branch.parentStoreId) || branches[0];
+    if (!primaryBranch?.id) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("store", primaryBranch.id);
+    nextParams.set("detailTab", "branches");
+    nextParams.set("dashboard", "store");
+    setSearchParams(nextParams);
   };
 
   const handleAddStore = async (e: React.FormEvent) => {
@@ -227,6 +221,8 @@ export default function AdminStores() {
       return;
     }
     setIsSubmitting(true);
+    let uploadedLogoUrl = "";
+    let storePersisted = false;
     try {
       const logoUrl = pendingLogo
         ? await uploadImageFileToDriveSecure(pendingLogo, {
@@ -234,6 +230,7 @@ export default function AdminStores() {
             purpose: "admin-store-logo",
           })
         : storeLogo;
+      if (pendingLogo) uploadedLogoUrl = logoUrl;
       const result = await invokeAdminBackend<{
         store: any;
         owner: { id: string };
@@ -271,6 +268,7 @@ export default function AdminStores() {
           paymentSchedule,
         },
       });
+      storePersisted = true;
 
       if (!result.owner?.id || result.store.ownerId !== result.owner.id) {
         throw new Error("The store was not linked to a valid owner account.");
@@ -301,6 +299,9 @@ export default function AdminStores() {
         alert(`Store created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`);
       }
     } catch (error) {
+      if (!storePersisted && uploadedLogoUrl) {
+        await deleteImageFromDriveSecure(uploadedLogoUrl).catch(console.error);
+      }
       console.error(error);
       alert("Failed to create store: " + (error as Error).message);
     } finally {
@@ -313,9 +314,10 @@ export default function AdminStores() {
       const nextParams = new URLSearchParams(searchParams);
       nextParams.delete("store");
       nextParams.delete("detailTab");
+      nextParams.delete("dashboard");
       setSearchParams(nextParams);
-    }} onDeleted={(deletedStoreId) => {
-      setStores((currentStores) => currentStores.filter((store) => store.id !== deletedStoreId));
+    }} onDeleted={(deletedStoreIds) => {
+      setStores((currentStores) => currentStores.filter((store) => !deletedStoreIds.includes(store.id)));
     }} />;
   }
 
@@ -327,9 +329,7 @@ export default function AdminStores() {
           <h3 className="min-w-0 text-2xl font-bold leading-tight text-gray-900 dark:text-white sm:text-lg sm:font-semibold">Partner Registry</h3>
         </div>
         <div className="mt-5 grid grid-cols-[auto_1fr] items-stretch gap-3 sm:mt-0 sm:flex sm:shrink-0 sm:items-center sm:gap-4">
-          <span className="flex min-h-12 items-center justify-center rounded-2xl border border-gray-300/50 bg-gray-200 px-4 text-base font-semibold leading-tight text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 sm:min-h-0 sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-xs">
-            {filteredStoreGroups.length} {filteredStoreGroups.length === 1 ? "store" : "stores"}
-          </span>
+          {loading ? <SkeletonBlock className="min-h-12 w-24 rounded-2xl sm:min-h-8 sm:rounded-xl" /> : <span className="flex min-h-12 items-center justify-center rounded-2xl border border-gray-300/50 bg-gray-200 px-4 text-base font-semibold leading-tight text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 sm:min-h-0 sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-xs">{filteredStoreGroups.length} {filteredStoreGroups.length === 1 ? "store" : "stores"}</span>}
           <button
             onClick={() => setShowAddModal(true)}
             className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[#1b1b1b] px-4 text-base font-semibold leading-tight text-white transition-colors hover:bg-black sm:min-h-0 sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-sm sm:font-medium"
@@ -349,51 +349,17 @@ export default function AdminStores() {
       ) : (
         <div>
           <div className="border-b border-gray-100 p-5 dark:border-gray-800/50 sm:p-6">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
-              <input
-                type="search"
+            <CategorySearchInput
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search by store name, location, or category..."
-                className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-4 text-sm text-gray-900 outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
-              />
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                Categories
-              </div>
-              {categories.map((category) => (
-                <button
-                  key={category}
-                  type="button"
-                  aria-pressed={selectedCategory === category}
-                  onClick={() => setSelectedCategory(category)}
-                  className={`rounded-full border px-4 py-2 text-sm transition-colors ${
-                    selectedCategory === category
-                      ? "border-[#1b1b1b] bg-[#1b1b1b] text-white dark:border-white dark:bg-white dark:text-[#1b1b1b]"
-                      : "border-gray-200 bg-white text-gray-600 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
-                  }`}
-                >
-                  {category}
-                </button>
-              ))}
-              {hasActiveFilters && (
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="inline-flex items-center gap-2 rounded-full border border-transparent px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-                >
-                  <X className="h-4 w-4" />
-                  Clear filters
-                </button>
-              )}
-            </div>
+                onChange={setSearchQuery}
+                categories={categories}
+                resultsId="admin-store-search-results"
+                placeholder="Search stores or categories (separate categories with commas)..."
+                className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-12 text-sm text-gray-900 outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
+            />
           </div>
 
-          <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
+          <div id="admin-store-search-results" className="scroll-mt-6 divide-y divide-gray-100 dark:divide-gray-800/50">
             {filteredStoreGroups.length > 0 ? paginatedStoreGroups.map(({ id, primaryStore, branches }) => {
               const storeCategories = splitStoreCategories(primaryStore.category);
               const businessName = primaryStore.businessName || primaryStore.name;
@@ -503,50 +469,6 @@ export default function AdminStores() {
             itemLabel="stores"
             onPageChange={setCurrentPage}
           />
-        </div>
-      )}
-
-      {branchSelectorGroup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm dark:bg-black/60" onClick={() => setBranchSelectorGroup(null)}>
-          <div className="w-full max-w-md rounded-3xl border border-gray-100 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-gray-100 p-5 dark:border-gray-800">
-              <div className="min-w-0">
-                <h3 className="truncate text-lg font-bold text-gray-900 dark:text-white">{branchSelectorGroup.businessName}</h3>
-                <p className="mt-1 text-sm text-gray-500">Choose a branch dashboard</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setBranchSelectorGroup(null)}
-                className="rounded-full border border-gray-200 bg-gray-50 p-2 text-gray-500 transition-colors hover:text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:text-white"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="max-h-[60vh] overflow-y-auto p-3">
-              {branchSelectorGroup.branches.map((branch) => (
-                <button
-                  key={branch.id}
-                  type="button"
-                  onClick={() => openStoreDashboard(branch.id)}
-                  className="flex w-full items-center justify-between gap-4 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-800"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-gray-900 dark:text-white">{branch.branchName || (branch.isPrimaryBranch ? "Main" : branch.name)}</p>
-                    <p className="mt-1 truncate text-sm text-gray-500">{branch.location || branch.address || "No location"}</p>
-                  </div>
-                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
-                    branch.status === "active"
-                      ? "border border-green-200 bg-green-50 text-green-700 dark:border-green-800/50 dark:bg-green-900/30 dark:text-green-400"
-                      : branch.status === "suspended"
-                        ? "border border-red-200 bg-red-50 text-red-700 dark:border-red-800/50 dark:bg-red-900/30 dark:text-red-400"
-                        : "border border-gray-300 bg-gray-100 text-[#1b1b1b] dark:border-white/15 dark:bg-white/10 dark:text-white"
-                  }`}>
-                    {branch.status || "pending"}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       )}
 

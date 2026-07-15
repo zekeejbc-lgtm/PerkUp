@@ -65,12 +65,20 @@ export default function StaffDashboard() {
     { name: 'Account', href: '/staff/account', icon: UserCircle },
   ];
 
+  const fallbackVariant =
+    location.pathname === '/staff/scanner' ? 'scanner' :
+    location.pathname.startsWith('/staff/promotions/') ? 'scanner' :
+    location.pathname === '/staff/promotions' ? 'promotions' :
+    location.pathname === '/staff/customers' ? 'table' :
+    location.pathname === '/staff/account' ? 'form' :
+    'form';
+
   if (loading) {
-    return <DashboardShellSkeleton navigationItems={4} />;
+    return <DashboardShellSkeleton navigationItems={5}><PageSkeleton variant={fallbackVariant} /></DashboardShellSkeleton>;
   }
 
-  if (subscriptionStore && getEffectiveSubscriptionStatus(subscriptionStore.subscriptionAccess) === "frozen") {
-    return <SubscriptionFrozenScreen store={subscriptionStore} />;
+  if (subscriptionStore && getEffectiveSubscriptionStatus(subscriptionStore.subscriptionAccess, new Date(), subscriptionStore.subscriptionEnd) === "frozen") {
+    return <SubscriptionFrozenScreen store={subscriptionStore} role="staff" />;
   }
 
   if (!store && location.pathname !== '/staff/account') {
@@ -95,17 +103,9 @@ export default function StaffDashboard() {
     return false;
   };
 
-  const fallbackVariant =
-    location.pathname === '/staff/scanner' ? 'scanner' :
-    location.pathname.startsWith('/staff/promotions/') ? 'scanner' :
-    location.pathname === '/staff/promotions' ? 'promotions' :
-    location.pathname === '/staff/customers' ? 'table' :
-    location.pathname === '/staff/account' ? 'form' :
-    'form';
-
   return (
     <>
-    {subscriptionStore && <SubscriptionAccessBanner store={subscriptionStore} />}
+    {subscriptionStore && <SubscriptionAccessBanner store={subscriptionStore} role="staff" />}
     <div className="flex flex-col md:flex-row gap-8 pb-24 md:pb-0 w-full relative">
       {/* Desktop Sidebar Navigation */}
       <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 h-max z-10 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>

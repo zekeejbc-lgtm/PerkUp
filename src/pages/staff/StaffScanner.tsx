@@ -615,7 +615,7 @@ export default function StaffScanner({ store }: { store: any }) {
           <div className="mb-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white">
-                <Camera className="h-5 w-5 text-[#1b1b1b]" />
+                <Camera className="h-5 w-5 text-[#1b1b1b] dark:text-white" />
                 Scanner
               </h3>
               <button
@@ -721,7 +721,7 @@ export default function StaffScanner({ store }: { store: any }) {
             )}
             {isProcessing ? (
               <div className="flex flex-col items-center gap-3 text-gray-500">
-                <Loader2 className="h-10 w-10 animate-spin text-[#1b1b1b]" />
+                <Loader2 className="h-10 w-10 animate-spin text-[#1b1b1b] dark:text-white" />
                 <p className="text-sm font-semibold">Processing scan</p>
               </div>
             ) : !isWithinGeofence ? (
@@ -862,7 +862,7 @@ export default function StaffScanner({ store }: { store: any }) {
           {!scannedCustomer ? (
             <div className="flex min-h-[28rem] flex-col items-center justify-center text-center">
               <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-gray-50 dark:bg-gray-800">
-                {selectedPromotion ? <Gift className="h-9 w-9 text-[#1b1b1b]" /> : <UserCircle className="h-9 w-9 text-gray-300 dark:text-gray-600" />}
+                {selectedPromotion ? <Gift className="h-9 w-9 text-[#1b1b1b] dark:text-white" /> : <UserCircle className="h-9 w-9 text-gray-300 dark:text-gray-600" />}
               </div>
               <h3 className="text-xl font-bold text-gray-900 dark:text-white">No customer selected</h3>
               <p className="mt-2 max-w-sm text-sm text-gray-500 dark:text-gray-400">
@@ -886,7 +886,7 @@ export default function StaffScanner({ store }: { store: any }) {
                     />
                   ) : (
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-4 border-white bg-gray-100 shadow-sm dark:border-gray-900 dark:bg-white/10">
-                      <UserCircle className="h-8 w-8 text-[#1b1b1b]" />
+                      <UserCircle className="h-8 w-8 text-[#1b1b1b] dark:text-white" />
                     </div>
                   )}
                   <div className="min-w-0 flex-1">

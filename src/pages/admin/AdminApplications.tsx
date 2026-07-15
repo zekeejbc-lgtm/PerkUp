@@ -2,9 +2,25 @@ import React, { useEffect, useMemo, useState } from "react";
 import { collection, doc, getDoc, getDocs } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { Ban, FileText, Image as ImageIcon, Loader2, Search, Store, Upload, X } from "lucide-react";
+import {
+  Ban,
+  Building2,
+  CalendarDays,
+  FileText,
+  Hash,
+  Image as ImageIcon,
+  Mail,
+  MapPin,
+  Phone,
+  Loader2,
+  Search,
+  Store,
+  Upload,
+  UserRound,
+  X,
+} from "lucide-react";
 import { CustomDropdown } from "../../components/CustomDropdown";
-import { getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
+import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
   dateInputToDate,
@@ -46,11 +62,21 @@ const formatApplicationDate = (value: any) => {
   }).format(new Date(timestamp));
 };
 
+const formatApplicationDateTime = (value: any) => {
+  const timestamp = getTimestampMs(value);
+  if (!timestamp) return "Date unavailable";
+  return new Intl.DateTimeFormat("en-PH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
+};
+
 export default function AdminApplications() {
   const [applications, setApplications] = useState<any[]>([]);
   const [storesById, setStoresById] = useState<Record<string, any>>({});
   const [loadingApps, setLoadingApps] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [detailApplicationId, setDetailApplicationId] = useState("");
   const [subscriptionPlans, setSubscriptionPlans] = useState<any[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
@@ -79,6 +105,7 @@ export default function AdminApplications() {
   const selectedSubscriptionDependencies = getSubscriptionDependencies(billingPlans, subLevel);
   const selectedBranchLimit = selectedSubscriptionDependencies.branchLimit > 0 ? selectedSubscriptionDependencies.branchLimit : 100;
   const selectedApplication = applications.find((app) => app.id === selectedApplicationId);
+  const detailApplication = applications.find((app) => app.id === detailApplicationId);
   const pendingCount = applications.filter((app) => (app.status || "pending") === "pending").length;
 
   const subscriptionOptions = useMemo(() => {
@@ -149,6 +176,20 @@ export default function AdminApplications() {
     setCurrentPage(1);
   }, [searchTerm, statusFilter, subscriptionFilter]);
 
+  useEffect(() => {
+    if (!detailApplication) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDetailApplicationId("");
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [detailApplication]);
+
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) setLogoEditorFile(file);
@@ -156,6 +197,7 @@ export default function AdminApplications() {
   };
 
   const handleApproveApplication = (app: any) => {
+    setDetailApplicationId("");
     setStoreName(app.businessName);
     setOwnerName(app.applicantName);
     setOwnerEmail(app.email);
@@ -194,6 +236,8 @@ export default function AdminApplications() {
       return;
     }
     setIsSubmitting(true);
+    let uploadedLogoUrl = "";
+    let storePersisted = false;
     try {
       const logoUrl = pendingLogo
         ? await uploadImageFileToDriveSecure(pendingLogo, {
@@ -201,6 +245,7 @@ export default function AdminApplications() {
             purpose: "approved-store-logo",
           })
         : storeLogo;
+      if (pendingLogo) uploadedLogoUrl = logoUrl;
       const result = await invokeAdminBackend<{ store: any; notification?: { sent: boolean; error?: string } }>({
         action: "create_store",
         email: ownerEmail,
@@ -224,6 +269,7 @@ export default function AdminApplications() {
           paymentSchedule,
         },
       });
+      storePersisted = true;
 
       setStoresById((stores) => ({ ...stores, [result.store.id]: result.store }));
       setApplications((current) => current.filter((app) => app.id !== selectedApplicationId));
@@ -235,6 +281,9 @@ export default function AdminApplications() {
           : "Store approved and created! The owner email has been sent.",
       );
     } catch (error) {
+      if (!storePersisted && uploadedLogoUrl) {
+        await deleteImageFromDriveSecure(uploadedLogoUrl).catch(console.error);
+      }
       console.error(error);
       alert("Failed to create store: " + (error as Error).message);
     } finally {
@@ -249,17 +298,12 @@ export default function AdminApplications() {
           <FileText className="h-5 w-5 text-gray-500" />
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Partner Applications</h3>
         </div>
-        <span className="rounded-xl border border-gray-300/50 bg-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
-          {pendingCount} Pending
-        </span>
+        {loadingApps ? <SkeletonBlock className="h-8 w-24 rounded-xl" /> : <span className="rounded-xl border border-gray-300/50 bg-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">{pendingCount} Pending</span>}
       </div>
 
       {loadingApps ? (
         <div className="space-y-4 p-6">
-          <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-            <Loader2 className="h-5 w-5 animate-spin text-gray-500" />
-            <span className="text-sm font-medium text-gray-600 dark:text-gray-300">Loading applications...</span>
-          </div>
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_12rem_12rem]"><SkeletonBlock className="h-11 rounded-xl" /><SkeletonBlock className="h-11 rounded-xl" /><SkeletonBlock className="h-11 rounded-xl" /></div>
           <SkeletonBlock className="h-24 rounded-2xl" />
           <SkeletonBlock className="h-24 rounded-2xl" />
           <SkeletonBlock className="h-24 rounded-2xl" />
@@ -283,8 +327,16 @@ export default function AdminApplications() {
 
           <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
             {paginatedApplications.map((app) => (
-              <div key={app.id} className="flex flex-col gap-5 bg-white p-5 transition-colors hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800/70 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex min-w-0 flex-1 gap-4">
+              <div
+                key={app.id}
+                className="flex flex-col gap-5 bg-white p-5 transition-colors hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800/70 lg:flex-row lg:items-center lg:justify-between"
+              >
+                <button
+                  type="button"
+                  aria-label={`View ${app.businessName || "partner"} application details`}
+                  onClick={() => setDetailApplicationId(app.id)}
+                  className="flex min-w-0 flex-1 cursor-pointer gap-4 rounded-2xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:focus-visible:ring-gray-500"
+                >
                   <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800">
                     {app.logoUrl ? (
                       <img
@@ -327,19 +379,25 @@ export default function AdminApplications() {
                       )}
                     </div>
                   </div>
-                </div>
+                </button>
 
                 <div className="flex items-center gap-3 rounded-xl bg-gray-50 p-3 dark:bg-gray-950 lg:shrink-0 lg:bg-transparent lg:p-0">
                   {(app.status || "pending") === "pending" && (
                     <>
                       <button
-                        onClick={() => handleApproveApplication(app)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleApproveApplication(app);
+                        }}
                         className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1b1b1b] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-black dark:border dark:border-white/10 lg:flex-none"
                       >
                         Process Setup
                       </button>
                       <button
-                        onClick={() => handleRejectApplication(app.id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleRejectApplication(app.id);
+                        }}
                         className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-100 px-4 py-2 text-sm font-medium text-red-700 transition-colors dark:bg-red-900/30 dark:text-red-400 lg:flex-none lg:rounded-full lg:bg-transparent lg:p-2 lg:text-transparent lg:hover:bg-red-100 dark:lg:bg-transparent dark:lg:hover:bg-red-900/50"
                         title="Reject Application"
                       >
@@ -368,6 +426,151 @@ export default function AdminApplications() {
             itemLabel="applications"
             onPageChange={setCurrentPage}
           />
+        </div>
+      )}
+
+      {detailApplication && (
+        <div
+          className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-gray-950/55 p-4 backdrop-blur-sm animate-in fade-in duration-200 sm:p-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDetailApplicationId("");
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="application-detail-title"
+            className="relative flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="flex shrink-0 items-start justify-between gap-4 border-b border-gray-200 bg-white px-5 py-5 dark:border-gray-800 dark:bg-gray-900 sm:px-7">
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Application details</span>
+                  <span className="rounded-full border border-gray-200 bg-gray-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                    {detailApplication.status || "pending"}
+                  </span>
+                </div>
+                <h2 id="application-detail-title" className="truncate text-2xl font-bold tracking-tight text-gray-950 dark:text-white">
+                  {detailApplication.businessName || "Unnamed business"}
+                </h2>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Submitted {formatApplicationDateTime(detailApplication.createdAt)}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailApplicationId("")}
+                className="shrink-0 rounded-full border border-gray-200 bg-gray-100 p-2.5 text-gray-500 transition hover:bg-gray-200 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
+                aria-label="Close application details"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+
+            <div className="overflow-y-auto px-5 py-6 sm:px-7 sm:py-7">
+              <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
+                <aside className="space-y-4">
+                  <div className="aspect-square w-full overflow-hidden rounded-3xl border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800">
+                    {detailApplication.logoUrl ? (
+                      <img
+                        src={getDisplayImageUrl(detailApplication.logoUrl)}
+                        alt={`${detailApplication.businessName || "Application"} logo`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-gray-400">
+                        <Building2 className="h-12 w-12" />
+                        <span className="text-xs font-medium">No logo provided</span>
+                      </div>
+                    )}
+                  </div>
+                  {detailApplication.subscriptionLevel && (
+                    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/60">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Requested plan</p>
+                      <p className="mt-1 text-lg font-bold text-gray-950 dark:text-white">{detailApplication.subscriptionLevel}</p>
+                    </div>
+                  )}
+                </aside>
+
+                <div className="min-w-0 space-y-6">
+                  <section>
+                    <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">Applicant</h3>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div className="flex gap-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
+                        <UserRound className="mt-0.5 h-5 w-5 shrink-0 text-gray-400" />
+                        <div className="min-w-0"><p className="text-xs text-gray-500 dark:text-gray-400">Full name</p><p className="mt-1 break-words text-sm font-semibold text-gray-900 dark:text-white">{detailApplication.applicantName || "Not provided"}</p></div>
+                      </div>
+                      <div className="flex gap-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
+                        <Mail className="mt-0.5 h-5 w-5 shrink-0 text-gray-400" />
+                        <div className="min-w-0"><p className="text-xs text-gray-500 dark:text-gray-400">Email</p><a href={`mailto:${detailApplication.email}`} className="mt-1 block break-all text-sm font-semibold text-gray-900 hover:underline dark:text-white">{detailApplication.email || "Not provided"}</a></div>
+                      </div>
+                      <div className="flex gap-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700 sm:col-span-2">
+                        <Phone className="mt-0.5 h-5 w-5 shrink-0 text-gray-400" />
+                        <div className="min-w-0"><p className="text-xs text-gray-500 dark:text-gray-400">Phone number</p><a href={`tel:${detailApplication.phoneNumber}`} className="mt-1 block text-sm font-semibold text-gray-900 hover:underline dark:text-white">{detailApplication.phoneNumber || "Not provided"}</a></div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section>
+                    <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">About the business</h3>
+                    <p className="mt-3 whitespace-pre-wrap rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm leading-6 text-gray-700 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-300">
+                      {detailApplication.description || "No business description provided."}
+                    </p>
+                  </section>
+
+                  <section>
+                    <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">Location</h3>
+                    <div className="mt-3 flex gap-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
+                      <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-gray-400" />
+                      <div className="min-w-0">
+                        <p className="break-words text-sm font-semibold text-gray-900 dark:text-white">{detailApplication.address || "Address not provided"}</p>
+                        {Array.isArray(detailApplication.coordinates) && detailApplication.coordinates.length === 2 && (
+                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Coordinates: {detailApplication.coordinates.join(", ")}</p>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+
+                  <section>
+                    <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">Record information</h3>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div className="flex gap-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
+                        <Hash className="mt-0.5 h-5 w-5 shrink-0 text-gray-400" />
+                        <div className="min-w-0"><p className="text-xs text-gray-500 dark:text-gray-400">Tracking code</p><p className="mt-1 break-all font-mono text-xs font-semibold text-gray-900 dark:text-white">{detailApplication.trackingCode || detailApplication.id}</p></div>
+                      </div>
+                      <div className="flex gap-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
+                        <CalendarDays className="mt-0.5 h-5 w-5 shrink-0 text-gray-400" />
+                        <div className="min-w-0"><p className="text-xs text-gray-500 dark:text-gray-400">Last updated</p><p className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{formatApplicationDateTime(detailApplication.updatedAt || detailApplication.createdAt)}</p></div>
+                      </div>
+                    </div>
+                    {detailApplication.approvedStoreId && storesById[detailApplication.approvedStoreId] && (
+                      <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        Approved store: <span className="font-semibold">{storesById[detailApplication.approvedStoreId].name || storesById[detailApplication.approvedStoreId].businessName}</span>
+                      </div>
+                    )}
+                  </section>
+                </div>
+              </div>
+            </div>
+
+            <footer className="flex shrink-0 flex-col-reverse gap-3 border-t border-gray-200 bg-gray-50 px-5 py-4 dark:border-gray-800 dark:bg-gray-900 sm:flex-row sm:items-center sm:justify-end sm:px-7">
+              {(detailApplication.status || "pending") === "pending" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await handleRejectApplication(detailApplication.id);
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/70"
+                  >
+                    <Ban className="h-4 w-4" /> Reject
+                  </button>
+                  <button type="button" onClick={() => handleApproveApplication(detailApplication)} className="rounded-xl bg-[#1b1b1b] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-black dark:border dark:border-white/10">
+                    Process Setup
+                  </button>
+                </>
+              )}
+            </footer>
+          </section>
         </div>
       )}
 

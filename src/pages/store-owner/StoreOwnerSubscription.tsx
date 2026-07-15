@@ -1,19 +1,22 @@
-import { AlertCircle, CalendarDays, CheckCircle2, CreditCard } from "lucide-react";
+import { AlertCircle, CalendarDays, CheckCircle2, CreditCard, Images } from "lucide-react";
 import {
-  formatMoney,
   formatPaymentSchedule,
   formatPredictedPaymentDate,
   formatBillingDate,
   getSubscriptionBranchLimit,
+  getSubscriptionGalleryPhotoLimit,
   predictPaymentDates,
   resolveStoreBilling,
 } from "../../lib/subscriptionBilling";
+import { useCurrency } from "../../contexts/CurrencyContext";
 
 export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
+  const { formatCurrency } = useCurrency();
   const subscriptionStore = stores.find((store) => store.isPrimaryBranch === true) ||
     stores.find((store) => store.subscriptionLevel || store.subscriptionDependencies) ||
     stores[0] || null;
   const branchLimit = getSubscriptionBranchLimit(subscriptionStore?.subscriptionDependencies);
+  const galleryPhotoLimit = getSubscriptionGalleryPhotoLimit(subscriptionStore?.subscriptionDependencies);
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -51,11 +54,11 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                       <p className="mt-1 text-sm text-gray-400">{store.subscriptionLevel || "Subscription plan"}</p>
                     </div>
                     <div className="sm:text-right">
-                      <div className="text-3xl font-black">{formatMoney(Number(billing.amountDue || 0))}</div>
+                      <div className="text-3xl font-black">{formatCurrency(Number(billing.amountDue || 0))}</div>
                       <div className="mt-1 text-xs uppercase tracking-widest text-gray-400">amount due</div>
                       {Number.isFinite(Number(store.pendingOwedAmount)) && Number(store.pendingOwedAmount) !== Number(billing.amountDue || 0) && (
                         <div className="mt-2 text-xs text-gray-300">
-                          {formatMoney(Number(store.pendingOwedAmount))} starts on {formatBillingDate(store.pendingOwedAmountEffectiveAt)}.
+                          {formatCurrency(Number(store.pendingOwedAmount))} starts on {formatBillingDate(store.pendingOwedAmountEffectiveAt)}.
                         </div>
                       )}
                     </div>
@@ -67,11 +70,15 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                       <p className="text-sm font-semibold">{formatPaymentSchedule(store.paymentSchedule)}</p>
                     </div>
                   </div>
-                  <div className="mt-4 rounded-2xl bg-white/10 px-4 py-3">
-                    <p className="text-xs uppercase tracking-widest text-gray-400">Branch allowance</p>
-                    <p className="mt-1 text-sm font-semibold">
-                      {stores.length} of {branchLimit} branches used under this subscription
-                    </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl bg-white/10 px-4 py-3">
+                      <p className="text-xs uppercase tracking-widest text-gray-400">Branch allowance</p>
+                      <p className="mt-1 text-sm font-semibold">{stores.length} of {branchLimit} branches used</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/10 px-4 py-3">
+                      <p className="flex items-center gap-1.5 text-xs uppercase tracking-widest text-gray-400"><Images className="h-3.5 w-3.5" /> Gallery allowance</p>
+                      <p className="mt-1 text-sm font-semibold">Up to {galleryPhotoLimit} photos per branch</p>
+                    </div>
                   </div>
                 </div>
 

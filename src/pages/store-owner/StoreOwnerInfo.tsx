@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { doc, updateDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Save, MapPin, Clock, Image as ImageIcon, CheckCircle2, Upload, X, Store, BadgeCheck } from "lucide-react";
+import { Save, MapPin, Clock, Image as ImageIcon, CheckCircle2, Upload, X, Store, BadgeCheck, Pencil, ExternalLink, Eye } from "lucide-react";
 import { MapContainer, Marker, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -11,6 +11,7 @@ import { TimeInput } from "../../components/TimeInput";
 import { formatStoreHours } from "../../lib/dateTime";
 import { STAMP_COLOR_OPTIONS, STAMP_ICON_OPTIONS, StoreStamp } from "../../components/StoreStamp";
 import { CustomDropdown } from "../../components/CustomDropdown";
+import { getSubscriptionGalleryPhotoLimit, SubscriptionDependencies } from "../../lib/subscriptionBilling";
 
 function LocationPicker({ setPosition }: { position: [number, number], setPosition: (p: [number, number]) => void }) {
   useMapEvents({
@@ -21,26 +22,30 @@ function LocationPicker({ setPosition }: { position: [number, number], setPositi
   return null;
 }
 
-export default function StoreOwnerInfo({ store, setStore }: { store: any, setStore: (s: any) => void }) {
-  const [formData, setFormData] = useState({
-    name: store?.name || "",
-    description: store?.description || "",
-    category: store?.category || "",
-    contact: store?.contact || "",
-    website: store?.website || "",
-    address: store?.address || "",
-    latitude: store?.lat ?? store?.latitude ?? "",
-    longitude: store?.lng ?? store?.longitude ?? "",
-    logoUrl: store?.logoUrl || "",
-    images: store?.images || [], // array of up to 3 images
-    menuUrl: store?.menuUrl || "",
-    openingHours: store?.openingHours || store?.hours || "Mon-Sun: 9AM - 9PM",
-    openingTime: store?.openingTime || "09:00",
-    closingTime: store?.closingTime || "21:00",
-    stampIcon: store?.stampIcon || "star",
-    stampColor: store?.stampColor || "#1b1b1b",
-    stampLabel: store?.stampLabel || "Stamp",
-  });
+const getStoreFormData = (store: any) => ({
+  name: store?.name || "",
+  description: store?.description || "",
+  category: store?.category || "",
+  contact: store?.contact || "",
+  website: store?.website || "",
+  address: store?.address || "",
+  latitude: store?.lat ?? store?.latitude ?? "",
+  longitude: store?.lng ?? store?.longitude ?? "",
+  logoUrl: store?.logoUrl || "",
+  images: Array.isArray(store?.images) ? store.images : [],
+  menuUrl: store?.menuUrl || "",
+  openingHours: store?.openingHours || store?.hours || "Mon-Sun: 9AM - 9PM",
+  openingTime: store?.openingTime || "09:00",
+  closingTime: store?.closingTime || "21:00",
+  stampIcon: store?.stampIcon || "star",
+  stampColor: store?.stampColor || "#1b1b1b",
+  stampLabel: store?.stampLabel || "Stamp",
+});
+
+export default function StoreOwnerInfo({ store, setStore, subscriptionDependencies }: { store: any, setStore: (s: any) => void, subscriptionDependencies?: SubscriptionDependencies | null }) {
+  const galleryPhotoLimit = getSubscriptionGalleryPhotoLimit(subscriptionDependencies);
+  const [formData, setFormData] = useState(() => getStoreFormData(store));
+  const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
@@ -70,25 +75,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
 
   useEffect(() => {
     if (store) {
-      setFormData({
-        name: store?.name || "",
-        description: store?.description || "",
-        category: store?.category || "",
-        contact: store?.contact || "",
-        website: store?.website || "",
-        address: store?.address || "",
-        latitude: store?.lat ?? store?.latitude ?? "",
-        longitude: store?.lng ?? store?.longitude ?? "",
-        logoUrl: store?.logoUrl || "",
-        images: store?.images || [],
-        menuUrl: store?.menuUrl || "",
-        openingHours: store?.openingHours || store?.hours || "Mon-Sun: 9AM - 9PM",
-        openingTime: store?.openingTime || "09:00",
-        closingTime: store?.closingTime || "21:00",
-        stampIcon: store?.stampIcon || "star",
-        stampColor: store?.stampColor || "#1b1b1b",
-        stampLabel: store?.stampLabel || "Stamp",
-      });
+      setFormData(getStoreFormData(store));
       const storeLat = Number(store.lat ?? store.latitude);
       const storeLng = Number(store.lng ?? store.longitude);
       if (Number.isFinite(storeLat) && Number.isFinite(storeLng)) {
@@ -97,12 +84,27 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
     }
   }, [store]);
 
+  useEffect(() => {
+    setIsEditing(false);
+    setSaved(false);
+  }, [store?.id]);
+
+  const discardChanges = () => {
+    Object.keys(pendingFiles).forEach((url) => URL.revokeObjectURL(url));
+    setPendingFiles({});
+    setFormData(getStoreFormData(store));
+    setSaved(false);
+    setIsEditing(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!store?.id) return;
     setSaving(true);
     setSaved(false);
     setUploadProgress("");
+    const uploadedImageUrls: string[] = [];
+    let storePersisted = false;
     try {
       const imageUploadCount = [formData.logoUrl, formData.menuUrl, ...formData.images]
         .filter((url: string) => pendingFiles[url] || isTemporaryObjectUrl(url))
@@ -120,6 +122,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
             owner: formData.name || store?.id,
             purpose,
           });
+          uploadedImageUrls.push(uploadedUrl);
           completedImageUploads += 1;
           if (imageUploadCount > 0) {
             setUploadProgress(`Uploaded images ${completedImageUploads}/${imageUploadCount}...`);
@@ -146,6 +149,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
       };
       setUploadProgress("Saving branch information...");
       await updateDoc(doc(db, "stores", store.id), nextStoreData);
+      storePersisted = true;
       const previousImages = [store.logoUrl, store.menuUrl, ...(store.images || [])].filter(Boolean);
       const retainedImages = new Set([logoUrl, menuUrl, ...images].filter(Boolean));
       await Promise.all(
@@ -157,8 +161,12 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
       Object.keys(pendingFiles).forEach((url) => URL.revokeObjectURL(url));
       setPendingFiles({});
       setSaved(true);
+      setIsEditing(false);
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {
+      if (!storePersisted && uploadedImageUrls.length) {
+        await Promise.allSettled(uploadedImageUrls.map((url) => deleteImageFromDriveSecure(url)));
+      }
       console.error(error);
       alert("Failed to update store info");
     } finally {
@@ -174,7 +182,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
     if (field === 'images') {
       const newImages = [...formData.images];
       const additions: Record<string, File> = {};
-      for (let i = 0; i < files.length && newImages.length < 3; i++) {
+      for (let i = 0; i < files.length && newImages.length < galleryPhotoLimit; i++) {
         const previewUrl = URL.createObjectURL(files[i]);
         additions[previewUrl] = files[i];
         newImages.push(previewUrl);
@@ -218,11 +226,87 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
     iconAnchor: [20, 40]
   });
 
+  if (!isEditing) {
+    return (
+      <div className="max-w-6xl space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Eye className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+              <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Store Information</h2>
+            </div>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">This is how your store currently appears to customers.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {store?.id && (
+              <a
+                href={`/store/${store.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open customer page"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-800 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+              >
+                <ExternalLink className="h-4 w-4" />
+                View
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              aria-label="Edit store information"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
+            >
+              <Pencil className="h-4 w-4" />
+              Edit
+            </button>
+          </div>
+        </div>
+
+        {saved && (
+          <div role="status" className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-bold text-green-700 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-400">
+            <CheckCircle2 className="h-5 w-5" />
+            Information saved. The customer preview has been refreshed.
+          </div>
+        )}
+
+        {store?.id ? (
+          <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
+              <span className="text-xs font-bold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">Customer preview</span>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">Live store page</span>
+            </div>
+            <iframe
+              key={store.id}
+              src={`/store/${store.id}`}
+              title={`${store.name || "Store"} customer page preview`}
+              className="h-[760px] w-full bg-white dark:bg-[#1b1b1b]"
+            />
+          </div>
+        ) : (
+          <div className="rounded-3xl border border-dashed border-gray-300 px-6 py-16 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+            Store preview is unavailable until this branch has been created.
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-4xl">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Store Information</h2>
-        <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Update the general info, images, and location for your store.</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Edit Store Information</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Update the general info, images, and location for your store.</p>
+        </div>
+        <button
+          type="button"
+          onClick={discardChanges}
+          disabled={saving}
+          aria-label="Cancel editing store information"
+          className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+        >
+          Cancel
+        </button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-8">
@@ -387,9 +471,9 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
                   )}
                 </div>
                 <div className="flex-1">
-                  <label className={`inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-800 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 ${saving ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
-                    <Upload className="w-4 h-4" /> Upload Logo
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'logoUrl')} disabled={saving} />
+                  <label title="Upload store logo" className={`inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-800 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 ${saving ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
+                    <Upload className="w-4 h-4" /> Upload
+                    <input type="file" accept="image/*" aria-label="Upload store logo" className="hidden" onChange={(e) => handleFileUpload(e, 'logoUrl')} disabled={saving} />
                   </label>
                 </div>
               </div>
@@ -407,9 +491,9 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
                   )}
                 </div>
                 <div className="flex-1">
-                  <label className={`inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-800 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 ${saving ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
-                    <Upload className="w-4 h-4" /> Upload Menu
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'menuUrl')} disabled={saving} />
+                  <label title="Upload menu image" className={`inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-800 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 ${saving ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
+                    <Upload className="w-4 h-4" /> Upload
+                    <input type="file" accept="image/*" aria-label="Upload menu image" className="hidden" onChange={(e) => handleFileUpload(e, 'menuUrl')} disabled={saving} />
                   </label>
                 </div>
               </div>
@@ -419,16 +503,19 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
           {/* Store Images */}
           <div className="space-y-3 pt-4 border-t border-gray-100 dark:border-gray-800">
              <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Store Photos ({formData.images.length}/3)</label>
-                {formData.images.length < 3 && (
-                  <label className={`inline-flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-bold text-[#1b1b1b] transition-colors hover:bg-gray-100 dark:bg-white/10 dark:text-white ${saving ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
-                    <Upload className="w-3 h-3" /> Add Photos
-                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileUpload(e, 'images')} disabled={saving} />
+                <div>
+                  <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Store Photos ({formData.images.length}/{galleryPhotoLimit})</label>
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Your subscription includes up to {galleryPhotoLimit} gallery photos.</p>
+                </div>
+                {formData.images.length < galleryPhotoLimit && (
+                  <label title="Add store photos" className={`inline-flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-bold text-[#1b1b1b] transition-colors hover:bg-gray-100 dark:bg-white/10 dark:text-white ${saving ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
+                    <Upload className="w-3 h-3" /> Add
+                    <input type="file" accept="image/*" multiple aria-label="Add store photos" className="hidden" onChange={(e) => handleFileUpload(e, 'images')} disabled={saving} />
                   </label>
                 )}
              </div>
              {formData.images.length > 0 ? (
-                 <div className="grid grid-cols-3 gap-4">
+                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                    {formData.images.map((img: string, i: number) => (
                       <div key={i} className="relative aspect-video rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 group">
                         <img src={getDisplayImageUrl(img)} alt={`Store ${i+1}`} className="w-full h-full object-cover" />
@@ -440,7 +527,7 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
                  </div>
              ) : (
                 <div className="p-8 text-center bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 text-sm">
-                   Upload 2-3 photos showing the interior and exterior of your store.
+                   Upload up to {galleryPhotoLimit} photos showing the interior, exterior, products, and atmosphere of your store.
                 </div>
              )}
           </div>
@@ -450,10 +537,11 @@ export default function StoreOwnerInfo({ store, setStore }: { store: any, setSto
           <button
             type="submit"
             disabled={saving}
+            aria-label="Save branch information"
             className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 px-8 py-3 rounded-xl font-bold hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors disabled:opacity-50"
           >
             {saving ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save className="w-5 h-5" />}
-            {saving ? (uploadProgress || "Saving...") : "Save Branch Information"}
+            {saving ? (uploadProgress || "Saving...") : "Save"}
           </button>
 
           {saved && (

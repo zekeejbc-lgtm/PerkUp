@@ -1,7 +1,17 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("/assets/fonts/inter-latin-300-700.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC,
+    U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 @font-face {
   font-family: "JA Jayagiri Sans";
@@ -29,15 +39,57 @@
 }
 
 :root {
+  --scrollbar-thumb: #b7bdc7;
+  --scrollbar-thumb-hover: #8d96a3;
+  --scrollbar-thumb-active: #687180;
+  --scrollbar-track: #f2f3f5;
   color-scheme: light;
   background-color: #ffffff;
   color: #1b1b1b;
 }
 
 :root.dark {
+  --scrollbar-thumb: #555b65;
+  --scrollbar-thumb-hover: #737b87;
+  --scrollbar-thumb-active: #939ba6;
+  --scrollbar-track: #24262a;
   color-scheme: dark;
   background-color: #1b1b1b;
   color: #ffffff;
+}
+
+/* A single theme-aware scrollbar for the page and every scrollable panel. */
+* {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 2px solid var(--scrollbar-track);
+  border-radius: 999px;
+  background-color: var(--scrollbar-thumb);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-active);
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
 }
 
 @layer base {
@@ -112,6 +164,39 @@ body {
   transition: background-color 150ms ease, color 150ms ease;
 }
 
+/* Keep admin store-detail copy fully legible against its dark surfaces. */
+:root.dark .dark-high-contrast-text :is(
+  a,
+  button,
+  dd,
+  dt,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  input,
+  label,
+  li,
+  p,
+  select,
+  span,
+  strong,
+  table,
+  tbody,
+  td,
+  textarea,
+  th,
+  thead
+)[class*="text-gray-"] {
+  color: #ffffff;
+}
+
 img:not([data-image-viewer-ignore="true"]) {
   cursor: zoom-in;
+}
+
+.leaflet-container img {
+  cursor: inherit;
 }

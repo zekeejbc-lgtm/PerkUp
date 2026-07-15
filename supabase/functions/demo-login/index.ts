@@ -61,7 +61,9 @@ Deno.serve(async (req) => {
       return jsonResponse({ erased });
     }
 
-    if (Deno.env.get("DEMO_LOGIN_ENABLED") === "false") {
+    // This endpoint creates fixed-password privileged accounts. Fail closed
+    // unless an operator explicitly enables it for a demo environment.
+    if (Deno.env.get("DEMO_LOGIN_ENABLED") !== "true") {
       return jsonResponse({ error: "Demo login is disabled." }, 404);
     }
 

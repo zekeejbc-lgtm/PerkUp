@@ -27,3 +27,6 @@ verify_jwt = false
 
 [functions.demo-login]
 verify_jwt = false
+
+[functions.public-feedback]
+verify_jwt = false

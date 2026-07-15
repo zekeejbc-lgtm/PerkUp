@@ -2,12 +2,13 @@ import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { collection, query, getDocs } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
-import { Gift, Calendar, Users, Search, Store, MapPin, LayoutGrid, Rows3, Table2, X, Tag, Shuffle } from "lucide-react";
+import { Gift, Calendar, Users, Search, Store, MapPin, LayoutGrid, Rows3, Table2, X, Tag } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { getCompletedPromotionCount, getRemainingPromotionClaims } from "../../lib/promotionProgress";
 import { Pagination } from "../../components/Pagination";
 import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../../lib/dateTime";
+import { ViewModeButton } from "../../components/ViewModeButton";
 
 type PromotionViewMode = "card" | "page" | "table";
 
@@ -239,7 +240,6 @@ export default function CustomerPromotions() {
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
-  const activeViewOption = viewOptions.find((option) => option.value === viewMode) || viewOptions[0];
 
   useEffect(() => {
     setCurrentPage(1);
@@ -261,12 +261,6 @@ export default function CustomerPromotions() {
   }, [selectedPromotion]);
 
   const openPromotion = (promo: any) => setSelectedPromotion(promo);
-  const cycleViewMode = () => {
-    const currentIndex = viewOptions.findIndex((option) => option.value === viewMode);
-    const nextOption = viewOptions[(currentIndex + 1) % viewOptions.length];
-    setViewMode(nextOption.value);
-  };
-
   const renderCardView = () => (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       {paginatedPromotions.map((promo) => {
@@ -430,15 +424,7 @@ export default function CustomerPromotions() {
               className="block w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-3 text-gray-900 transition-colors placeholder:text-gray-400 focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:ring-white sm:text-sm"
             />
           </div>
-          <button
-            type="button"
-            onClick={cycleViewMode}
-            title="Change promotion view"
-            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-white/10 dark:focus:ring-white"
-          >
-            <Shuffle className="h-4 w-4" />
-            <span>{activeViewOption.label}</span>
-          </button>
+          <ViewModeButton value={viewMode} options={viewOptions} onChange={setViewMode} ariaLabel="Change promotion view" />
         </div>
       </div>
 

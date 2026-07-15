@@ -11,7 +11,14 @@ export type SubscriptionDependencies = {
   customerLimit?: number | string;
   staffLimit?: number | string;
   branchLimit?: number | string;
+  galleryPhotoLimit?: number | string;
 };
+
+export function getSubscriptionGalleryPhotoLimit(dependencies?: SubscriptionDependencies | null) {
+  const configuredLimit = Math.trunc(Number(dependencies?.galleryPhotoLimit ?? 3));
+  if (!Number.isFinite(configuredLimit)) return 3;
+  return Math.max(3, Math.min(10, configuredLimit));
+}
 
 export function getSubscriptionBranchLimit(dependencies?: SubscriptionDependencies | null) {
   const configuredLimit = Math.trunc(Number(dependencies?.branchLimit ?? 1));
@@ -26,7 +33,7 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     price: 99,
     interval: "month",
     features: ["Up to 1,000 customers", "Basic analytics", "Standard support", "1 Staff Account"],
-    dependencies: { customerLimit: 1000, staffLimit: 1, branchLimit: 1 },
+    dependencies: { customerLimit: 1000, staffLimit: 1, branchLimit: 1, galleryPhotoLimit: 3 },
   },
   {
     id: "premium",
@@ -34,7 +41,7 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     price: 199,
     interval: "month",
     features: ["Up to 10,000 customers", "Advanced analytics", "Priority support", "5 Staff Accounts", "Custom promotions"],
-    dependencies: { customerLimit: 10000, staffLimit: 5, branchLimit: 3 },
+    dependencies: { customerLimit: 10000, staffLimit: 5, branchLimit: 3, galleryPhotoLimit: 6 },
   },
   {
     id: "enterprise",
@@ -42,7 +49,7 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     price: 499,
     interval: "month",
     features: ["Unlimited customers", "Custom reporting", "24/7 Dedicated support", "Unlimited Staff Accounts", "White-label options"],
-    dependencies: { customerLimit: 0, staffLimit: 0, branchLimit: 0 },
+    dependencies: { customerLimit: 0, staffLimit: 0, branchLimit: 0, galleryPhotoLimit: 10 },
   },
 ];
 
@@ -157,6 +164,7 @@ export function normalizeSubscriptionDependencies(value?: SubscriptionDependenci
     customerLimit: toLimit(value?.customerLimit),
     staffLimit: toLimit(value?.staffLimit),
     branchLimit: toLimit(value?.branchLimit, 1),
+    galleryPhotoLimit: getSubscriptionGalleryPhotoLimit(value),
   };
 }
 

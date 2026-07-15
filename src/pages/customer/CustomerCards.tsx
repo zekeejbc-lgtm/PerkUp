@@ -11,6 +11,12 @@ import { normalizeStampStyle, StoreStamp, StoreStampStyle } from "../../componen
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { formatPhilippineDate, formatPhilippineDateTime, getPhilippineDateTimeMillis } from "../../lib/dateTime";
 import { claimPromotion, listPromotionClaims, PromotionClaim } from "../../lib/promotionClaims";
+import { ViewModeButton } from "../../components/ViewModeButton";
+
+const cardViewOptions = [
+  { value: "grid", label: "Card", icon: Grid2X2 },
+  { value: "list", label: "List", icon: List },
+] as const;
 
 const isPromotionAvailable = (promotion: any) => {
   const now = Date.now();
@@ -176,10 +182,7 @@ export default function CustomerCards() {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search rewards or stores" className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:focus:ring-white" />
           </label>
-          <div className="flex rounded-xl border border-gray-200 bg-white p-1 dark:border-gray-700 dark:bg-gray-900" aria-label="Card view mode">
-            <button type="button" onClick={() => setViewMode("grid")} aria-label="Grid view" className={`rounded-lg p-2 ${viewMode === "grid" ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : "text-gray-500"}`}><Grid2X2 className="h-4 w-4" /></button>
-            <button type="button" onClick={() => setViewMode("list")} aria-label="List view" className={`rounded-lg p-2 ${viewMode === "list" ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : "text-gray-500"}`}><List className="h-4 w-4" /></button>
-          </div>
+          <ViewModeButton value={viewMode} options={cardViewOptions} onChange={setViewMode} ariaLabel="Change card view" />
         </div>
       </div>
 

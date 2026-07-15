@@ -4,17 +4,19 @@ import { signOut } from "../lib/supabaseAuthCompat";
 import {
   getEffectiveSubscriptionStatus,
   getGraceTimeLabel,
-  normalizeSubscriptionAccess,
+  resolveSubscriptionAccess,
   safePaymentLink,
   subscriptionNoticeDismissKey,
   timestampToDate,
 } from "../lib/subscriptionAccess";
-import { formatMoney } from "../lib/subscriptionBilling";
+import { useCurrency } from "../contexts/CurrencyContext";
 
-export function SubscriptionAccessBanner({ store }: { store: any }) {
-  const policy = normalizeSubscriptionAccess(store?.subscriptionAccess);
-  const status = getEffectiveSubscriptionStatus(store?.subscriptionAccess);
-  const dismissKey = subscriptionNoticeDismissKey(String(store?.id || "store"), store?.subscriptionAccess);
+type PortalRole = "store_owner" | "staff";
+
+export function SubscriptionAccessBanner({ store, role = "store_owner" }: { store: any; role?: PortalRole }) {
+  const policy = resolveSubscriptionAccess(store?.subscriptionAccess, store?.subscriptionEnd);
+  const status = getEffectiveSubscriptionStatus(store?.subscriptionAccess, new Date(), store?.subscriptionEnd);
+  const dismissKey = subscriptionNoticeDismissKey(`${String(store?.id || "store")}:${role}`, policy);
   const [dismissed, setDismissed] = useState(() => window.localStorage.getItem(dismissKey) === "dismissed");
 
   useEffect(() => {
@@ -30,7 +32,7 @@ export function SubscriptionAccessBanner({ store }: { store: any }) {
         {status === "grace" ? <Clock3 className="mt-0.5 h-5 w-5 shrink-0 sm:mt-0" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 sm:mt-0" />}
         <div className="min-w-0 flex-1 text-sm">
           <span className="font-bold">{status === "grace" ? `Payment grace period: ${getGraceTimeLabel(policy)}` : "Subscription notice"}</span>
-          <span className="ml-2">{policy.warningMessage}</span>
+          <span className="ml-2">{role === "staff" ? "Please contact your store owner to prevent an interruption to store access." : policy.warningMessage}</span>
           {status === "grace" && graceEnd && (
             <span className="ml-2 whitespace-nowrap font-semibold">Access ends {graceEnd.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}.</span>
           )}
@@ -51,8 +53,9 @@ export function SubscriptionAccessBanner({ store }: { store: any }) {
   );
 }
 
-export function SubscriptionFrozenScreen({ store }: { store: any }) {
-  const policy = normalizeSubscriptionAccess(store?.subscriptionAccess);
+export function SubscriptionFrozenScreen({ store, role = "store_owner" }: { store: any; role?: PortalRole }) {
+  const { formatCurrency } = useCurrency();
+  const policy = resolveSubscriptionAccess(store?.subscriptionAccess, store?.subscriptionEnd);
   const paymentLink = safePaymentLink(policy.paymentLink);
   const subscriptionEnd = timestampToDate(store?.subscriptionEnd);
   const graceEnd = timestampToDate(policy.graceEndsAt);
@@ -69,35 +72,35 @@ export function SubscriptionFrozenScreen({ store }: { store: any }) {
             <div>
               <p className="text-sm font-bold uppercase tracking-widest text-red-600 dark:text-red-400">Subscription frozen</p>
               <h1 className="mt-1 text-2xl font-bold text-gray-950 dark:text-white">Access to {store?.businessName || store?.name || "this store"} is temporarily paused</h1>
-              <p className="mt-2 leading-6 text-gray-600 dark:text-gray-300">The subscription payment is overdue. Store owners and staff cannot use the PerkUp portal until an administrator confirms payment and restores access.</p>
+              <p className="mt-2 leading-6 text-gray-600 dark:text-gray-300">{role === "staff" ? "Store access is paused. Please contact your store owner; they can coordinate with the PerkUp administrator." : "The subscription payment is overdue. Contact the PerkUp administrator to confirm payment and restore owner and staff access."}</p>
             </div>
           </div>
         </div>
 
         <div className="space-y-6 p-6 sm:p-8">
-          <div className="grid gap-3 sm:grid-cols-2">
+          {role === "store_owner" && <div className="grid gap-3 sm:grid-cols-2">
             <Info label="Subscription" value={store?.subscriptionLevel || "Not specified"} />
-            <Info label="Amount due" value={formatMoney(Number(store?.owedAmount || 0))} />
+            <Info label="Amount due" value={formatCurrency(Number(store?.owedAmount || 0))} />
             <Info label="Subscription ended" value={subscriptionEnd ? subscriptionEnd.toLocaleDateString("en-PH", { dateStyle: "long" }) : "Contact PerkUp"} />
             <Info label="Grace period ended" value={graceEnd ? graceEnd.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "Not applicable"} />
-          </div>
+          </div>}
 
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-700 dark:bg-gray-800/60">
             <div className="flex items-center gap-2 font-bold text-gray-900 dark:text-white"><CreditCard className="h-5 w-5" /> How to restore access</div>
-            <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-600 dark:text-gray-300">{policy.paymentInstructions}</p>
-            <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">After paying, send proof of payment and include your store name so PerkUp can verify it promptly.</p>
+            <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-600 dark:text-gray-300">{role === "staff" ? "Contact your store owner. Only the store owner should arrange payment or account restoration with the PerkUp administrator." : policy.paymentInstructions}</p>
+            {role === "store_owner" && <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">After paying, send proof of payment and include your store name so PerkUp can verify it promptly.</p>}
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
+          {role === "store_owner" && <div className="flex flex-col gap-3 sm:flex-row">
             {paymentLink && (
-              <a href={paymentLink} target="_blank" rel="noreferrer" className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-green-700">
-                Open payment page <ExternalLink className="h-4 w-4" />
+              <a href={paymentLink} target="_blank" rel="noreferrer" aria-label="Open payment page" className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-green-700">
+                Pay <ExternalLink className="h-4 w-4" />
               </a>
             )}
             <a href={contactIsEmail ? `mailto:${policy.paymentContact}` : undefined} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 px-5 py-3 text-sm font-bold text-gray-800 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800">
               <Mail className="h-4 w-4" /> {policy.paymentContact}
             </a>
-          </div>
+          </div>}
 
           <button type="button" onClick={async () => { await signOut(); window.location.assign("/"); }} className="mx-auto flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white">
             <LogOut className="h-4 w-4" /> Log out

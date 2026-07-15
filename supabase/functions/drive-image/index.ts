@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
+import { sessionNeedsMfa } from "../_shared/auth.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
@@ -26,6 +27,7 @@ type GasImageResponse = {
   url?: string;
   webViewLink?: string;
   fileId?: string;
+  file?: Record<string, unknown>;
 };
 
 const requiredEnv = (name: string) => {
@@ -134,11 +136,36 @@ Deno.serve(async (req) => {
       console.error(`[Auth Error] User authentication failed.`, authError);
       return jsonResponse({ error: "Authentication required." }, 401);
     }
+    if (await sessionNeedsMfa(userClient, authorization)) {
+      return jsonResponse({ error: "Complete multi-factor authentication to continue.", code: "mfa_required" }, 403);
+    }
     console.log(`[Auth] Authenticated user ID: ${authData.user.id}`);
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const action = cleanText(body.action || "upload", 20).toLowerCase();
     console.log(`[Action] Requested Action: '${action}'`);
+
+    const { data: actorRow, error: actorError } = await admin
+      .from("users")
+      .select("data")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+    if (actorError) throw actorError;
+    const isAdmin = ["admin", "assistant_admin"].includes(String(actorRow?.data?.role || ""));
+
+    const getAuthorizedFile = async (fileId: string) => {
+      const { data: fileRow, error: fileError } = await admin
+        .from("drive_files")
+        .select("file_id,owner_id,purpose,url,created_at")
+        .eq("file_id", fileId)
+        .maybeSingle();
+      if (fileError) throw fileError;
+      if (!fileRow) return { error: jsonResponse({ error: "Image was not found." }, 404), fileRow: null };
+      if (!isAdmin && fileRow.owner_id !== authData.user.id) {
+        return { error: jsonResponse({ error: "You are not allowed to manage this image." }, 403), fileRow: null };
+      }
+      return { error: null, fileRow };
+    };
 
     if (action === "upload") {
       const mimeType = cleanText(body.mimeType, 80).toLowerCase();
@@ -157,6 +184,7 @@ Deno.serve(async (req) => {
 
       const uploaded = await callDriveScript({
         action: "upload",
+        secret: requiredEnv("DRIVE_CRUD_SECRET"),
         fileName,
         mimeType,
         base64,
@@ -175,9 +203,19 @@ Deno.serve(async (req) => {
       console.log(`[Process] Translated to permanent Image URL: ${normalizedUrl}`);
 
       console.log(`[Database] Attempting to save new record into Supabase 'drive_files' table...`);
+      const requestedOwnerId = cleanText(body.ownerId, 36);
+      if (requestedOwnerId && requestedOwnerId !== authData.user.id && !isAdmin) {
+        await callDriveScript({
+          action: "permanent_delete",
+          secret: requiredEnv("DRIVE_CRUD_SECRET"),
+          fileId,
+        }).catch(console.error);
+        return jsonResponse({ error: "Only an administrator can assign an image to another owner." }, 403);
+      }
+
       const { error: registryError } = await admin.from("drive_files").upsert({
         file_id: fileId,
-        owner_id: authData.user.id,
+        owner_id: requestedOwnerId || authData.user.id,
         purpose: cleanText(body.purpose || "image", 80),
         url: normalizedUrl,
       });
@@ -187,7 +225,7 @@ Deno.serve(async (req) => {
         const secret = Deno.env.get("DRIVE_CRUD_SECRET");
         if (secret) {
           console.log(`[Rollback] Attempting to delete stranded file from Google Drive...`);
-          await callDriveScript({ action: "delete", secret, fileId }).catch((cleanupError) => {
+          await callDriveScript({ action: "permanent_delete", secret, fileId }).catch((cleanupError) => {
             console.error("[Rollback Error] Could not roll back unregistered Drive file", cleanupError);
           });
         }
@@ -201,6 +239,45 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (action === "read" || action === "get") {
+      const secret = requiredEnv("DRIVE_CRUD_SECRET");
+      const fileId = extractDriveFileId(body.fileId || body.url);
+      if (!fileId) return jsonResponse({ error: "Missing Drive file ID." }, 400);
+      const authorized = await getAuthorizedFile(fileId);
+      if (authorized.error) return authorized.error;
+
+      const driveFile = await callDriveScript({ action: "read", secret, fileId });
+      return jsonResponse({ fileId, url: authorized.fileRow!.url, registry: authorized.fileRow, file: driveFile.file });
+    }
+
+    if (action === "update") {
+      const secret = requiredEnv("DRIVE_CRUD_SECRET");
+      const fileId = extractDriveFileId(body.fileId || body.url);
+      if (!fileId) return jsonResponse({ error: "Missing Drive file ID." }, 400);
+      const authorized = await getAuthorizedFile(fileId);
+      if (authorized.error) return authorized.error;
+
+      const fileName = cleanText(body.fileName, 120);
+      const description = cleanText(body.description, 500);
+      if (!fileName && typeof body.description === "undefined") {
+        return jsonResponse({ error: "Provide a file name or description to update." }, 400);
+      }
+      const updated = await callDriveScript({
+        action: "update",
+        secret,
+        fileId,
+        ...(fileName ? { fileName } : {}),
+        ...(typeof body.description !== "undefined" ? { description } : {}),
+      });
+      const updatedUrl = normalizeDriveImageUrl(updated.url || authorized.fileRow!.url);
+      const { error: registryUpdateError } = await admin
+        .from("drive_files")
+        .update({ url: updatedUrl })
+        .eq("file_id", fileId);
+      if (registryUpdateError) throw registryUpdateError;
+      return jsonResponse({ fileId, url: updatedUrl, updated: true, file: updated });
+    }
+
     if (action === "delete") {
       console.log(`[Delete] Initiating delete protocol for file...`);
       // Delete logic remains the same...
@@ -209,20 +286,12 @@ Deno.serve(async (req) => {
       const fileId = extractDriveFileId(body.fileId || body.url);
       if (!fileId) return jsonResponse({ error: "Missing Drive file ID." }, 400);
 
-      const { data: actorRow, error: actorError } = await admin.from("users").select("data").eq("id", authData.user.id).maybeSingle();
-      if (actorError) throw actorError;
-      
-      const isAdmin = ["admin", "assistant_admin"].includes(String(actorRow?.data?.role || ""));
-      const { data: fileRow, error: fileError } = await admin.from("drive_files").select("owner_id").eq("file_id", fileId).maybeSingle();
-      if (fileError) throw fileError;
-      
-      if (!isAdmin && fileRow?.owner_id !== authData.user.id) {
-        console.error(`[Delete Error] Unauthorized deletion attempt by user ${authData.user.id}`);
-        return jsonResponse({ error: "You are not allowed to delete this image." }, 403);
-      }
+      const authorized = await getAuthorizedFile(fileId);
+      if (authorized.error) return authorized.error;
 
-      await callDriveScript({ action: "delete", secret, fileId });
-      await admin.from("drive_files").delete().eq("file_id", fileId);
+      await callDriveScript({ action: "permanent_delete", secret, fileId });
+      const { error: registryDeleteError } = await admin.from("drive_files").delete().eq("file_id", fileId);
+      if (registryDeleteError) throw registryDeleteError;
       console.log(`[Delete Success] File ${fileId} removed from Drive and database.`);
       return jsonResponse({ deleted: true, fileId });
     }

@@ -74,7 +74,7 @@ export function CustomDropdown({
       <button
         ref={triggerRef}
         type="button"
-        className="flex min-h-10 w-full cursor-pointer items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 transition-colors hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:hover:border-gray-600 dark:focus:ring-white"
+        className="flex min-h-11 w-full cursor-pointer items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 transition-colors hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:hover:border-gray-600 dark:focus:ring-white"
         onClick={() => (isOpen ? setIsOpen(false) : openDropdown())}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown") {

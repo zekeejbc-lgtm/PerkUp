@@ -29,7 +29,7 @@ export default function StaffStore({ store }: { store: any }) {
 
   const logoUrl = getDisplayImageUrl(store.logoUrl || store.imageUrl || "");
   const menuUrl = getDisplayImageUrl(store.menuUrl || "");
-  const storePhotos = Array.isArray(store.images) ? store.images.filter(Boolean).slice(0, 3) : [];
+  const storePhotos = Array.isArray(store.images) ? store.images.filter(Boolean).slice(0, 10) : [];
   const address = store.address || store.location || "Address not provided";
   const contact = store.contact || store.contactPhone || store.phone || "";
   const contactEmail = store.contactEmail || store.email || "";
@@ -185,15 +185,15 @@ export default function StaffStore({ store }: { store: any }) {
 
         <div className="space-y-6">
           {menuUrl && (
-            <a href={menuUrl} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-[2rem] border border-gray-200 bg-gray-50 transition-colors hover:bg-gray-100 dark:border-gray-800 dark:bg-gray-800/50 dark:hover:bg-gray-800">
-              <div className="aspect-[4/3] bg-white dark:bg-gray-900">
-                <img src={menuUrl} alt={`${store.name || "Store"} menu`} loading="lazy" className="h-full w-full object-cover" />
+            <a href={menuUrl} target="_blank" rel="noopener noreferrer" className="group flex items-center gap-4 rounded-[2rem] border border-gray-200 bg-gray-50 p-5 transition-all hover:border-gray-300 hover:bg-white hover:shadow-sm dark:border-gray-800 dark:bg-gray-800/50 dark:hover:border-gray-700 dark:hover:bg-gray-800">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+                <ImageIcon className="h-7 w-7 text-gray-500 dark:text-gray-400" />
               </div>
-              <div className="flex items-center gap-3 p-4 text-sm font-semibold text-gray-900 dark:text-white">
-                <ImageIcon className="h-5 w-5 text-gray-400" />
-                Store Menu
-                <ExternalLink className="ml-auto h-4 w-4 text-gray-400" />
+              <div className="min-w-0">
+                <p className="font-bold text-gray-900 dark:text-white">Store Menu</p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Open the full-size menu image</p>
               </div>
+              <ExternalLink className="ml-auto h-5 w-5 shrink-0 text-gray-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
             </a>
           )}
 

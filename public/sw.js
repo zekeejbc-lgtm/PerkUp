@@ -72,10 +72,7 @@ function isSafeGet(request) {
     return true;
   }
 
-  return (
-    url.hostname === "fonts.googleapis.com" ||
-    url.hostname === "fonts.gstatic.com"
-  );
+  return false;
 }
 
 function isNavigationRequest(request) {

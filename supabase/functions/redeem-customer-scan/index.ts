@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
+import { sessionNeedsMfa } from "../_shared/auth.ts";
 
 const LEGACY_TOKEN_PREFIX = "perkup:v1:";
 const RETIRED_SIGNED_TOKEN_PREFIX = "perkup:v2:";
@@ -151,8 +152,7 @@ const verifySignedCustomerToken = async (scanToken: string, secret: string) => {
     if (!timingSafeEqual(actualSignature, expectedSignature)) return null;
 
     const expiresAtSeconds = Number(expiresAtText);
-    const expired = tokenPrefix === RETIRED_SIGNED_TOKEN_PREFIX
-      || !Number.isInteger(expiresAtSeconds)
+    const expired = !Number.isInteger(expiresAtSeconds)
       || expiresAtSeconds <= Math.floor(Date.now() / 1000);
     return { customerId, qrVersion, expired };
   } catch {
@@ -203,6 +203,9 @@ Deno.serve(async (req) => {
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) return jsonResponse({ error: "Staff authentication required." }, 401);
+    if (await sessionNeedsMfa(userClient, authorization)) {
+      return jsonResponse({ error: "Complete multi-factor authentication to continue.", code: "mfa_required" }, 403);
+    }
 
     const { data: staffRow, error: staffError } = await admin
       .from("users")

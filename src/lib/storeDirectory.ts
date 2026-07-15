@@ -122,6 +122,41 @@ export const getAvailableStoreCategories = (stores: DirectoryStore[]) => [
   ).sort((a, b) => a.localeCompare(b)),
 ];
 
+export const getCategorySearchTerms = (searchQuery: string, categories: string[]) => {
+  const categoryLookup = new Map(
+    categories
+      .filter((category) => normalizeStoreCategory(category) !== "all")
+      .map((category) => [normalizeStoreCategory(category), category]),
+  );
+  const terms = searchQuery.split(",").map((term) => term.trim()).filter(Boolean);
+
+  return {
+    selectedCategories: terms
+      .map((term) => categoryLookup.get(normalizeStoreCategory(term)))
+      .filter((category): category is string => Boolean(category)),
+    textSearchTerms: terms.filter((term) => !categoryLookup.has(normalizeStoreCategory(term))),
+  };
+};
+
+export const storeMatchesCategorySearch = (
+  store: DirectoryStore,
+  searchQuery: string,
+  categories: string[],
+  additionalSearchValues: Array<string | undefined> = [],
+) => {
+  const { selectedCategories, textSearchTerms } = getCategorySearchTerms(searchQuery, categories);
+  const storeCategories = new Set(splitStoreCategories(store.category).map(normalizeStoreCategory));
+  const searchableText = [store.name, store.description, store.category, ...additionalSearchValues]
+    .filter(Boolean)
+    .join(" ")
+    .toLocaleLowerCase();
+
+  return (
+    (selectedCategories.length === 0 || selectedCategories.some((category) => storeCategories.has(normalizeStoreCategory(category)))) &&
+    textSearchTerms.every((term) => searchableText.includes(term.toLocaleLowerCase()))
+  );
+};
+
 export const storeMatchesFilters = (
   store: DirectoryStore,
   searchQuery: string,

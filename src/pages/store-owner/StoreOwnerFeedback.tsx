@@ -5,6 +5,7 @@ import { BarChart3, CheckCircle2, Clock3, Inbox, MessageSquare, Star, TrendingDo
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { Pagination } from "../../components/Pagination";
+import { CategorySearchInput } from "../../components/CategorySearchInput";
 
 const REVIEWS_PER_PAGE = 6;
 
@@ -29,6 +30,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
   const [savingReplyId, setSavingReplyId] = useState("");
   const [filter, setFilter] = useState<"all" | "unanswered" | "low">("all");
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     async function fetchFeedback() {
@@ -127,20 +129,61 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
       recentCount: recent.length,
       recentAverage,
       trend,
+      monthlyPerformance: Array.from({ length: 6 }, (_, index) => {
+        const month = new Date(now);
+        month.setDate(1);
+        month.setHours(0, 0, 0, 0);
+        month.setMonth(month.getMonth() - (5 - index));
+        const nextMonth = new Date(month);
+        nextMonth.setMonth(nextMonth.getMonth() + 1);
+        const rows = feedback.filter((item) => {
+          const createdAt = toDate(item.createdAt);
+          return createdAt && createdAt >= month && createdAt < nextMonth;
+        });
+        const monthReplied = rows.filter((item) => Boolean(item.ownerReply)).length;
+        return {
+          key: `${month.getFullYear()}-${month.getMonth()}`,
+          label: month.toLocaleDateString(undefined, { month: "short" }),
+          fullLabel: month.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+          count: rows.length,
+          average: average(rows),
+          responseRate: rows.length ? Math.round((monthReplied / rows.length) * 100) : 0,
+        };
+      }),
     };
   }, [feedback]);
 
   const filteredFeedback = useMemo(() => {
-    if (filter === "unanswered") return feedback.filter((item) => !item.ownerReply);
-    if (filter === "low") return feedback.filter((item) => Number(item.rating || 0) <= 3);
-    return feedback;
-  }, [feedback, filter]);
+    const terms = searchQuery.toLocaleLowerCase().split(",").map((term) => term.trim()).filter(Boolean);
+    return feedback.filter((item) => {
+      if (filter === "unanswered" && item.ownerReply) return false;
+      if (filter === "low" && Number(item.rating || 0) > 3) return false;
+      if (!terms.length) return true;
+      const rating = Number(item.rating || 0);
+      const responseStatus = item.ownerReply ? "responded" : "unanswered";
+      const searchable = [
+        item.anonymous ? "anonymous" : item.customerName,
+        item.comment,
+        item.ownerReply,
+        `${rating} star`,
+        `${rating} stars`,
+        responseStatus,
+      ].join(" ").toLocaleLowerCase();
+      return terms.every((term) => {
+        if (["responded", "unanswered"].includes(term)) return responseStatus === term;
+        if (term === "anonymous") return Boolean(item.anonymous);
+        const ratingMatch = term.match(/^([1-5]) stars?$/);
+        if (ratingMatch) return rating === Number(ratingMatch[1]);
+        return searchable.includes(term);
+      });
+    });
+  }, [feedback, filter, searchQuery]);
   const totalPages = Math.max(1, Math.ceil(filteredFeedback.length / REVIEWS_PER_PAGE));
   const paginatedFeedback = filteredFeedback.slice((currentPage - 1) * REVIEWS_PER_PAGE, currentPage * REVIEWS_PER_PAGE);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filter]);
+  }, [filter, searchQuery]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
@@ -165,6 +208,18 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
           </div>
         </div>
       </div>
+
+      <CategorySearchInput
+        value={searchQuery}
+        onChange={setSearchQuery}
+        categories={["Unanswered", "Responded", "Anonymous", "5 Stars", "4 Stars", "3 Stars", "2 Stars", "1 Star"]}
+        placeholder="Search reviews or filter by rating, response..."
+        ariaLabel="Search and filter store reviews"
+        suggestionLabel="review filter"
+        collapsibleFilters
+        resultsId="store-review-results"
+        className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-12 text-sm text-gray-900 shadow-sm outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
+      />
 
       {feedback.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-gray-300 bg-white p-12 text-center dark:border-gray-700 dark:bg-gray-900">
@@ -217,7 +272,58 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(28rem,1.15fr)]">
+          <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900" aria-labelledby="review-volume-heading">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 id="review-volume-heading" className="text-sm font-bold uppercase tracking-widest text-gray-900 dark:text-white">Review Volume</h3>
+                <p className="mt-1 text-xs text-gray-500">Last six calendar months</p>
+              </div>
+              <BarChart3 className="h-5 w-5 text-gray-400" />
+            </div>
+            <div className="mt-6 flex h-48 items-end gap-3" role="img" aria-label="Monthly review volume bar chart">
+              {analytics.monthlyPerformance.map((month) => {
+                const maximum = Math.max(1, ...analytics.monthlyPerformance.map((row) => row.count));
+                const height = month.count ? Math.max(12, Math.round((month.count / maximum) * 100)) : 4;
+                return (
+                  <div key={month.key} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
+                    <span className="text-xs font-bold text-gray-600 dark:text-gray-300">{month.count}</span>
+                    <div className="flex h-32 w-full items-end overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
+                      <div className="w-full rounded-xl bg-gray-900 transition-[height] dark:bg-white" style={{ height: `${height}%` }} title={`${month.fullLabel}: ${month.count} reviews`} />
+                    </div>
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{month.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900" aria-labelledby="monthly-performance-heading">
+            <div className="border-b border-gray-100 px-5 py-4 dark:border-gray-800">
+              <h3 id="monthly-performance-heading" className="text-sm font-bold uppercase tracking-widest text-gray-900 dark:text-white">Monthly Performance</h3>
+              <p className="mt-1 text-xs text-gray-500">Volume, average rating, and response coverage</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[32rem] text-left text-sm">
+                <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500 dark:bg-gray-800/60">
+                  <tr><th className="px-5 py-3">Month</th><th className="px-4 py-3 text-right">Reviews</th><th className="px-4 py-3 text-right">Avg. rating</th><th className="px-5 py-3 text-right">Response rate</th></tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {[...analytics.monthlyPerformance].reverse().map((month) => (
+                    <tr key={month.key}>
+                      <td className="px-5 py-3 font-semibold text-gray-900 dark:text-white">{month.fullLabel}</td>
+                      <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{month.count}</td>
+                      <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{month.count ? month.average.toFixed(1) : "—"}</td>
+                      <td className="px-5 py-3 text-right text-gray-600 dark:text-gray-300">{month.count ? `${month.responseRate}%` : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div id="store-review-results" className="scroll-mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
           <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h3 className="text-sm font-bold uppercase tracking-widest text-gray-900 dark:text-white">Review Queue</h3>
@@ -318,9 +424,10 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
                     type="button"
                     onClick={() => saveReply(item)}
                     disabled={savingReplyId === item.id || !(replyDrafts[item.id] ?? item.ownerReply ?? "").trim()}
+                    aria-label={item.ownerReply ? "Update public response" : "Publish public response"}
                     className="mt-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50 dark:bg-white dark:text-gray-900"
                   >
-                    {savingReplyId === item.id ? "Saving..." : item.ownerReply ? "Update response" : "Publish response"}
+                    {savingReplyId === item.id ? "Saving..." : item.ownerReply ? "Update" : "Publish"}
                   </button>
                 </div>
               </article>

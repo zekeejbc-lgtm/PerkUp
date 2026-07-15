@@ -1,18 +1,31 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
 import { MapContainer, Marker, Popup } from "react-leaflet";
 import * as ReactDOMServer from "react-dom/server";
 import L from "leaflet";
-import { Clock, Mail, MapPin, Phone, Search, Store as StoreIcon } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronDown,
+  Clock,
+  Clock3,
+  Eye,
+  EyeOff,
+  Mail,
+  MapPin,
+  Phone,
+  SlidersHorizontal,
+  Store as StoreIcon,
+  X,
+} from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { DirectionsButton } from "../../components/DirectionsButton";
 import { MapBaseLayers } from "../../components/MapBaseLayers";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
-import { Pagination } from "../../components/Pagination";
-
-const STORES_PER_PAGE = 8;
+import { getAvailableStoreCategories, isStoreOpenNow, storeMatchesCategorySearch } from "../../lib/storeDirectory";
+import { CategorySearchInput } from "../../components/CategorySearchInput";
 
 type CustomerStore = {
   id: string;
@@ -34,7 +47,11 @@ export default function CustomerStores() {
   const [loading, setLoading] = useState(true);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
+  const [showMap, setShowMap] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
+  const [openNowOnly, setOpenNowOnly] = useState(false);
+  const [availabilityDate, setAvailabilityDate] = useState("");
+  const [availabilityTime, setAvailabilityTime] = useState("");
 
   useEffect(() => {
     async function fetchStores() {
@@ -53,7 +70,9 @@ export default function CustomerStores() {
             address: data.address ? String(data.address) : "",
             contact: data.contact ? String(data.contact) : "",
             email: data.email ? String(data.email) : "",
-            hours: data.hours ? String(data.hours) : "",
+            hours: data.hours || data.openingHours || data.operatingHours
+              ? String(data.hours || data.openingHours || data.operatingHours)
+              : "",
             description: data.description ? String(data.description) : "",
           };
         });
@@ -68,24 +87,29 @@ export default function CustomerStores() {
     setMapLoaded(true);
   }, []);
 
-  const filteredStores = stores.filter((store) => {
-    const term = searchQuery.toLowerCase();
-    const name = store.name?.toLowerCase() || "";
-    const category = store.category?.toLowerCase() || "";
-    const address = store.address?.toLowerCase() || "";
-    return name.includes(term) || category.includes(term) || address.includes(term);
-  });
+  const availableAt = useMemo(() => {
+    if (!availabilityDate || !availabilityTime) return null;
+    const [year, month, day] = availabilityDate.split("-").map(Number);
+    const [hour, minute] = availabilityTime.split(":").map(Number);
+    const value = new Date(year, month - 1, day, hour, minute);
+    return Number.isNaN(value.getTime()) ? null : value;
+  }, [availabilityDate, availabilityTime]);
+
+  const categories = useMemo(() => getAvailableStoreCategories(stores), [stores]);
+  const filteredStores = useMemo(() => {
+    return stores.filter((store) =>
+      storeMatchesCategorySearch(store, searchQuery, categories, [store.address, store.contact, store.email]) &&
+      ((!openNowOnly && !availableAt) || isStoreOpenNow(store.hours, availableAt || new Date()))
+    );
+  }, [availableAt, categories, openNowOnly, searchQuery, stores]);
   const mappedStores = filteredStores.filter((store) => Number.isFinite(store.lat) && Number.isFinite(store.lng));
-  const totalPages = Math.max(1, Math.ceil(filteredStores.length / STORES_PER_PAGE));
-  const paginatedStores = filteredStores.slice((currentPage - 1) * STORES_PER_PAGE, currentPage * STORES_PER_PAGE);
+  const hasActiveFilters = openNowOnly || Boolean(availabilityDate) || Boolean(availabilityTime);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    setCurrentPage((page) => Math.min(page, totalPages));
-  }, [totalPages]);
+  const clearFilters = () => {
+    setOpenNowOnly(false);
+    setAvailabilityDate("");
+    setAvailabilityTime("");
+  };
 
   if (loading) {
     return (
@@ -111,27 +135,137 @@ export default function CustomerStores() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+      <div className="flex flex-col gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Affiliated Stores</h2>
           <p className="text-gray-500 dark:text-gray-400 mt-1">Discover places where you can earn and redeem rewards.</p>
         </div>
-        <div className="relative w-full sm:w-64 shrink-0">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search className="h-4 w-4 text-gray-400" />
-          </div>
-          <input
-            type="text"
-            placeholder="Search stores..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="block w-full pl-9 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm transition-colors"
+        <div className="flex w-full flex-col gap-3 sm:flex-row">
+          <CategorySearchInput
+              value={searchQuery}
+              onChange={setSearchQuery}
+              categories={categories}
+              resultsId="customer-store-search-results"
+              placeholder="Search stores, locations, or categories (use commas)..."
+              wrapperClassName="min-w-0 flex-1"
+              searchIconClassName="h-4 w-4"
+              className="block min-h-11 w-full rounded-xl border border-gray-200 bg-white py-2 pl-10 pr-12 text-gray-900 transition-colors placeholder:text-gray-400 focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-[#1b1b1b]/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:border-gray-500 dark:focus:ring-white/10 sm:text-sm"
           />
+          <button
+            type="button"
+            aria-expanded={showFilters}
+            aria-controls="customer-store-filters"
+            onClick={() => setShowFilters((current) => !current)}
+            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-medium transition-colors ${
+              showFilters || hasActiveFilters
+                ? "border-[#1b1b1b] bg-[#1b1b1b] text-white dark:border-white dark:bg-white dark:text-[#1b1b1b]"
+                : "border-gray-200 bg-white text-gray-700 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+            }`}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            Filters
+            {hasActiveFilters && <span className="h-2 w-2 rounded-full bg-emerald-400" aria-label="Filters active" />}
+            <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${showFilters ? "rotate-180" : ""}`} />
+          </button>
+          <button
+            type="button"
+            aria-pressed={showMap}
+            onClick={() => setShowMap((current) => !current)}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          >
+            {showMap ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {showMap ? "Hide map" : "Show map"}
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="rounded-[2rem] overflow-hidden border border-gray-200 dark:border-gray-800 shadow-sm h-[400px] lg:h-auto min-h-[400px] relative z-0 transition-colors">
+      <AnimatePresence initial={false}>
+        {showFilters && (
+          <motion.section
+            id="customer-store-filters"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ height: { duration: 0.3, ease: "easeInOut" }, opacity: { duration: 0.2 } }}
+            className="overflow-hidden"
+          >
+            <div className="rounded-3xl border border-gray-200 bg-gray-50/70 p-4 dark:border-gray-800 dark:bg-gray-900/70 sm:p-5">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="h-4 w-4 text-gray-400" />
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Filter stores</h3>
+                </div>
+                {hasActiveFilters && (
+                  <button type="button" onClick={clearFilters} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-black dark:text-gray-300 dark:hover:text-white">
+                    <X className="h-3.5 w-3.5" />
+                    Clear filters
+                  </button>
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)]">
+                <button
+                  type="button"
+                  aria-pressed={openNowOnly}
+                  onClick={() => {
+                    setOpenNowOnly((current) => !current);
+                    setAvailabilityDate("");
+                    setAvailabilityTime("");
+                  }}
+                  className={`inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-medium transition-colors ${
+                    openNowOnly
+                      ? "border-emerald-600 bg-emerald-600 text-white dark:border-emerald-400 dark:bg-emerald-400 dark:text-[#1b1b1b]"
+                      : "border-gray-200 bg-white text-gray-600 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                  }`}
+                >
+                  <Clock3 className="h-4 w-4" />
+                  Open now
+                </button>
+                <label className="relative">
+                  <span className="sr-only">Availability date</span>
+                  <CalendarDays className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="date"
+                    value={availabilityDate}
+                    onChange={(event) => {
+                      setAvailabilityDate(event.target.value);
+                      setOpenNowOnly(false);
+                    }}
+                    className="min-h-12 w-full rounded-xl border border-gray-200 bg-white pl-11 pr-3 text-sm text-gray-700 outline-none focus:border-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:[color-scheme:dark]"
+                  />
+                </label>
+                <label className="relative">
+                  <span className="sr-only">Availability time</span>
+                  <Clock3 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="time"
+                    value={availabilityTime}
+                    onChange={(event) => {
+                      setAvailabilityTime(event.target.value);
+                      setOpenNowOnly(false);
+                    }}
+                    className="min-h-12 w-full rounded-xl border border-gray-200 bg-white pl-11 pr-3 text-sm text-gray-700 outline-none focus:border-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:[color-scheme:dark]"
+                  />
+                </label>
+              </div>
+              <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">Select both a date and time to find stores available then.</p>
+
+            </div>
+          </motion.section>
+        )}
+      </AnimatePresence>
+
+      <motion.div id="customer-store-search-results" layout className={`scroll-mt-6 grid grid-cols-1 gap-6 ${showMap ? "lg:grid-cols-2" : ""}`}>
+        <AnimatePresence initial={false}>
+          {showMap && (
+          <motion.div
+            key="stores-map"
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.2 }}
+            className="relative z-0 h-[min(70vh,44rem)] min-h-[400px] overflow-hidden rounded-[2rem] border border-gray-200 shadow-sm transition-colors dark:border-gray-800"
+          >
             {mapLoaded && mappedStores.length > 0 ? (
               <MapContainer 
                 center={[mappedStores[0].lat, mappedStores[0].lng]} 
@@ -201,15 +335,24 @@ export default function CustomerStores() {
                 <p className="text-gray-400">Map unavailable</p>
               </div>
             )}
-        </div>
+          </motion.div>
+          )}
+        </AnimatePresence>
 
-        <div className="space-y-4">
+        <motion.div layout className="min-h-0">
+          <div className="mb-3 flex items-center justify-between gap-3 px-1">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300" aria-live="polite">
+              {filteredStores.length} {filteredStores.length === 1 ? "store" : "stores"} found
+            </p>
+            <p className="text-xs text-gray-400">Scroll to browse</p>
+          </div>
+          <div className="h-[min(70vh,41.75rem)] min-h-[350px] space-y-4 overflow-y-auto overscroll-contain pr-2 [scrollbar-gutter:stable]">
           {filteredStores.length === 0 ? (
             <div className="bg-white dark:bg-gray-900 p-8 rounded-3xl border border-dashed border-gray-300 dark:border-gray-700 text-center">
               <p className="text-gray-500 dark:text-gray-400">No stores found matching your search.</p>
             </div>
           ) : (
-            paginatedStores.map((store) => {
+            filteredStores.map((store) => {
               const logoUrl = getDisplayImageUrl(store.logoUrl || "");
               const hasCoordinates = Number.isFinite(store.lat) && Number.isFinite(store.lng);
               const openStoreDetails = () => navigate(`/store/${store.id}`, {
@@ -288,15 +431,9 @@ export default function CustomerStores() {
               );
             })
           )}
-          <Pagination
-            page={currentPage}
-            pageSize={STORES_PER_PAGE}
-            totalItems={filteredStores.length}
-            itemLabel="stores"
-            onPageChange={setCurrentPage}
-          />
-        </div>
-      </div>
+          </div>
+        </motion.div>
+      </motion.div>
     </div>
   );
 }

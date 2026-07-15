@@ -63,6 +63,8 @@ export default function AdminAccount() {
   }, [user]);
 
   const handleUpdateMyAccount = async () => {
+    let uploadedAvatarUrl = "";
+    let profilePersisted = false;
     try {
       if (user?.id) {
         const avatarUrl = pendingMyAvatarFile
@@ -71,6 +73,7 @@ export default function AdminAccount() {
               purpose: "admin-avatar",
             })
           : myAvatarUrl;
+        if (pendingMyAvatarFile) uploadedAvatarUrl = avatarUrl;
         await updateDoc(doc(db, "users", user.id), {
           name: myName,
           username: myUsername,
@@ -81,6 +84,7 @@ export default function AdminAccount() {
           avatarUrl,
           photoURL: avatarUrl,
         });
+        profilePersisted = true;
         const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
         if (previousAvatarUrl && previousAvatarUrl !== avatarUrl) {
           await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
@@ -92,6 +96,9 @@ export default function AdminAccount() {
       setMyAccountSaved(true);
       window.setTimeout(() => setMyAccountSaved(false), 3000);
     } catch (e) {
+      if (!profilePersisted && uploadedAvatarUrl) {
+        await deleteImageFromDriveSecure(uploadedAvatarUrl).catch(console.error);
+      }
       console.error(e);
       alert("Failed to update account.");
     }
@@ -184,7 +191,7 @@ export default function AdminAccount() {
   };
 
   return (
-    <div className="max-w-3xl space-y-8 animate-in fade-in duration-300">
+    <div className="mx-auto w-full max-w-3xl space-y-8 animate-in fade-in duration-300">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Profile</h2>

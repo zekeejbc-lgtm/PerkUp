@@ -8,12 +8,17 @@ type ViewedImage = {
 };
 
 const INTERACTIVE_PARENT_SELECTOR = "a, button, input, select, textarea, [role='button'], [role='link']";
+const IMAGE_VIEWER_EXCLUDED_SELECTOR = ".leaflet-container, [data-image-viewer-scope='ignore']";
 
 function getViewedImage(target: EventTarget | null): ViewedImage | null {
   if (!(target instanceof Element)) return null;
 
   const image = target.closest("img");
-  if (!(image instanceof HTMLImageElement) || image.dataset.imageViewerIgnore === "true") {
+  if (
+    !(image instanceof HTMLImageElement)
+    || image.dataset.imageViewerIgnore === "true"
+    || image.closest(IMAGE_VIEWER_EXCLUDED_SELECTOR)
+  ) {
     return null;
   }
 
@@ -40,7 +45,11 @@ export function GlobalImageViewer() {
   useEffect(() => {
     const makeStandaloneImagesKeyboardAccessible = (root: ParentNode) => {
       root.querySelectorAll("img:not([data-image-viewer-ignore='true'])").forEach((node) => {
-        if (!(node instanceof HTMLImageElement) || node.closest(INTERACTIVE_PARENT_SELECTOR)) return;
+        if (
+          !(node instanceof HTMLImageElement)
+          || node.closest(INTERACTIVE_PARENT_SELECTOR)
+          || node.closest(IMAGE_VIEWER_EXCLUDED_SELECTOR)
+        ) return;
         if (!node.hasAttribute("tabindex")) node.tabIndex = 0;
         if (!node.hasAttribute("role")) node.setAttribute("role", "button");
         if (!node.hasAttribute("aria-label")) {

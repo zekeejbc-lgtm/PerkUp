@@ -5,6 +5,7 @@ import { db, logOut } from "../../lib/backend";
 import { UserCircle, Mail, Phone, MapPin, AtSign, Save, CheckCircle2, X, Calendar, FileText, LogOut } from "lucide-react";
 import { deleteImageFromDriveSecure, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import AccountSecurity from "@/src/components/AccountSecurity";
+import CurrencyPreference from "@/src/components/CurrencyPreference";
 import { ProfileAvatarImage } from "@/src/components/ProfileAvatarImage";
 import { sanitizeUsernameInput } from "@/src/lib/username";
 
@@ -55,6 +56,8 @@ export default function StoreOwnerAccount() {
     if (!user?.id) return;
     setSaving(true);
     setSaved(false);
+    let uploadedAvatarUrl = "";
+    let profilePersisted = false;
     try {
       const avatarUrl = pendingAvatarFile
         ? await uploadImageFileToDriveSecure(pendingAvatarFile, {
@@ -62,6 +65,7 @@ export default function StoreOwnerAccount() {
             purpose: "store-owner-avatar",
           })
         : formData.avatarUrl;
+      if (pendingAvatarFile) uploadedAvatarUrl = avatarUrl;
       await updateDoc(doc(db, "users", user.id), {
         name: formData.name,
         address: formData.address,
@@ -73,6 +77,7 @@ export default function StoreOwnerAccount() {
         bio: formData.bio,
         birthday: formData.birthday,
       });
+      profilePersisted = true;
       const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
       if (previousAvatarUrl && previousAvatarUrl !== avatarUrl) {
         await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
@@ -83,6 +88,9 @@ export default function StoreOwnerAccount() {
       setIsEditing(false);
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {
+      if (!profilePersisted && uploadedAvatarUrl) {
+        await deleteImageFromDriveSecure(uploadedAvatarUrl).catch(console.error);
+      }
       console.error(error);
       alert("Failed to update account information");
     } finally {
@@ -113,7 +121,7 @@ export default function StoreOwnerAccount() {
   );
 
   return (
-    <div className="max-w-3xl space-y-8">
+    <div className="mx-auto w-full max-w-3xl space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Profile</h2>
@@ -160,9 +168,10 @@ export default function StoreOwnerAccount() {
                   setSaved(false);
                   setIsEditing(true);
                 }}
+                aria-label="Edit profile"
                 className="inline-flex items-center justify-center rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
               >
-                Edit Profile
+                Edit
               </button>
             ) : (
               <div className="flex gap-2">
@@ -281,6 +290,7 @@ export default function StoreOwnerAccount() {
 
       </div>
 
+      <CurrencyPreference />
       <AccountSecurity />
     </div>
   );

@@ -10,6 +10,7 @@ import { registerServiceWorker } from './lib/pwa';
 import './index.css';
 
 import { ThemeProvider } from './contexts/ThemeContext';
+import { CurrencyProvider } from './contexts/CurrencyContext';
 
 installLazyImageDefaults();
 
@@ -19,9 +20,11 @@ createRoot(document.getElementById('root')!).render(
       <AlertModalProvider>
         <ToastProvider>
           <AuthProvider>
-            <BrowserRouter>
-              <App />
-            </BrowserRouter>
+            <CurrencyProvider>
+              <BrowserRouter>
+                <App />
+              </BrowserRouter>
+            </CurrencyProvider>
           </AuthProvider>
         </ToastProvider>
       </AlertModalProvider>

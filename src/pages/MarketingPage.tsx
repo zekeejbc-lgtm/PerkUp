@@ -5,6 +5,8 @@ import { PublicPageShell } from "../components/PublicPageShell";
 import { db } from "../lib/backend";
 import { doc, getDoc } from "../lib/dataCompat";
 import { DEFAULT_SUBSCRIPTION_PLANS, SubscriptionPlan } from "../lib/subscriptionBilling";
+import { useCurrency } from "../contexts/CurrencyContext";
+import { SkeletonBlock } from "../components/LoadingSkeleton";
 
 const content = {
   "/product": {
@@ -63,6 +65,7 @@ export default function MarketingPage() {
 }
 
 export function PricingPage() {
+  const { formatCurrency } = useCurrency();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -81,12 +84,23 @@ export function PricingPage() {
       <p className="text-sm font-semibold text-gray-500 dark:text-gray-400">Pricing</p>
       <h1 className="mt-3 text-4xl font-bold tracking-tight sm:text-5xl">Plans for every local business.</h1>
       <p className="mt-6 text-lg text-gray-600 dark:text-gray-300">These are the current subscription prices configured by the PerkUp administrator.</p>
-      {loading ? <p className="mt-12 text-gray-500">Loading current plans…</p> : (
+      {loading ? (
+        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading subscription plans">
+          {[0, 1, 2].map((item) => (
+            <div key={item} className="rounded-3xl border border-black/10 p-6 dark:border-white/10">
+              <SkeletonBlock className="h-6 w-28 rounded-lg" />
+              <div className="mt-5 flex items-end gap-2"><SkeletonBlock className="h-10 w-32 rounded-xl" /><SkeletonBlock className="h-4 w-16 rounded-lg" /></div>
+              <div className="mt-7 space-y-4"><SkeletonBlock className="h-4 w-full rounded-lg" /><SkeletonBlock className="h-4 w-5/6 rounded-lg" /><SkeletonBlock className="h-4 w-4/6 rounded-lg" /></div>
+              <SkeletonBlock className="mt-8 h-12 w-full rounded-full" />
+            </div>
+          ))}
+        </div>
+      ) : (
         <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {plans.map((plan) => (
             <section key={plan.id || plan.name} className="flex flex-col rounded-3xl border border-black/10 p-6 dark:border-white/10">
               <h2 className="text-xl font-bold">{plan.name}</h2>
-              <p className="mt-4"><span className="text-4xl font-bold">₱{Number(plan.price || 0).toLocaleString("en-PH")}</span><span className="text-gray-500"> / {plan.interval || "month"}</span></p>
+              <p className="mt-4"><span className="text-4xl font-bold">{formatCurrency(Number(plan.price || 0), { maximumFractionDigits: 2 })}</span><span className="text-gray-500"> / {plan.interval || "month"}</span></p>
               <ul className="mt-6 flex-1 space-y-3 text-sm text-gray-600 dark:text-gray-300">
                 {(plan as SubscriptionPlan & { features?: string[] }).features?.map((feature) => <li key={feature} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0" />{feature}</li>)}
               </ul>
