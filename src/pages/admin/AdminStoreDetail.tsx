@@ -32,6 +32,7 @@ import { sanitizePasswordInput } from "../../lib/passwordStrength";
 import { getEffectiveSubscriptionStatus, normalizeSubscriptionAccess } from "../../lib/subscriptionAccess";
 import { supabase } from "../../lib/supabase";
 import { StoreBranchesMap } from "../../components/StoreBranchesMap";
+import { PasswordVisibilityButton } from "../../components/PasswordVisibilityButton";
 
 const ACTIVITY_LOGS_PER_PAGE = 8;
 type SubscriptionAccessAction = "active" | "warning" | "grace" | "frozen";
@@ -93,6 +94,7 @@ export default function AdminStoreDetail({
   const [deleteNameConfirmation, setDeleteNameConfirmation] = useState("");
   const [deleteWordConfirmation, setDeleteWordConfirmation] = useState("");
   const [deletePassword, setDeletePassword] = useState("");
+  const [showDeletePassword, setShowDeletePassword] = useState(false);
   const [subscriptionAccessForm, setSubscriptionAccessForm] = useState(() => normalizeSubscriptionAccess(null));
   const [subscriptionAccessBusy, setSubscriptionAccessBusy] = useState(false);
   const [subscriptionAccessMessage, setSubscriptionAccessMessage] = useState("");
@@ -136,6 +138,7 @@ export default function AdminStoreDetail({
   const [resetModalUser, setResetModalUser] = useState<any>(null);
   const [newPasswordType, setNewPasswordType] = useState<'default' | 'random' | 'custom'>('default');
   const [customPassword, setCustomPassword] = useState('');
+  const [showCustomPassword, setShowCustomPassword] = useState(false);
   const [requirePasswordChange, setRequirePasswordChange] = useState(false);
   const deleteTargetName = deleteScope === "store"
     ? String(store?.businessName || store?.name || "").trim()
@@ -615,12 +618,23 @@ export default function AdminStoreDetail({
       if (!email) throw new Error("Your administrator email could not be verified.");
       const { error: reauthError } = await supabase.auth.signInWithPassword({ email, password: deletePassword });
       if (reauthError) throw new Error("Administrator password is incorrect.");
-      const result = await invokeAdminBackend<{ deleted: boolean; deletedStoreIds: string[]; primaryStoreId?: string }>({
+      const result = await invokeAdminBackend<{
+        deleted: boolean;
+        deletedStoreIds: string[];
+        primaryStoreId?: string;
+        cleanupComplete?: boolean;
+        cleanupWarning?: string;
+        failedUsers?: number;
+        failedFiles?: number;
+      }>({
         action: deleteScope === "store" ? "delete_store_group" : "delete_store",
         storeId,
       });
       onDeleted?.(result.deletedStoreIds || [storeId]);
       setShowDeleteModal(false);
+      if (result.cleanupComplete === false) {
+        alert(`${result.cleanupWarning || "Some external cleanup could not be completed."}\n\nFailed accounts: ${result.failedUsers || 0}\nFailed files: ${result.failedFiles || 0}`);
+      }
       if (deleteScope === "store") {
         onBack();
       } else {
@@ -1568,17 +1582,20 @@ export default function AdminStoreDetail({
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">Confirm your administrator password</label>
-                  <input
-                    type="password"
-                    autoComplete="current-password"
-                    value={deletePassword}
-                    onChange={(event) => {
-                      setDeletePassword(event.target.value);
-                      if (deleteError) setDeleteError("");
-                    }}
-                    disabled={isDeleting}
-                    className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none transition-colors focus:border-red-300 focus:ring-2 focus:ring-red-200 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  />
+                  <div className="relative mt-2">
+                    <input
+                      type={showDeletePassword ? "text" : "password"}
+                      autoComplete="current-password"
+                      value={deletePassword}
+                      onChange={(event) => {
+                        setDeletePassword(event.target.value);
+                        if (deleteError) setDeleteError("");
+                      }}
+                      disabled={isDeleting}
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 pr-12 text-sm text-gray-900 outline-none transition-colors focus:border-red-300 focus:ring-2 focus:ring-red-200 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    />
+                    <PasswordVisibilityButton visible={showDeletePassword} onToggle={() => setShowDeletePassword((visible) => !visible)} label="administrator password" className="focus-visible:ring-red-500" />
+                  </div>
                 </div>
               </div>
 
@@ -1635,7 +1652,10 @@ export default function AdminStoreDetail({
               {newPasswordType === 'custom' && (
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-2">Custom Password</label>
-                  <input type="password" value={customPassword} onChange={e => setCustomPassword(sanitizePasswordInput(e.target.value))} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" placeholder="Enter new password (no spaces)" />
+                  <div className="relative">
+                    <input type={showCustomPassword ? "text" : "password"} autoComplete="new-password" value={customPassword} onChange={e => setCustomPassword(sanitizePasswordInput(e.target.value))} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 pr-11 rounded-lg text-sm" placeholder="Enter new password (no spaces)" />
+                    <PasswordVisibilityButton visible={showCustomPassword} onToggle={() => setShowCustomPassword((visible) => !visible)} label="custom password" />
+                  </div>
                 </div>
               )}
 

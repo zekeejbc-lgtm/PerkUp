@@ -10,6 +10,7 @@ import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { sanitizePasswordInput } from "../../lib/passwordStrength";
 import { sanitizeUsernameInput } from "../../lib/username";
+import { PasswordVisibilityButton } from "../../components/PasswordVisibilityButton";
 
 export default function AdminAccount() {
   const { user, refreshUser } = useAuth();
@@ -33,6 +34,7 @@ export default function AdminAccount() {
   const [newAdminName, setNewAdminName] = useState("");
   const [newAdminEmail, setNewAdminEmail] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
+  const [showNewAdminPassword, setShowNewAdminPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [adminToDelete, setAdminToDelete] = useState<any>(null);
   const [isDeletingAdmin, setIsDeletingAdmin] = useState(false);
@@ -380,7 +382,10 @@ export default function AdminAccount() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">Password</label>
-                <input type="password" required value={newAdminPassword} onChange={e => setNewAdminPassword(sanitizePasswordInput(e.target.value))} minLength={6} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" placeholder="Min 6 characters, no spaces" />
+                <div className="relative">
+                  <input type={showNewAdminPassword ? "text" : "password"} autoComplete="new-password" required value={newAdminPassword} onChange={e => setNewAdminPassword(sanitizePasswordInput(e.target.value))} minLength={6} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 pr-11 rounded-lg text-sm" placeholder="Min 6 characters, no spaces" />
+                  <PasswordVisibilityButton visible={showNewAdminPassword} onToggle={() => setShowNewAdminPassword((visible) => !visible)} label="new administrator password" />
+                </div>
               </div>
               
               <div className="flex justify-end gap-2 pt-2">

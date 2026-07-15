@@ -12,6 +12,7 @@ import { useAuth } from "@/src/contexts/AuthContext";
 import { doc, serverTimestamp, setDoc } from "@/src/lib/dataCompat";
 import { invokeAdminBackend } from "@/src/lib/adminBackend";
 import { formatPhilippineDateTime } from "@/src/lib/dateTime";
+import { PasswordVisibilityButton } from "@/src/components/PasswordVisibilityButton";
 
 type Message = {
   text: string;
@@ -45,6 +46,7 @@ export default function AccountSecurity() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [visiblePasswords, setVisiblePasswords] = useState({ current: false, new: false, confirm: false, deletion: false });
   const [passwordMfaCode, setPasswordMfaCode] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
@@ -124,7 +126,12 @@ export default function AccountSecurity() {
     setNewPassword("");
     setConfirmPassword("");
     setPasswordMfaCode("");
+    setVisiblePasswords((current) => ({ ...current, current: false, new: false, confirm: false }));
     setShowPasswordForm(false);
+  };
+
+  const togglePasswordVisibility = (field: keyof typeof visiblePasswords) => {
+    setVisiblePasswords((current) => ({ ...current, [field]: !current[field] }));
   };
 
   const resetEmailForm = () => {
@@ -503,24 +510,32 @@ export default function AccountSecurity() {
           <form onSubmit={handlePasswordChange} className="mt-5 grid gap-4 sm:grid-cols-2">
             <div className="space-y-1 sm:col-span-2">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Current Password</label>
-              <input
-                type="password"
-                required
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(sanitizePasswordInput(event.target.value))}
-                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
-              />
+              <div className="relative">
+                <input
+                  type={visiblePasswords.current ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(sanitizePasswordInput(event.target.value))}
+                  className="w-full px-4 py-3 pr-12 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
+                />
+                <PasswordVisibilityButton visible={visiblePasswords.current} onToggle={() => togglePasswordVisibility("current")} label="current password" />
+              </div>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">New Password</label>
-              <input
-                type="password"
-                required
-                minLength={6}
-                value={newPassword}
-                onChange={(event) => setNewPassword(sanitizePasswordInput(event.target.value))}
-                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
-              />
+              <div className="relative">
+                <input
+                  type={visiblePasswords.new ? "text" : "password"}
+                  autoComplete="new-password"
+                  required
+                  minLength={6}
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(sanitizePasswordInput(event.target.value))}
+                  className="w-full px-4 py-3 pr-12 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
+                />
+                <PasswordVisibilityButton visible={visiblePasswords.new} onToggle={() => togglePasswordVisibility("new")} label="new password" />
+              </div>
               {newPassword && (
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between text-xs font-semibold">
@@ -552,14 +567,18 @@ export default function AccountSecurity() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Confirm New Password</label>
-              <input
-                type="password"
-                required
-                minLength={6}
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(sanitizePasswordInput(event.target.value))}
-                className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
-              />
+              <div className="relative">
+                <input
+                  type={visiblePasswords.confirm ? "text" : "password"}
+                  autoComplete="new-password"
+                  required
+                  minLength={6}
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(sanitizePasswordInput(event.target.value))}
+                  className="w-full px-4 py-3 pr-12 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl outline-none focus:border-[#1b1b1b] dark:text-white transition-colors"
+                />
+                <PasswordVisibilityButton visible={visiblePasswords.confirm} onToggle={() => togglePasswordVisibility("confirm")} label="password confirmation" />
+              </div>
             </div>
             {verifiedFactors.length > 0 && (
               <div className="space-y-1 sm:col-span-2">
@@ -946,14 +965,17 @@ export default function AccountSecurity() {
               {deletionStep === "credentials" && (
                 <div className="mt-4 space-y-3">
                   <p className="text-sm font-semibold text-red-900 dark:text-red-200">Step 2: Password and username</p>
-                  <input
-                    type="password"
-                    value={deletionPassword}
-                    onChange={(event) => setDeletionPassword(sanitizePasswordInput(event.target.value))}
-                    autoComplete="current-password"
-                    placeholder="Current password"
-                    className="w-full rounded-xl border border-red-200 bg-white px-4 py-2.5 text-gray-900 outline-none focus:ring-2 focus:ring-red-500 dark:border-red-900 dark:bg-gray-900 dark:text-white"
-                  />
+                  <div className="relative">
+                    <input
+                      type={visiblePasswords.deletion ? "text" : "password"}
+                      value={deletionPassword}
+                      onChange={(event) => setDeletionPassword(sanitizePasswordInput(event.target.value))}
+                      autoComplete="current-password"
+                      placeholder="Current password"
+                      className="w-full rounded-xl border border-red-200 bg-white px-4 py-2.5 pr-12 text-gray-900 outline-none focus:ring-2 focus:ring-red-500 dark:border-red-900 dark:bg-gray-900 dark:text-white"
+                    />
+                    <PasswordVisibilityButton visible={visiblePasswords.deletion} onToggle={() => togglePasswordVisibility("deletion")} label="account deletion password" className="focus-visible:ring-red-500" />
+                  </div>
                   <input
                     value={deletionUsername}
                     onChange={(event) => setDeletionUsername(sanitizeUsernameInput(event.target.value))}

@@ -1000,7 +1000,8 @@ Deno.serve(async (req) => {
       const { data: staffRows, error: usersError } = await admin
         .from("users")
         .select("id,data")
-        .in("data->>storeId", storeIds);
+        .in("data->>storeId", storeIds)
+        .eq("data->>role", "staff");
       if (usersError) throw usersError;
       const deleteOwner = Boolean(ownerId) && (deleteGroup || (remainingStoreRows || []).length === 0);
       const userIds = Array.from(new Set([
@@ -1021,21 +1022,89 @@ Deno.serve(async (req) => {
         if (ownedFilesError) throw ownedFilesError;
         for (const file of ownedFiles || []) driveFileIds.add(String(file.file_id));
       }
-      for (const table of ["promotions_scanned", "feedback", "store_reviews", "cards", "products", "promotions"]) {
-        if (table === "products" || table === "promotions") {
-          const { data: rows, error: readError } = await admin
+
+      const assetRowsByTable = new Map<string, any[]>();
+      for (const table of ["products", "promotions", "store_reviews"]) {
+        const { data: rows, error: readError } = await admin
+          .from(table)
+          .select("data")
+          .in("data->>storeId", storeIds);
+        if (readError) throw readError;
+        const assetRows = rows || [];
+        assetRowsByTable.set(table, assetRows);
+        for (const row of assetRows) collectDriveFileIds(row.data, driveFileIds);
+      }
+
+      const { data: applicationRows, error: applicationReadError } = await admin
+        .from("applications")
+        .select("id")
+        .in("data->>approvedStoreId", storeIds);
+      if (applicationReadError) throw applicationReadError;
+      const applicationIds = (applicationRows || []).map((row) => String(row.id));
+      if (applicationIds.length) {
+        const { data: applicationFiles, error: applicationFilesError } = await admin
+          .from("application_files")
+          .select("file_id")
+          .in("application_id", applicationIds);
+        if (applicationFilesError) throw applicationFilesError;
+        for (const file of applicationFiles || []) driveFileIds.add(String(file.file_id));
+      }
+
+      // A branch can reuse its primary branch logo (or another managed image). Never
+      // delete a file that is still referenced by a surviving branch or its data.
+      const retainedDriveFileIds = new Set<string>();
+      if (!deleteGroup && (remainingStoreRows || []).length) {
+        const remainingStoreIds = (remainingStoreRows || []).map((row: any) => String(row.id));
+        for (const remainingStore of remainingStoreRows || []) {
+          collectDriveFileIds(remainingStore.data, retainedDriveFileIds);
+        }
+        for (const table of ["products", "promotions", "store_reviews"]) {
+          const { data: rows, error: retainedReadError } = await admin
             .from(table)
             .select("data")
-            .in("data->>storeId", storeIds);
-          if (readError) throw readError;
-          for (const row of rows || []) collectDriveFileIds(row.data, driveFileIds);
+            .in("data->>storeId", remainingStoreIds);
+          if (retainedReadError) throw retainedReadError;
+          for (const row of rows || []) collectDriveFileIds(row.data, retainedDriveFileIds);
         }
+      }
+
+      // Review images belong to customers and may be reused on a review outside the
+      // deletion scope, including at a store owned by someone else.
+      const reviewCustomerIds = Array.from(new Set(
+        (assetRowsByTable.get("store_reviews") || [])
+          .map((row: any) => cleanText(row.data?.customerId, 100))
+          .filter(Boolean),
+      ));
+      if (reviewCustomerIds.length) {
+        const { data: otherCustomerReviews, error: otherReviewsError } = await admin
+          .from("store_reviews")
+          .select("data")
+          .in("data->>customerId", reviewCustomerIds);
+        if (otherReviewsError) throw otherReviewsError;
+        for (const row of otherCustomerReviews || []) {
+          if (!storeIds.includes(String(row.data?.storeId || ""))) {
+            collectDriveFileIds(row.data, retainedDriveFileIds);
+          }
+        }
+      }
+      for (const fileId of retainedDriveFileIds) driveFileIds.delete(fileId);
+
+      for (const table of ["promotions_scanned", "feedback", "store_reviews", "cards", "products", "promotions"]) {
         const { error } = await admin.from(table).delete().in("data->>storeId", storeIds);
         if (error) throw error;
       }
+      const { error: linkedRequestDeleteError } = await admin
+        .from("branch_requests")
+        .delete()
+        .in("data->>storeId", storeIds);
+      if (linkedRequestDeleteError) throw linkedRequestDeleteError;
       if (deleteGroup && ownerId) {
         const { error: requestDeleteError } = await admin.from("branch_requests").delete().eq("data->>ownerId", ownerId);
         if (requestDeleteError) throw requestDeleteError;
+      }
+      if (applicationIds.length) {
+        const { error: applicationDeleteError } = await admin.from("applications").delete().in("id", applicationIds);
+        if (applicationDeleteError) throw applicationDeleteError;
       }
       const { error: referralDeleteError } = await admin.from("store_referral_redemptions").delete().in("store_id", storeIds);
       if (referralDeleteError) throw referralDeleteError;
@@ -1073,28 +1142,51 @@ Deno.serve(async (req) => {
         }
         await mergeUserData(admin, ownerId, { storeId: primaryStoreId });
       }
-      if (userIds.length) {
-        const { error: deleteProfilesError } = await admin.from("users").delete().in("id", userIds);
-        if (deleteProfilesError) throw deleteProfilesError;
-        for (const userId of userIds) {
-          await admin.auth.admin.deleteUser(userId).catch((error) => {
-            console.error("Could not delete Auth user", userId, error);
-          });
+      const deletedUserIds: string[] = [];
+      const failedUserIds: string[] = [];
+      for (const userId of userIds) {
+        const { error: authDeleteError } = await admin.auth.admin.deleteUser(userId);
+        if (authDeleteError) {
+          failedUserIds.push(userId);
+          console.error("Could not delete Auth user", userId, authDeleteError);
+        } else {
+          deletedUserIds.push(userId);
         }
       }
-      for (const fileId of driveFileIds) {
-        await deleteDriveFile(fileId).catch((error) => {
-          console.error("Could not delete Drive file", fileId, error);
-        });
-        await admin.from("drive_files").delete().eq("file_id", fileId);
+      if (deletedUserIds.length) {
+        const { error: deleteProfilesError } = await admin.from("users").delete().in("id", deletedUserIds);
+        if (deleteProfilesError) throw deleteProfilesError;
       }
+
+      let deletedFiles = 0;
+      const failedFileIds: string[] = [];
+      for (const fileId of driveFileIds) {
+        try {
+          await permanentlyDeleteDriveFile(fileId);
+          const { error: registryDeleteError } = await admin.from("drive_files").delete().eq("file_id", fileId);
+          if (registryDeleteError) throw registryDeleteError;
+          deletedFiles += 1;
+        } catch (error) {
+          failedFileIds.push(fileId);
+          console.error("Could not delete Drive file", fileId, error);
+        }
+      }
+
+      const cleanupComplete = failedUserIds.length === 0 && failedFileIds.length === 0;
 
       return jsonResponse({
         deleted: true,
         deletedStoreIds: storeIds,
         primaryStoreId,
-        deletedUsers: userIds.length,
-        deletedFiles: driveFileIds.size,
+        cleanupComplete,
+        deletedUsers: deletedUserIds.length,
+        failedUsers: failedUserIds.length,
+        deletedFiles,
+        failedFiles: failedFileIds.length,
+        retainedSharedFiles: retainedDriveFileIds.size,
+        ...(!cleanupComplete ? {
+          cleanupWarning: "The store data was deleted, but one or more Auth accounts or Drive files need administrator cleanup.",
+        } : {}),
       });
     }
 
