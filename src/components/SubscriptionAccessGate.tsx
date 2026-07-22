@@ -150,8 +150,8 @@ export function SubscriptionFrozenScreen({ store, role = "store_owner" }: { stor
 
           {role === "store_owner" && <div className="flex flex-col gap-3 sm:flex-row">
             {paymentLink && (
-              <a href={paymentLink} target="_blank" rel="noopener noreferrer" aria-label={`Pay ${formatPhp(amountDue)} securely with PayMongo`} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-green-700">
-                Pay {formatPhp(amountDue)} securely <ExternalLink className="h-4 w-4" />
+              <a href={paymentLink} target="_blank" rel="noopener noreferrer" aria-label={`Pay now - ${formatPhp(amountDue)} securely with PayMongo`} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-green-700">
+                Pay now - {formatPhp(amountDue)} <ExternalLink className="h-4 w-4" />
               </a>
             )}
             <a href={contactIsEmail ? `mailto:${policy.paymentContact}` : undefined} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 px-5 py-3 text-sm font-bold text-gray-800 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800">
