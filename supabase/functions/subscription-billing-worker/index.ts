@@ -25,7 +25,8 @@ type ClaimedInvoice = {
 type BillingNotification = {
   id: string;
   invoice_id: string;
-  notification_type: "payment_overdue" | "access_frozen" | "payment_received" | "admin_failure";
+  notification_type: "payment_overdue" | "access_frozen" | "payment_received" | "admin_failure" |
+    "initial_payment_reminder_3d" | "initial_payment_reminder_5d" | "initial_payment_deletion_warning";
   recipient: string;
   attempt_count: number;
 };
@@ -105,13 +106,19 @@ const retrievePaidPayment = async (linkId: string) => {
     { method: "GET" },
   );
   const payments = Array.isArray(payload?.data) ? payload.data : [];
-  const payment = payments.find((candidate: Record<string, unknown>) =>
-    String(candidate?.status || "").toLowerCase() === "paid"
-  );
-  if (!payment) return null;
-  const paidAt = new Date(String(payment.updated_at || payment.created_at || ""));
+  const resource = payments.find((candidate: Record<string, any>) => {
+    const attributes = candidate?.attributes || candidate;
+    return String(attributes?.status || "").toLowerCase() === "paid";
+  });
+  if (!resource) return null;
+  const payment = resource?.attributes || resource;
+  const rawPaidAt = payment.paid_at || payment.updated_at || payment.created_at;
+  const numericPaidAt = Number(rawPaidAt);
+  const paidAt = Number.isFinite(numericPaidAt)
+    ? new Date(numericPaidAt > 10_000_000_000 ? numericPaidAt : numericPaidAt * 1000)
+    : new Date(String(rawPaidAt || ""));
   return {
-    id: String(payment.payment_id || ""),
+    id: String(resource?.id || payment.payment_id || ""),
     amount: Number(payment.amount),
     currency: String(payment.currency || "").toUpperCase(),
     livemode: Boolean(payment.livemode),
@@ -137,6 +144,89 @@ const sendGasRequest = async (body: Record<string, unknown>) => {
     throw new Error(String(payload?.error || `Email service returned HTTP ${response.status}`).slice(0, 500));
   }
   return payload;
+};
+
+const permanentlyDeleteDriveFile = async (fileId: string) => {
+  await sendGasRequest({ action: "permanent_delete", fileId });
+};
+
+const deleteExpiredInitialAccount = async (
+  supabase: ReturnType<typeof createClient>,
+  storeId: string,
+  ownerUserId: string,
+) => {
+  const { data: storeRows, error: storesError } = await supabase.from("stores")
+    .select("id,data").eq("data->>ownerId", ownerUserId);
+  if (storesError) throw storesError;
+  const stores = storeRows || [];
+  if (!stores.some((row) => String(row.id) === storeId)) return false;
+  const storeIds = stores.map((row) => String(row.id));
+
+  const { data: subscription, error: subscriptionError } = await supabase.from("billing_subscriptions")
+    .select("id,initial_payment_required").eq("store_id", storeId).maybeSingle();
+  if (subscriptionError) throw subscriptionError;
+  if (!subscription?.initial_payment_required) return false;
+
+  const { data: unpaidInvoice, error: invoiceCheckError } = await supabase.from("billing_invoices")
+    .select("id").eq("subscription_id", subscription.id).eq("invoice_type", "initial")
+    .eq("status", "expired").maybeSingle();
+  if (invoiceCheckError) throw invoiceCheckError;
+  if (!unpaidInvoice) return false;
+
+  const { data: staffRows, error: staffError } = await supabase.from("users")
+    .select("id").in("data->>storeId", storeIds).eq("data->>role", "staff");
+  if (staffError) throw staffError;
+  const userIds = Array.from(new Set([ownerUserId, ...(staffRows || []).map((row) => String(row.id))]));
+
+  const { data: ownedFiles, error: filesError } = await supabase.from("drive_files")
+    .select("file_id").in("owner_id", userIds);
+  if (filesError) throw filesError;
+  for (const file of ownedFiles || []) {
+    try {
+      await permanentlyDeleteDriveFile(String(file.file_id));
+      await supabase.from("drive_files").delete().eq("file_id", file.file_id);
+    } catch (error) {
+      console.error("Expired store Drive file cleanup failed", { fileId: file.file_id, error });
+    }
+  }
+
+  for (const table of ["promotions_scanned", "feedback", "store_reviews", "cards", "products", "promotions"]) {
+    const { error } = await supabase.from(table).delete().in("data->>storeId", storeIds);
+    if (error) throw error;
+  }
+  const { error: branchRequestError } = await supabase.from("branch_requests").delete()
+    .in("data->>storeId", storeIds);
+  if (branchRequestError) throw branchRequestError;
+  const { error: ownerBranchRequestError } = await supabase.from("branch_requests").delete()
+    .eq("data->>ownerId", ownerUserId);
+  if (ownerBranchRequestError) throw ownerBranchRequestError;
+
+  const { data: applicationRows, error: applicationReadError } = await supabase.from("applications")
+    .select("id").in("data->>approvedStoreId", storeIds);
+  if (applicationReadError) throw applicationReadError;
+  const applicationIds = (applicationRows || []).map((row) => String(row.id));
+  if (applicationIds.length) {
+    const { error } = await supabase.from("applications").delete().in("id", applicationIds);
+    if (error) throw error;
+  }
+
+  const { error: referralError } = await supabase.from("store_referral_redemptions")
+    .delete().in("store_id", storeIds);
+  if (referralError) throw referralError;
+  const { error: invoiceDeleteError } = await supabase.from("billing_invoices").delete().in("store_id", storeIds);
+  if (invoiceDeleteError) throw invoiceDeleteError;
+  const { error: subscriptionDeleteError } = await supabase.from("billing_subscriptions").delete().in("store_id", storeIds);
+  if (subscriptionDeleteError) throw subscriptionDeleteError;
+  const { error: storeDeleteError } = await supabase.from("stores").delete().in("id", storeIds);
+  if (storeDeleteError) throw storeDeleteError;
+
+  for (const userId of userIds) {
+    const { error } = await supabase.auth.admin.deleteUser(userId);
+    if (error) console.error("Expired store Auth user cleanup failed", { userId, error });
+  }
+  const { error: profileDeleteError } = await supabase.from("users").delete().in("id", userIds);
+  if (profileDeleteError) throw profileDeleteError;
+  return true;
 };
 
 Deno.serve(async (req) => {
@@ -169,6 +259,7 @@ Deno.serve(async (req) => {
       remindersSent: 0,
       receiptsSent: 0,
       reconciled: 0,
+      expiredAccountsDeleted: 0,
       failed: 0,
     };
     for (const invoice of (claimed || []) as ClaimedInvoice[]) {
@@ -226,6 +317,8 @@ Deno.serve(async (req) => {
             referenceNumber: link.referenceNumber,
             paymentLink: link.url,
             testMode: !link.livemode,
+            initialPayment: storeRow?.data?.initialPaymentRequired === true,
+            intervalDays: Number(storeRow?.data?.billingIntervalDays || 30),
           },
         });
 
@@ -333,7 +426,7 @@ Deno.serve(async (req) => {
       try {
         const { data: invoice, error: invoiceError } = await supabase
           .from("billing_invoices")
-          .select("id,store_id,owner_user_id,period_start,period_end,due_at,amount_centavos,currency,status,paymongo_reference_number,payment_url,livemode,paid_at,payment_method,gross_amount_centavos,fee_centavos,net_amount_centavos,last_error,subscription_id")
+          .select("id,store_id,owner_user_id,invoice_type,period_start,period_end,due_at,amount_centavos,currency,status,paymongo_reference_number,payment_url,livemode,paid_at,payment_method,gross_amount_centavos,fee_centavos,net_amount_centavos,last_error,subscription_id")
           .eq("id", notification.invoice_id)
           .maybeSingle();
         if (invoiceError) throw invoiceError;
@@ -373,10 +466,12 @@ Deno.serve(async (req) => {
           paymentMethod: invoice.payment_method,
           referenceNumber: invoice.paymongo_reference_number,
           paymentLink: invoice.payment_url,
-          testMode: !invoice.livemode,
+          testMode: invoice.payment_method === "admin_confirmed" ? false : !invoice.livemode,
           noticeType: notification.notification_type,
           renewedUntil: subscription.current_period_end,
           failureReason: invoice.last_error,
+          initialPayment: invoice.invoice_type === "initial",
+          adminConfirmed: invoice.payment_method === "admin_confirmed",
         };
 
         await sendGasRequest({
@@ -410,6 +505,26 @@ Deno.serve(async (req) => {
           next_attempt_at: retryAt(attemptCount),
         }).eq("id", notification.id);
         console.error("Billing lifecycle notification failed", { notificationId: notification.id, error: message });
+      }
+    }
+
+    const { data: expiredAccounts, error: expiredAccountsError } = await supabase
+      .rpc("claim_expired_initial_payment_accounts", { p_limit: 10 });
+    if (expiredAccountsError) throw expiredAccountsError;
+    for (const account of expiredAccounts || []) {
+      try {
+        if (await deleteExpiredInitialAccount(
+          supabase,
+          String(account.store_id),
+          String(account.owner_user_id),
+        )) results.expiredAccountsDeleted += 1;
+      } catch (error) {
+        results.failed += 1;
+        console.error("Expired initial-payment account deletion failed", {
+          storeId: account.store_id,
+          ownerUserId: account.owner_user_id,
+          error: error instanceof Error ? error.message : error,
+        });
       }
     }
 

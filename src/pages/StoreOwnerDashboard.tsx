@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useState, useEffect } from "react";
+import React, { lazy, Suspense, useCallback, useState, useEffect, useRef } from "react";
 import { Routes, Route, Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Store, ShoppingBag, Gift, Users, BadgeCheck, UserCircle, CreditCard, ChevronRight, ChevronDown, Building, Menu, ArrowLeft, MessageSquare, Plus, Loader2, RefreshCw, CheckCircle2, XCircle, Clock3 } from "lucide-react";
 import { DashboardShellSkeleton, PageSkeleton } from "../components/LoadingSkeleton";
@@ -19,7 +19,7 @@ import { StoreLocationPicker } from "../components/StoreLocationPicker";
 import { supabase } from "../lib/supabase";
 import { getSubscriptionBranchLimit } from "../lib/subscriptionBilling";
 import { getEffectiveSubscriptionStatus, isAccountSuspended } from "../lib/subscriptionAccess";
-import { AccountSuspendedScreen, SubscriptionAccessBanner, SubscriptionFrozenScreen } from "../components/SubscriptionAccessGate";
+import { AccountSuspendedScreen, PaymentActivationSuccessScreen, PaymentConfirmation, SubscriptionAccessBanner, SubscriptionFrozenScreen } from "../components/SubscriptionAccessGate";
 
 const normalizeDataRows = (rows: { id: string; data: Record<string, unknown> | null }[] | null | undefined) =>
   (rows || []).map((row) => ({ id: row.id, ...(row.data || {}) }));
@@ -76,6 +76,8 @@ export default function StoreOwnerDashboard() {
   const [requestLocationSelected, setRequestLocationSelected] = useState(false);
   const [requestBusy, setRequestBusy] = useState(false);
   const [requestError, setRequestError] = useState("");
+  const [paymentActivation, setPaymentActivation] = useState<{ store: any; confirmation: PaymentConfirmation | null } | null>(null);
+  const initialPaymentWasPending = useRef(false);
   const isAccountOnlyRoute = location.pathname === '/owner/account' || location.pathname === '/owner/subscription';
   const activeStore = selectedStore;
   const requestedStoreId = searchParams.get("branch");
@@ -123,7 +125,7 @@ export default function StoreOwnerDashboard() {
 
   useEffect(() => {
     if (!user) return;
-    const refreshId = window.setInterval(() => loadOwnerData(true), 10000);
+    const refreshId = window.setInterval(() => loadOwnerData(true), 5000);
     return () => window.clearInterval(refreshId);
   }, [loadOwnerData, user]);
 
@@ -147,6 +149,31 @@ export default function StoreOwnerDashboard() {
   const subscriptionStore = stores.find((store) => store.isPrimaryBranch === true) ||
     stores.find((store) => store.subscriptionLevel || store.subscriptionDependencies) ||
     stores[0] || null;
+
+  useEffect(() => {
+    if (subscriptionStore?.initialPaymentRequired === true) {
+      initialPaymentWasPending.current = true;
+      return;
+    }
+    if (initialPaymentWasPending.current && subscriptionStore?.initialPaymentStatus === "paid") {
+      initialPaymentWasPending.current = false;
+      setPaymentActivation({ store: subscriptionStore, confirmation: null });
+    }
+  }, [subscriptionStore?.id, subscriptionStore?.initialPaymentRequired, subscriptionStore?.initialPaymentStatus]);
+
+  const handlePaymentConfirmed = useCallback((confirmation: PaymentConfirmation) => {
+    if (!subscriptionStore) return;
+    initialPaymentWasPending.current = false;
+    setPaymentActivation({ store: subscriptionStore, confirmation });
+    void loadOwnerData(true);
+  }, [loadOwnerData, subscriptionStore]);
+
+  const openActivatedStore = useCallback(() => {
+    const activatedStore = paymentActivation?.store || subscriptionStore;
+    if (!activatedStore?.id) return;
+    setPaymentActivation(null);
+    navigate(`/owner?branch=${encodeURIComponent(activatedStore.id)}&payment=success`, { replace: true });
+  }, [navigate, paymentActivation?.store, subscriptionStore]);
   const branchLimit = getSubscriptionBranchLimit(subscriptionStore?.subscriptionDependencies);
   const remainingBranchSlots = Math.max(0, branchLimit - stores.length);
   const pendingBranchRequest = branchRequests.find((request) => request.status === "pending");
@@ -218,8 +245,12 @@ export default function StoreOwnerDashboard() {
     return <AccountSuspendedScreen store={subscriptionStore} role="store_owner" />;
   }
 
+  if (paymentActivation) {
+    return <PaymentActivationSuccessScreen store={paymentActivation.store} confirmation={paymentActivation.confirmation} onContinue={openActivatedStore} />;
+  }
+
   if (subscriptionStore && getEffectiveSubscriptionStatus(subscriptionStore.subscriptionAccess, new Date(), subscriptionStore.subscriptionEnd) === "frozen") {
-    return <SubscriptionFrozenScreen store={subscriptionStore} role="store_owner" />;
+    return <SubscriptionFrozenScreen store={subscriptionStore} role="store_owner" onPaymentConfirmed={handlePaymentConfirmed} />;
   }
 
   // Branch Selector View

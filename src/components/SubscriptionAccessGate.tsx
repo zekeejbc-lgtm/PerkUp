@@ -1,4 +1,4 @@
-import { AlertOctagon, AlertTriangle, Clock3, CreditCard, ExternalLink, LockKeyhole, LogOut, Mail, X } from "lucide-react";
+import { AlertOctagon, AlertTriangle, CheckCircle2, Clock3, CreditCard, ExternalLink, LoaderCircle, LockKeyhole, LogOut, Mail, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { signOut } from "../lib/supabaseAuthCompat";
 import {
@@ -18,6 +18,28 @@ type FrozenInvoice = {
   amountCentavos: number;
   paymentUrl: string;
   referenceNumber: string | null;
+  status?: string;
+  createdAt?: string | null;
+  nextAttemptAt?: string | null;
+  paidAt?: string | null;
+  periodEnd?: string | null;
+};
+
+export type PaymentConfirmation = {
+  amountCentavos: number;
+  paidAt: string | null;
+  periodEnd: string | null;
+  referenceNumber: string | null;
+};
+
+const LINK_REFRESH_SECONDS = 10;
+
+const elapsedLabel = (startedAt: Date | null, now: number) => {
+  if (!startedAt) return "a few seconds";
+  const totalSeconds = Math.max(0, Math.floor((now - startedAt.getTime()) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds.toString().padStart(2, "0")}s` : `${seconds}s`;
 };
 
 const formatPhp = (amount: number) => new Intl.NumberFormat("en-PH", {
@@ -128,11 +150,23 @@ export function AccountSuspendedScreen({ store, role = "store_owner" }: { store:
   );
 }
 
-export function SubscriptionFrozenScreen({ store, role = "store_owner" }: { store: any; role?: PortalRole }) {
+export function SubscriptionFrozenScreen({
+  store,
+  role = "store_owner",
+  onPaymentConfirmed,
+}: {
+  store: any;
+  role?: PortalRole;
+  onPaymentConfirmed?: (confirmation: PaymentConfirmation) => void;
+}) {
   const policy = resolveSubscriptionAccess(store?.subscriptionAccess, store?.subscriptionEnd);
   const mirroredPaymentLink = safePaymentLink(policy.paymentLink);
   const [latestInvoice, setLatestInvoice] = useState<FrozenInvoice | null>(null);
   const [paymentLookupComplete, setPaymentLookupComplete] = useState(role !== "store_owner");
+  const paymentWatchKey = `perkup-payment-watch:${String(store?.id || "store")}`;
+  const [paymentPageOpened, setPaymentPageOpened] = useState(() => window.sessionStorage.getItem(paymentWatchKey) === "active");
+  const [clock, setClock] = useState(Date.now());
+  const [lastCheckedAt, setLastCheckedAt] = useState(Date.now());
   const paymentLink = latestInvoice?.paymentUrl || mirroredPaymentLink;
   const amountDue = latestInvoice
     ? latestInvoice.amountCentavos / 100
@@ -141,6 +175,14 @@ export function SubscriptionFrozenScreen({ store, role = "store_owner" }: { stor
   const graceEnd = timestampToDate(policy.graceEndsAt);
   const contactIsEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(policy.paymentContact);
   const initialPaymentRequired = store?.initialPaymentRequired === true;
+  const storeCreatedAt = timestampToDate(store?.createdAt);
+  const initialPaymentDeletionAt = storeCreatedAt
+    ? new Date(storeCreatedAt.getTime() + 15 * 86_400_000)
+    : null;
+  const invoiceStartedAt = latestInvoice?.createdAt
+    ? new Date(latestInvoice.createdAt)
+    : timestampToDate(store?.createdAt);
+  const secondsUntilRefresh = Math.max(1, LINK_REFRESH_SECONDS - Math.floor((clock - lastCheckedAt) / 1000));
 
   useEffect(() => {
     if (role !== "store_owner" || !store?.id) return;
@@ -149,37 +191,75 @@ export function SubscriptionFrozenScreen({ store, role = "store_owner" }: { stor
     const loadLatestInvoice = async () => {
       const { data, error } = await supabase
         .from("billing_invoices")
-        .select("amount_centavos,payment_url,paymongo_reference_number")
+        .select("amount_centavos,payment_url,paymongo_reference_number,status,created_at,next_attempt_at,paid_at,period_end")
         .eq("store_id", store.id)
-        .in("status", ["link_created", "failed"])
-        .not("payment_url", "is", null)
-        .order("due_at", { ascending: false })
+        .in("status", ["pending", "link_created", "failed", "paid"])
+        .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (cancelled) return;
+      setLastCheckedAt(Date.now());
       setPaymentLookupComplete(true);
       if (error) {
         console.warn("Could not refresh the frozen subscription invoice", error);
         return;
       }
       const verifiedUrl = safePaymentLink(data?.payment_url);
-      if (data && verifiedUrl) {
-        setLatestInvoice({
+      if (data) {
+        const invoice = {
           amountCentavos: Number(data.amount_centavos || 0),
-          paymentUrl: verifiedUrl,
+          paymentUrl: verifiedUrl || "",
           referenceNumber: data.paymongo_reference_number || null,
-        });
+          status: data.status || "pending",
+          createdAt: data.created_at || null,
+          nextAttemptAt: data.next_attempt_at || null,
+          paidAt: data.paid_at || null,
+          periodEnd: data.period_end || null,
+        };
+        setLatestInvoice(invoice);
+        if (data.status === "paid") {
+          window.sessionStorage.removeItem(paymentWatchKey);
+          onPaymentConfirmed?.({
+            amountCentavos: invoice.amountCentavos,
+            paidAt: invoice.paidAt,
+            periodEnd: invoice.periodEnd,
+            referenceNumber: invoice.referenceNumber,
+          });
+        } else if (data.status === "link_created" && paymentPageOpened) {
+          const { data: confirmation, error: confirmationError } = await supabase.functions.invoke("subscription-payment-status", {
+            body: { storeId: store.id },
+          });
+          if (!cancelled && !confirmationError && confirmation?.paid === true) {
+            window.sessionStorage.removeItem(paymentWatchKey);
+            onPaymentConfirmed?.({
+              amountCentavos: Number(confirmation.amountCentavos || invoice.amountCentavos),
+              paidAt: confirmation.paidAt || null,
+              periodEnd: confirmation.periodEnd || null,
+              referenceNumber: confirmation.referenceNumber || invoice.referenceNumber,
+            });
+          }
+        }
       }
     };
 
     void loadLatestInvoice();
-    const refreshId = window.setInterval(loadLatestInvoice, 10_000);
+    const refreshId = window.setInterval(loadLatestInvoice, 3_000);
+    window.addEventListener("focus", loadLatestInvoice);
+    document.addEventListener("visibilitychange", loadLatestInvoice);
     return () => {
       cancelled = true;
       window.clearInterval(refreshId);
+      window.removeEventListener("focus", loadLatestInvoice);
+      document.removeEventListener("visibilitychange", loadLatestInvoice);
     };
-  }, [role, store?.id]);
+  }, [onPaymentConfirmed, paymentPageOpened, paymentWatchKey, role, store?.id]);
+
+  useEffect(() => {
+    if (paymentLink || role !== "store_owner") return;
+    const clockId = window.setInterval(() => setClock(Date.now()), 1_000);
+    return () => window.clearInterval(clockId);
+  }, [paymentLink, role]);
 
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-10rem)] max-w-3xl items-center justify-center py-8">
@@ -202,7 +282,10 @@ export function SubscriptionFrozenScreen({ store, role = "store_owner" }: { stor
             <Info label="Subscription" value={store?.subscriptionLevel || "Not specified"} />
             <Info label="Exact amount due" value={formatPhp(amountDue)} />
             {latestInvoice?.referenceNumber && <Info label="PayMongo reference" value={latestInvoice.referenceNumber} />}
-            {initialPaymentRequired ? <Info label="Access period" value={`${Number(store?.billingIntervalDays || 30)} days after payment`} /> : <>
+            {initialPaymentRequired ? <>
+              <Info label="Access period" value={`${Number(store?.billingIntervalDays || 30)} days after payment`} />
+              <Info label="Payment deadline" value={initialPaymentDeletionAt ? `${initialPaymentDeletionAt.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })} (automatic deletion)` : "15 days after creation"} />
+            </> : <>
               <Info label="Subscription ended" value={subscriptionEnd ? subscriptionEnd.toLocaleDateString("en-PH", { dateStyle: "long" }) : "Contact PerkUp"} />
               <Info label="Grace period ended" value={graceEnd ? graceEnd.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "Not applicable"} />
             </>}
@@ -211,11 +294,31 @@ export function SubscriptionFrozenScreen({ store, role = "store_owner" }: { stor
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-700 dark:bg-gray-800/60">
             <div className="flex items-center gap-2 font-bold text-gray-900 dark:text-white"><CreditCard className="h-5 w-5" /> How to restore access</div>
             <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-600 dark:text-gray-300">{role === "staff" ? "Contact your store owner. Only the store owner can open the payment page." : paymentLink ? `Open the official PayMongo payment page and confirm that it shows exactly ${formatPhp(amountDue)} before paying. Complete payment using an available method such as QR Ph. You do not need to send proof; signed PayMongo confirmation ${initialPaymentRequired ? "activates the store" : "restores access"} automatically.` : paymentLookupComplete ? "A secure PayMongo payment link is not available yet. PerkUp is preparing it automatically; please contact support if it does not appear shortly." : "Checking for your secure PayMongo payment link..."}</p>
+            {role === "store_owner" && !paymentLink && (
+              <div className="mt-4 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-950 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-100" role="status" aria-live="polite">
+                <LoaderCircle className="mt-0.5 h-5 w-5 shrink-0 animate-spin" />
+                <div className="text-sm">
+                  <p className="font-bold">Preparing your secure payment link</p>
+                  <p className="mt-1 text-blue-800 dark:text-blue-200">
+                    Elapsed: {elapsedLabel(invoiceStartedAt, clock)}. Checking automatically again in {secondsUntilRefresh}s; you do not need to refresh this page.
+                  </p>
+                </div>
+              </div>
+            )}
+            {role === "store_owner" && paymentLink && paymentPageOpened && (
+              <div className="mt-4 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-950 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-100" role="status" aria-live="polite">
+                <LoaderCircle className="mt-0.5 h-5 w-5 shrink-0 animate-spin" />
+                <div className="text-sm">
+                  <p className="font-bold">Waiting for PayMongo confirmation</p>
+                  <p className="mt-1 text-blue-800 dark:text-blue-200">Keep this PerkUp tab open. It checks automatically every 3 seconds and will open your dashboard after payment is confirmed.</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {role === "store_owner" && <div className="flex flex-col gap-3 sm:flex-row">
             {paymentLink && (
-              <a href={paymentLink} target="_blank" rel="noopener noreferrer" aria-label={`Pay now - ${formatPhp(amountDue)} securely with PayMongo`} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-green-700">
+              <a href={paymentLink} target="_blank" rel="noopener noreferrer" onClick={() => { window.sessionStorage.setItem(paymentWatchKey, "active"); setPaymentPageOpened(true); }} aria-label={`Pay now - ${formatPhp(amountDue)} securely with PayMongo`} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-green-700">
                 Pay now - {formatPhp(amountDue)} <ExternalLink className="h-4 w-4" />
               </a>
             )}
@@ -228,6 +331,55 @@ export function SubscriptionFrozenScreen({ store, role = "store_owner" }: { stor
             <LogOut className="h-4 w-4" /> Log out
           </button>
         </div>
+      </section>
+    </div>
+  );
+}
+
+export function PaymentActivationSuccessScreen({
+  store,
+  confirmation,
+  onContinue,
+}: {
+  store: any;
+  confirmation?: PaymentConfirmation | null;
+  onContinue: () => void;
+}) {
+  const [secondsRemaining, setSecondsRemaining] = useState(4);
+
+  useEffect(() => {
+    if (secondsRemaining <= 0) {
+      onContinue();
+      return;
+    }
+    const timerId = window.setTimeout(() => setSecondsRemaining((seconds) => seconds - 1), 1_000);
+    return () => window.clearTimeout(timerId);
+  }, [onContinue, secondsRemaining]);
+
+  const paidAt = confirmation?.paidAt ? new Date(confirmation.paidAt) : null;
+  const periodEnd = confirmation?.periodEnd ? new Date(confirmation.periodEnd) : timestampToDate(store?.subscriptionEnd);
+
+  return (
+    <div className="mx-auto flex min-h-[calc(100dvh-10rem)] max-w-2xl items-center justify-center py-8">
+      <section className="w-full rounded-[2rem] border border-green-200 bg-white p-7 text-center shadow-xl dark:border-green-900/60 dark:bg-gray-900 sm:p-10" role="status" aria-live="assertive">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300">
+          <CheckCircle2 className="h-9 w-9" />
+        </div>
+        <p className="mt-5 text-sm font-bold uppercase tracking-widest text-green-700 dark:text-green-400">Payment received</p>
+        <h1 className="mt-2 text-3xl font-bold text-gray-950 dark:text-white">Your store is now active</h1>
+        <p className="mx-auto mt-3 max-w-lg leading-6 text-gray-600 dark:text-gray-300">
+          PayMongo confirmed the payment for {store?.businessName || store?.name || "your store"}. Dashboard access and public listing have been enabled automatically.
+        </p>
+        <div className="mt-7 grid gap-3 text-left sm:grid-cols-2">
+          <Info label="Payment" value={confirmation ? formatPhp(confirmation.amountCentavos / 100) : "Confirmed"} />
+          <Info label="Paid at" value={paidAt && !Number.isNaN(paidAt.getTime()) ? paidAt.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "Just now"} />
+          {confirmation?.referenceNumber && <Info label="PayMongo reference" value={confirmation.referenceNumber} />}
+          <Info label="Access active until" value={periodEnd && !Number.isNaN(periodEnd.getTime()) ? periodEnd.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "Updated in your subscription page"} />
+        </div>
+        <p className="mt-6 text-sm font-medium text-gray-500 dark:text-gray-400">Opening your store dashboard in {secondsRemaining}s…</p>
+        <button type="button" onClick={onContinue} className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-green-600 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-green-700">
+          Open store dashboard now
+        </button>
       </section>
     </div>
   );

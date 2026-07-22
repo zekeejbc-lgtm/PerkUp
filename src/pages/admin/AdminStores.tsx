@@ -260,6 +260,7 @@ export default function AdminStores() {
         store: any;
         owner: { id: string };
         notification?: { sent: boolean; error?: string };
+        receiptNotification?: { sent: boolean; error?: string };
       }>({
         action: "create_store",
         email: ownerEmail,
@@ -332,8 +333,14 @@ export default function AdminStores() {
           error: new Error(result.notification.error || "Email service unavailable."),
           context: { operation: "create_store_welcome_email", storeName },
         });
+      } else if (alreadyPaid && result.receiptNotification && !result.receiptNotification.sent) {
+        toast.update(progressToastId, `Store and welcome email created, but the payment receipt could not be sent: ${result.receiptNotification.error || "Email service unavailable."}`, "error", {
+          title: "Payment receipt failed",
+          error: new Error(result.receiptNotification.error || "Email service unavailable."),
+          context: { operation: "create_store_payment_receipt", storeName },
+        });
       } else {
-        toast.update(progressToastId, `${storeName} and its owner account were created successfully.`, "success", { title: "Store created" });
+        toast.update(progressToastId, `${storeName} and its owner account were created successfully.${alreadyPaid ? " The welcome email and payment receipt were sent." : ""}`, "success", { title: "Store created" });
       }
     } catch (error) {
       if (!storePersisted && uploadedLogoUrl) {

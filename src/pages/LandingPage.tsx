@@ -9,7 +9,7 @@ import { AuthModal } from "../components/AuthModal";
 import { PublicSiteHeader } from "../components/PublicSiteHeader";
 import { getDisplayImageUrl } from "../lib/imageStorage";
 import { PageSkeleton, SkeletonBlock } from "../components/LoadingSkeleton";
-import { DirectoryStore, getStoreCategories, isStoreOpenNow, storeMatchesCategorySearch } from "../lib/storeDirectory";
+import { DirectoryStore, getStoreCategories, isStoreOpenNow, isStorePubliclyVisible, storeMatchesCategorySearch } from "../lib/storeDirectory";
 import { CategorySearchInput } from "../components/CategorySearchInput";
 
 import { PartnerApplicationModal } from "../components/PartnerApplicationModal";
@@ -127,7 +127,7 @@ export default function LandingPage() {
         const q = query(collection(db, "stores"), where("status", "==", "active"));
         const snap = await getDocs(q);
 
-        let loadedStores = snap.docs.map(doc => ({
+        const loadedStores = snap.docs.filter((doc) => isStorePubliclyVisible(doc.data())).map(doc => ({
           id: doc.id,
           name: doc.data().name,
           lat: Number(doc.data().lat ?? doc.data().latitude),

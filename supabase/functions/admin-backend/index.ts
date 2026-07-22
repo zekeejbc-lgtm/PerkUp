@@ -455,6 +455,12 @@ Deno.serve(async (req) => {
         updatedAt: timestamp(),
       };
       const initialPaymentRequired = automaticBillingEnabled && !alreadyPaid;
+      const initialPaymentAt = new Date();
+      const billingIntervalDays = Math.max(1, Math.min(365, Math.trunc(Number(storeInput.billingIntervalDays ?? 30) || 30)));
+      if (alreadyPaid) {
+        store.subscriptionStart = initialPaymentAt.toISOString();
+        store.subscriptionEnd = new Date(initialPaymentAt.getTime() + billingIntervalDays * 86_400_000).toISOString();
+      }
       if (automaticBillingEnabled) {
         store.subscriptionAccess = {
           ...requestedSubscriptionAccess,
@@ -467,7 +473,8 @@ Deno.serve(async (req) => {
         };
       }
       store.initialPaymentRequired = initialPaymentRequired;
-      store.initialPaymentStatus = initialPaymentRequired ? "pending" : "waived";
+      store.initialPaymentStatus = initialPaymentRequired ? "pending" : alreadyPaid ? "paid" : "waived";
+      store.billingIntervalDays = billingIntervalDays;
 
       const { error: profileError } = await admin.from("users").insert({ id: ownerId, data: profile });
       if (profileError) {
@@ -481,6 +488,7 @@ Deno.serve(async (req) => {
         throw storeError;
       }
 
+      let paidInitialInvoice: Record<string, unknown> | null = null;
       if ((store.subscriptionAccess as Record<string, unknown> | undefined)?.automationEnabled === true) {
         try {
           const billingSubscription = await syncBillingSubscription(admin, { id: storeId, data: store });
@@ -504,6 +512,43 @@ Deno.serve(async (req) => {
               next_attempt_at: new Date().toISOString(),
             });
             if (invoiceError) throw invoiceError;
+          } else if (alreadyPaid && billingSubscription?.id) {
+            const invoiceId = crypto.randomUUID();
+            const referenceNumber = `ADMIN-${invoiceId.slice(0, 8).toUpperCase()}`;
+            const { error: invoiceError } = await admin.from("billing_invoices").insert({
+              id: invoiceId,
+              subscription_id: billingSubscription.id,
+              store_id: storeId,
+              owner_user_id: ownerId,
+              invoice_type: "initial",
+              period_start: store.subscriptionStart,
+              period_end: store.subscriptionEnd,
+              due_at: initialPaymentAt.toISOString(),
+              amount_centavos: billingSubscription.amount_centavos,
+              currency: billingSubscription.currency,
+              status: "paid",
+              paid_at: initialPaymentAt.toISOString(),
+              payment_method: "admin_confirmed",
+              gross_amount_centavos: billingSubscription.amount_centavos,
+              paymongo_reference_number: referenceNumber,
+              next_attempt_at: initialPaymentAt.toISOString(),
+            });
+            if (invoiceError) throw invoiceError;
+            paidInitialInvoice = {
+              invoiceId,
+              storeName: store.businessName || store.name,
+              planName: store.subscriptionLevel,
+              amountCentavos: billingSubscription.amount_centavos,
+              grossAmountCentavos: billingSubscription.amount_centavos,
+              currency: billingSubscription.currency,
+              dueAt: initialPaymentAt.toISOString(),
+              paidAt: initialPaymentAt.toISOString(),
+              renewedUntil: store.subscriptionEnd,
+              paymentMethod: "admin_confirmed",
+              referenceNumber,
+              adminConfirmed: true,
+              testMode: false,
+            };
           }
         } catch (billingError) {
           await admin.from("stores").delete().eq("id", storeId);
@@ -561,6 +606,7 @@ Deno.serve(async (req) => {
       }
 
       let notification = { sent: false, error: "" };
+      let receiptNotification = { sent: false, error: "" };
       try {
         const ownerPortalUrl =
           `${(Deno.env.get("APP_URL") || DEFAULT_APP_URL).replace(/\/+$/, "")}/owner`;
@@ -587,10 +633,72 @@ Deno.serve(async (req) => {
         console.error("Store creation email failed", { storeId, ownerId, error: notification.error });
       }
 
+      if (alreadyPaid) {
+        try {
+          const amountCentavos = Math.round(Number(store.owedAmount || 0) * 100);
+          await sendSubscriptionPaymentReceivedEmail({
+            recipientEmail: email,
+            userName: name,
+            invoice: paidInitialInvoice || {
+              invoiceId: crypto.randomUUID(),
+              storeName: store.businessName || store.name,
+              planName: store.subscriptionLevel,
+              amountCentavos,
+              grossAmountCentavos: amountCentavos,
+              currency: "PHP",
+              dueAt: initialPaymentAt.toISOString(),
+              paidAt: initialPaymentAt.toISOString(),
+              renewedUntil: store.subscriptionEnd,
+              paymentMethod: "admin_confirmed",
+              referenceNumber: `ADMIN-${storeId.slice(0, 8).toUpperCase()}`,
+              adminConfirmed: true,
+              testMode: false,
+            },
+          });
+          if (paidInitialInvoice?.invoiceId) {
+            const { error: receiptRecordError } = await admin.from("billing_notifications").upsert({
+              invoice_id: paidInitialInvoice.invoiceId,
+              channel: "email",
+              notification_type: "payment_received",
+              recipient: email,
+              status: "sent",
+              attempt_count: 1,
+              sent_at: new Date().toISOString(),
+              next_attempt_at: new Date().toISOString(),
+              last_error: null,
+            }, { onConflict: "invoice_id,channel,notification_type" });
+            if (receiptRecordError) {
+              console.error("Initial payment receipt delivery could not be recorded", {
+                storeId,
+                ownerId,
+                error: receiptRecordError.message,
+              });
+            }
+          }
+          receiptNotification = { sent: true, error: "" };
+        } catch (emailError) {
+          receiptNotification.error = emailError instanceof Error ? emailError.message : "Payment receipt could not be sent.";
+          console.error("Initial payment receipt email failed", { storeId, ownerId, error: receiptNotification.error });
+          if (paidInitialInvoice?.invoiceId) {
+            await admin.from("billing_notifications").upsert({
+              invoice_id: paidInitialInvoice.invoiceId,
+              channel: "email",
+              notification_type: "payment_received",
+              recipient: email,
+              status: "failed",
+              attempt_count: 1,
+              next_attempt_at: new Date().toISOString(),
+              last_error: receiptNotification.error.slice(0, 1000),
+            }, { onConflict: "invoice_id,channel,notification_type" });
+          }
+        }
+      }
+
       return jsonResponse({
         store: { id: storeId, ...store },
         owner: { id: ownerId, ...profile },
         notification,
+        receiptNotification,
       });
     }
 
@@ -1706,12 +1814,45 @@ const sendStoreCreatedEmail = async ({
         paymentSchedule: paymentScheduleLabel(store.paymentSchedule, store.billingIntervalDays),
         subscriptionStart: emailDate(store.subscriptionStart),
         subscriptionEnd: emailDate(store.subscriptionEnd),
+        amountDue: Number(store.owedAmount || 0),
+        billingIntervalDays: Math.max(1, Math.min(365, Math.trunc(Number(store.billingIntervalDays) || 30))),
+        initialPaymentRequired: store.initialPaymentRequired === true,
+        initialPaymentStatus: cleanText(store.initialPaymentStatus, 20),
       },
     }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.success || !data.email) {
     throw new Error(data.error || `Store email failed with HTTP ${response.status}.`);
+  }
+};
+
+const sendSubscriptionPaymentReceivedEmail = async ({
+  recipientEmail,
+  userName,
+  invoice,
+}: {
+  recipientEmail: string;
+  userName: string;
+  invoice: Record<string, unknown>;
+}) => {
+  const url = Deno.env.get("GAS_EMAIL_URL") ||
+    Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") ||
+    DEFAULT_GAS_UPLOAD_URL;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({
+      action: "subscription_payment_received",
+      secret: requiredEnv("DRIVE_CRUD_SECRET"),
+      recipientEmail,
+      userName,
+      invoice,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success || !data.email) {
+    throw new Error(data.error || `Payment receipt email failed with HTTP ${response.status}.`);
   }
 };
 

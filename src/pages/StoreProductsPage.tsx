@@ -22,6 +22,7 @@ import { CustomDropdown } from "../components/CustomDropdown";
 import { ViewModeButton } from "../components/ViewModeButton";
 import { useCurrency } from "../contexts/CurrencyContext";
 import { Seo } from "../components/Seo";
+import { isStorePubliclyVisible } from "../lib/storeDirectory";
 
 const catalogViewOptions = [
   { value: "tiles", label: "Card", icon: Grid2X2 },
@@ -80,7 +81,7 @@ export default function StoreProductsPage() {
         ]);
 
         if (!active) return;
-        if (!storeSnapshot.exists()) {
+        if (!storeSnapshot.exists() || !isStorePubliclyVisible(storeSnapshot.data())) {
           setStoreMissing(true);
           return;
         }

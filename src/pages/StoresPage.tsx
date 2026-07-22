@@ -13,6 +13,7 @@ import {
   DirectoryStore,
   getAvailableStoreCategories,
   isStoreOpenNow,
+  isStorePubliclyVisible,
   storeMatchesCategorySearch,
 } from "../lib/storeDirectory";
 import { CategorySearchInput } from "../components/CategorySearchInput";
@@ -37,7 +38,7 @@ export default function StoresPage() {
       try {
         const snapshot = await getDocs(query(collection(db, "stores"), where("status", "==", "active")));
         if (!active) return;
-        setStores(snapshot.docs.map((storeDocument) => {
+        setStores(snapshot.docs.filter((storeDocument) => isStorePubliclyVisible(storeDocument.data())).map((storeDocument) => {
           const data = storeDocument.data();
           return {
             id: storeDocument.id,

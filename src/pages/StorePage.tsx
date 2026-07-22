@@ -18,6 +18,7 @@ import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveS
 import { PublicSiteFooter } from "../components/PublicPageShell";
 import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../lib/dateTime";
 import { Seo } from "../components/Seo";
+import { isStorePubliclyVisible } from "../lib/storeDirectory";
 
 interface StoreContent {
   id: string;
@@ -365,7 +366,7 @@ export default function StorePage() {
       try {
         const docSnap = await getDoc(doc(db, "stores", storeId));
 
-        if (!docSnap.exists()) {
+        if (!docSnap.exists() || !isStorePubliclyVisible(docSnap.data())) {
           setStore(null);
           setProducts([]);
           return;
@@ -417,7 +418,7 @@ export default function StorePage() {
         if (branchesResult.status === "fulfilled" && branchesResult.value) {
           const siblingBranches = branchesResult.value.docs
             .map((branchDoc) => ({ id: branchDoc.id, ...branchDoc.data() } as StoreContent))
-            .filter((branch) => !branch.status || branch.status === "active")
+            .filter((branch) => isStorePubliclyVisible(branch as unknown as Record<string, unknown>))
             .sort((a, b) => {
               if (a.isPrimaryBranch !== b.isPrimaryBranch) return a.isPrimaryBranch ? -1 : 1;
               return (a.branchName || a.name).localeCompare(b.branchName || b.name);

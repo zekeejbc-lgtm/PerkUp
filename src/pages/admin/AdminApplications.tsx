@@ -272,7 +272,7 @@ export default function AdminApplications() {
           })
         : storeLogo;
       if (pendingLogo) uploadedLogoUrl = logoUrl;
-      const result = await invokeAdminBackend<{ store: any; notification?: { sent: boolean; error?: string } }>({
+      const result = await invokeAdminBackend<{ store: any; notification?: { sent: boolean; error?: string }; receiptNotification?: { sent: boolean; error?: string } }>({
         action: "create_store",
         email: ownerEmail,
         password: ownerPassword,
@@ -307,7 +307,9 @@ export default function AdminApplications() {
       alert(
         result.notification && !result.notification.sent
           ? `Store approved and created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`
-          : "Store approved and created! The owner email has been sent.",
+          : alreadyPaid && result.receiptNotification && !result.receiptNotification.sent
+          ? `Store approved and the welcome email was sent, but the payment receipt could not be sent: ${result.receiptNotification.error || "Email service unavailable."}`
+          : `Store approved and created! The owner email${alreadyPaid ? " and payment receipt have" : " has"} been sent.`,
       );
     } catch (error) {
       if (!storePersisted && uploadedLogoUrl) {

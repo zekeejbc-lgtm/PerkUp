@@ -133,17 +133,25 @@ function sendStoreCreatedEmail(recipientEmail, userName, store, loginLink, requi
   }
 
   var safeLoginLink = getStoreOwnerLoginLink_(loginLink);
+  var initialPaymentRequired = store.initialPaymentRequired === true;
+  var initialPaymentPaid = String(store.initialPaymentStatus || "") === "paid";
+  var amountDue = Number(store.amountDue || 0);
+  var formattedAmountDue = "PHP " + (amountDue > 0 ? amountDue : 0).toFixed(2);
   var passwordMessage = requirePasswordChange
     ? "This secure button can be used once. After signing you in, PerkUp will require you to create a private password before opening the store portal."
     : "This secure button can be used once to sign in. Afterward, use the regular store portal login with your account credentials.";
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: storeName + " is ready on PerkUp",
+    subject: initialPaymentRequired ? "Payment required to activate " + storeName : storeName + " is ready on PerkUp",
     userName: userName,
-    heading: "Your store is ready, " + userName + "!",
-    introText: "Your PerkUp store account has been created successfully. Here are the details currently registered for your store.",
-    secondaryText: passwordMessage,
+    heading: initialPaymentRequired ? "Your store was created. Payment is now due." : "Your store is ready, " + userName + "!",
+    introText: initialPaymentRequired
+      ? "Your first subscription payment of " + formattedAmountDue + " must be paid through PayMongo before " + storeName + " can be accessed or shown publicly."
+      : "Your PerkUp store account has been created successfully. Here are the details currently registered for your store.",
+    secondaryText: initialPaymentRequired
+      ? "Open the store portal to use the secure PayMongo payment link. Your " + String(Number(store.billingIntervalDays || 30)) + "-day subscription starts only after payment is confirmed. " + passwordMessage
+      : (initialPaymentPaid ? "The initial payment was marked paid by a PerkUp administrator. A separate invoice receipt has also been sent. " : "") + passwordMessage,
     store: {
       name: storeName,
       location: String(store.location || "").trim(),
@@ -160,6 +168,8 @@ function sendStoreCreatedEmail(recipientEmail, userName, store, loginLink, requi
       storeName + " is ready on PerkUp.\n" +
       (store.location ? "Location: " + store.location + "\n" : "") +
       (store.subscriptionLevel ? "Subscription: " + store.subscriptionLevel + "\n" : "") +
+      (initialPaymentRequired ? "PAYMENT DUE: " + formattedAmountDue + ". Store access and public listing remain disabled until payment is confirmed.\n" : "") +
+      (initialPaymentPaid ? "Initial payment: Paid (a separate receipt was sent).\n" : "") +
       passwordMessage + "\nLog in: " + safeLoginLink
   });
 }
@@ -276,6 +286,7 @@ function sendSubscriptionPaymentDueEmail(recipientEmail, userName, invoice) {
   var formattedAmount = currency + " " + (amountCentavos / 100).toFixed(2);
   var dueDate = formatPhilippineDateTime_(invoice.dueAt);
   var testMode = invoice.testMode === true;
+  var initialPayment = invoice.initialPayment === true;
   var documentNumber = getSubscriptionDocumentNumber_(invoice);
   var invoiceDetails = {
     documentNumber: documentNumber,
@@ -290,12 +301,16 @@ function sendSubscriptionPaymentDueEmail(recipientEmail, userName, invoice) {
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: (testMode ? "[TEST] " : "") + "Your PerkUp subscription payment is due",
+    subject: (testMode ? "[TEST] " : "") + (initialPayment ? "Payment required to activate your PerkUp store" : "Your PerkUp subscription payment is due"),
     userName: userName,
     heading: "Subscription payment due, " + userName + ".",
-    introText: "A secure PayMongo payment page is ready for your next PerkUp subscription cycle. Open it and select QR Ph to complete payment.",
+    introText: initialPayment
+      ? "Your first subscription payment is due and must be paid before your PerkUp store can be accessed or shown publicly. Use the secure PayMongo page below to complete payment."
+      : "A secure PayMongo payment page is ready for your next PerkUp subscription cycle. Open it and select QR Ph to complete payment.",
     secondaryText: testMode
       ? "This is a PayMongo test-mode link and cannot collect real funds. Live billing will remain disabled until the merchant account is fully verified."
+      : initialPayment
+      ? "Once PayMongo confirms payment, your " + String(Number(invoice.intervalDays || 30)) + "-day subscription begins and PerkUp automatically activates your portal access."
       : "Once PayMongo confirms payment, PerkUp automatically extends your portal access for another " + String(Number(invoice.intervalDays || 30)) + " days.",
     invoice: invoiceDetails,
     buttonText: testMode ? "Open Test Payment Page" : "Pay with PayMongo",
@@ -326,11 +341,13 @@ function sendSubscriptionPaymentReminderEmail(recipientEmail, userName, invoice)
   var currency = String(invoice.currency || "PHP").toUpperCase();
   var formattedAmount = currency + " " + (amountCentavos / 100).toFixed(2);
   var noticeType = String(invoice.noticeType || "payment_overdue");
-  var frozen = noticeType === "access_frozen";
+  var initialReminder = noticeType === "initial_payment_reminder_3d" || noticeType === "initial_payment_reminder_5d" || noticeType === "initial_payment_deletion_warning";
+  var frozen = noticeType === "access_frozen" || initialReminder;
+  var deletionWarning = noticeType === "initial_payment_deletion_warning";
   var testMode = invoice.testMode === true;
   var invoiceDetails = {
     documentNumber: getSubscriptionDocumentNumber_(invoice),
-    status: frozen ? "Access frozen - payment outstanding" : "Overdue - grace period active",
+    status: initialReminder ? "Activation pending - payment outstanding" : frozen ? "Access frozen - payment outstanding" : "Overdue - grace period active",
     storeName: String(invoice.storeName || "Your store").trim(),
     planName: String(invoice.planName || "PerkUp subscription").trim(),
     amount: formattedAmount,
@@ -342,10 +359,14 @@ function sendSubscriptionPaymentReminderEmail(recipientEmail, userName, invoice)
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: (testMode ? "[TEST] " : "") + (frozen ? "PerkUp access frozen - payment required" : "PerkUp payment overdue - grace period active"),
+    subject: (testMode ? "[TEST] " : "") + (deletionWarning ? "Final notice: pay to keep your PerkUp store" : initialReminder ? "Reminder: payment required to activate your PerkUp store" : frozen ? "PerkUp access frozen - payment required" : "PerkUp payment overdue - grace period active"),
     userName: userName,
     heading: frozen ? "Your PerkUp access is temporarily frozen." : "Your PerkUp payment is overdue.",
-    introText: frozen
+    introText: deletionWarning
+      ? "Your store has not received its first subscription payment. Pay now to activate it; unpaid stores are automatically deleted 15 days after creation."
+      : initialReminder
+      ? "Your store is still frozen because its first subscription payment has not been paid. Pay now to activate access and public listing."
+      : frozen
       ? "Your grace period has ended. Use the secure PayMongo page below to settle the outstanding subscription invoice."
       : "Your subscription is now in its grace period. Please settle the invoice before the grace period ends to avoid an interruption.",
     secondaryText: testMode
@@ -375,6 +396,7 @@ function sendSubscriptionPaymentReceivedEmail(recipientEmail, userName, invoice)
   var currency = String(invoice.currency || "PHP").toUpperCase();
   var formattedAmount = currency + " " + (amountCentavos / 100).toFixed(2);
   var testMode = invoice.testMode === true;
+  var adminConfirmed = invoice.adminConfirmed === true;
   var invoiceDetails = {
     documentNumber: getSubscriptionDocumentNumber_(invoice),
     status: "Paid",
@@ -391,10 +413,12 @@ function sendSubscriptionPaymentReceivedEmail(recipientEmail, userName, invoice)
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: (testMode ? "[TEST] " : "") + "PerkUp payment received and access restored",
+    subject: (testMode ? "[TEST] " : "") + "PerkUp payment receipt - subscription active",
     userName: userName,
     heading: "Payment received. Your access is active.",
-    introText: "PayMongo confirmed your subscription payment and PerkUp automatically renewed your access.",
+    introText: adminConfirmed
+      ? "A PerkUp administrator confirmed your initial subscription payment. Your subscription is active from the paid date shown on the attached receipt."
+      : "PayMongo confirmed your subscription payment and PerkUp automatically renewed your access.",
     secondaryText: "Keep the attached receipt for your records. You can also review payment history from your PerkUp subscription page.",
     invoice: invoiceDetails,
     buttonText: "Open PerkUp",

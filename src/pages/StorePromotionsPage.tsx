@@ -24,6 +24,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { CustomDropdown } from "../components/CustomDropdown";
 import { ViewModeButton } from "../components/ViewModeButton";
 import { Seo } from "../components/Seo";
+import { isStorePubliclyVisible } from "../lib/storeDirectory";
 
 const promotionViewOptions = [
   { value: "tiles", label: "Card", icon: Grid2X2 },
@@ -95,7 +96,7 @@ export default function StorePromotionsPage() {
         ]);
 
         if (!active) return;
-        if (!storeSnapshot.exists()) {
+        if (!storeSnapshot.exists() || !isStorePubliclyVisible(storeSnapshot.data())) {
           setStoreMissing(true);
           return;
         }

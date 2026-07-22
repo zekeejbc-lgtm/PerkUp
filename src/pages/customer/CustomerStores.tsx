@@ -24,7 +24,7 @@ import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { DirectionsButton } from "../../components/DirectionsButton";
 import { MapBaseLayers } from "../../components/MapBaseLayers";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
-import { getAvailableStoreCategories, isStoreOpenNow, storeMatchesCategorySearch } from "../../lib/storeDirectory";
+import { getAvailableStoreCategories, isStoreOpenNow, isStorePubliclyVisible, storeMatchesCategorySearch } from "../../lib/storeDirectory";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
 
 type CustomerStore = {
@@ -58,7 +58,7 @@ export default function CustomerStores() {
       try {
         const q = query(collection(db, "stores"), where("status", "==", "active"));
         const querySnapshot = await getDocs(q);
-        const fetchedStores = querySnapshot.docs.map((doc) => {
+        const fetchedStores = querySnapshot.docs.filter((doc) => isStorePubliclyVisible(doc.data())).map((doc) => {
           const data = doc.data();
           return {
             id: doc.id,

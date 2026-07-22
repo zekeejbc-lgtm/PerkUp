@@ -10,6 +10,11 @@ export interface DirectoryStore {
   hours?: string;
 }
 
+export const isStorePubliclyVisible = (store: Record<string, unknown> | null | undefined) => {
+  if (!store || store.status !== "active") return false;
+  return store.initialPaymentRequired !== true && store.initialPaymentStatus !== "pending";
+};
+
 export const FEATURED_STORE_CATEGORIES = [
   "Coffee",
   "Pizza",

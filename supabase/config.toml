@@ -55,3 +55,9 @@ entrypoint = "./functions/paymongo-webhook/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/paymongo-webhook/*.html" ]
+
+[functions.subscription-payment-status]
+enabled = true
+verify_jwt = false
+import_map = "./functions/subscription-payment-status/deno.json"
+entrypoint = "./functions/subscription-payment-status/index.ts"

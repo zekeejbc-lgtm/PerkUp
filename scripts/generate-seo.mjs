@@ -101,7 +101,9 @@ if (supabaseUrl && supabaseKey) {
   if (error) {
     console.warn(`SEO generation could not load public stores: ${error.message}`);
   } else {
-    stores = (data || []).map((row) => ({ id: row.id, ...(row.data || {}) }));
+    stores = (data || [])
+      .filter((row) => row.data?.initialPaymentRequired !== true && row.data?.initialPaymentStatus !== "pending")
+      .map((row) => ({ id: row.id, ...(row.data || {}) }));
   }
 } else {
   console.warn("SEO generation skipped dynamic store pages because the public Supabase build variables are missing.");
