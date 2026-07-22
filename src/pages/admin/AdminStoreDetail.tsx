@@ -100,6 +100,9 @@ export default function AdminStoreDetail({
   const [subscriptionAccessMessage, setSubscriptionAccessMessage] = useState("");
   const [subscriptionAccessError, setSubscriptionAccessError] = useState("");
   const [pendingSubscriptionAccessAction, setPendingSubscriptionAccessAction] = useState<SubscriptionAccessAction | null>(null);
+  const [billingInvoices, setBillingInvoices] = useState<any[]>([]);
+  const [billingInvoicesLoading, setBillingInvoicesLoading] = useState(false);
+  const [billingRetryId, setBillingRetryId] = useState("");
   const subscriptionStore = (store?.isPrimaryBranch !== false ? store : null) ||
     branches.find(branch => branch.isPrimaryBranch === true) ||
     branches.find(branch => branch.subscriptionLevel || branch.subscriptionDependencies) || null;
@@ -338,6 +341,32 @@ export default function AdminStoreDetail({
     setSubscriptionAccessForm(normalizeSubscriptionAccess(subscriptionStore?.subscriptionAccess));
   }, [subscriptionStore?.id, subscriptionStore?.subscriptionAccess]);
 
+  const loadBillingInvoices = async () => {
+    if (!subscriptionStore?.id) {
+      setBillingInvoices([]);
+      return;
+    }
+    setBillingInvoicesLoading(true);
+    try {
+      const { data, error } = await supabase.from("billing_invoices")
+        .select("id,status,due_at,amount_centavos,currency,paymongo_reference_number,payment_url,livemode,paid_at,attempt_count,last_error,created_at")
+        .eq("store_id", subscriptionStore.id)
+        .order("created_at", { ascending: false })
+        .limit(12);
+      if (error) throw error;
+      setBillingInvoices(data || []);
+    } catch (error) {
+      console.error("Could not load admin billing history", error);
+      setBillingInvoices([]);
+    } finally {
+      setBillingInvoicesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadBillingInvoices();
+  }, [subscriptionStore?.id]);
+
   useEffect(() => {
     setSubscriptionAccessMessage("");
     setSubscriptionAccessError("");
@@ -380,6 +409,20 @@ export default function AdminStoreDetail({
   const requestSubscriptionAccessUpdate = (status: SubscriptionAccessAction) => {
     setSubscriptionAccessError("");
     setPendingSubscriptionAccessAction(status);
+  };
+
+  const retryBillingInvoice = async (invoiceId: string) => {
+    setBillingRetryId(invoiceId);
+    setSubscriptionAccessError("");
+    try {
+      await invokeAdminBackend({ action: "retry_billing_invoice", invoiceId });
+      setSubscriptionAccessMessage("Billing retry queued. The hourly worker will process it safely.");
+      await loadBillingInvoices();
+    } catch (error) {
+      setSubscriptionAccessError((error as Error).message);
+    } finally {
+      setBillingRetryId("");
+    }
   };
 
   const confirmSubscriptionAccessUpdate = async () => {
@@ -458,6 +501,9 @@ export default function AdminStoreDetail({
 
       await updateDoc(doc(db, "stores", storeId), nextData);
       storePersisted = true;
+      if (isPrimaryBranch && subscriptionAccessForm.automationEnabled) {
+        await invokeAdminBackend({ action: "sync_subscription_billing", storeId });
+      }
       if (store.logoUrl && store.logoUrl !== logoUrl) {
         await deleteImageFromDriveSecure(store.logoUrl).catch(console.error);
       }
@@ -488,7 +534,9 @@ export default function AdminStoreDetail({
         await deleteImageFromDriveSecure(uploadedLogoUrl).catch(console.error);
       }
       console.error(error);
-      alert("Failed to update store");
+      alert(storePersisted
+        ? `Store details were saved, but billing synchronization failed: ${(error as Error).message}`
+        : "Failed to update store");
     }
   };
 
@@ -1025,7 +1073,7 @@ export default function AdminStoreDetail({
 
                   <label className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
                     <input type="checkbox" checked={subscriptionAccessForm.automationEnabled} onChange={(event) => setSubscriptionAccessForm({ ...subscriptionAccessForm, automationEnabled: event.target.checked })} className="mt-1 h-4 w-4" />
-                    <span><span className="block text-sm font-semibold text-gray-900 dark:text-white">Automatic subscription issuing</span><span className="mt-1 block text-xs leading-5 text-gray-600 dark:text-gray-400">Warn before expiry, begin grace access on the subscription end date, then freeze access automatically. Manual controls remain available.</span></span>
+                    <span><span className="block text-sm font-semibold text-gray-900 dark:text-white">Automatic PayMongo billing</span><span className="mt-1 block text-xs leading-5 text-gray-600 dark:text-gray-400">Create one PayMongo payment link per 30-day cycle, send staged notices and an invoice, confirm payment by signed webhook, email a receipt, and restore access automatically. Each invoice clearly shows whether it is test or live.</span></span>
                   </label>
 
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -1086,6 +1134,9 @@ export default function AdminStoreDetail({
                   {subscriptionAccessError && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{subscriptionAccessError}</p>}
 
                   <div className="flex flex-wrap gap-2">
+                    <button type="button" disabled={subscriptionAccessBusy} onClick={() => void updateSubscriptionAccess(subscriptionAccessForm.status)} className="inline-flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
+                      {subscriptionAccessBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save billing settings
+                    </button>
                     <button type="button" disabled={subscriptionAccessBusy || !subscriptionAccessForm.warningMessage.trim()} onClick={() => requestSubscriptionAccessUpdate("warning")} className="inline-flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-amber-400 bg-amber-400 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-amber-300 hover:shadow disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0">
                       <BellRing className="h-3.5 w-3.5" /> Warn
                     </button>
@@ -1099,8 +1150,48 @@ export default function AdminStoreDetail({
                       {subscriptionAccessBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Restore
                     </button>
                   </div>
-                  <p className="text-xs leading-5 text-gray-600 dark:text-gray-400">Starting a grace period restarts its countdown. When it expires, the owner and staff screens freeze automatically until you restore access.</p>
+                  <p className="text-xs leading-5 text-gray-600 dark:text-gray-400">Starting a grace period restarts its countdown. When it expires, owner and staff screens freeze automatically. A matching PayMongo payment restores access automatically; Restore remains available as a logged manual override.</p>
                 </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 shadow-sm dark:border-gray-800 dark:bg-gray-800/50 sm:p-7">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">Billing activity</h4>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">PayMongo invoices, delivery attempts, payment state, and actionable failures.</p>
+                </div>
+                <button type="button" onClick={() => void loadBillingInvoices()} disabled={billingInvoicesLoading} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">
+                  <RotateCcw className={`h-3.5 w-3.5 ${billingInvoicesLoading ? "animate-spin" : ""}`} /> Refresh
+                </button>
+              </div>
+              {billingInvoicesLoading ? (
+                <div className="mt-5 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading billing activity…</div>
+              ) : billingInvoices.length ? (
+                <div className="mt-5 space-y-3">
+                  {billingInvoices.map((invoice) => (
+                    <div key={invoice.id} className={`rounded-xl border p-4 ${invoice.last_error ? "border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/20" : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"}`}>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-gray-900 dark:text-white">{formatMoney(Number(invoice.amount_centavos || 0) / 100)}</span>
+                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">{invoice.status}</span>
+                            {!invoice.livemode && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">Test</span>}
+                          </div>
+                          <p className="mt-1 text-xs text-gray-500">Due {formatBillingDate(invoice.due_at)} · Ref {invoice.paymongo_reference_number || "pending"} · Attempts {invoice.attempt_count || 0}</p>
+                        </div>
+                        {invoice.status !== "paid" && (
+                          <button type="button" onClick={() => void retryBillingInvoice(invoice.id)} disabled={billingRetryId === invoice.id} className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-black disabled:opacity-50 dark:bg-white dark:text-gray-900">
+                            {billingRetryId === invoice.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Retry
+                          </button>
+                        )}
+                      </div>
+                      {invoice.last_error && <p className="mt-3 break-words text-xs leading-5 text-red-700 dark:text-red-300">{invoice.last_error}</p>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-5 rounded-xl bg-white px-4 py-3 text-sm text-gray-600 dark:bg-gray-900 dark:text-gray-300">No billing invoice has been issued for this store yet.</p>
               )}
             </div>
             </>}

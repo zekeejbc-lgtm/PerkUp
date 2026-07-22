@@ -20,6 +20,18 @@ const timestamp = () => ({
   nanoseconds: 0,
 });
 
+const toIsoTimestamp = (value: unknown) => {
+  if (typeof value === "string" && value.trim()) {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+  }
+  if (value && typeof value === "object" && "seconds" in value) {
+    const seconds = Number((value as { seconds?: unknown }).seconds);
+    return Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : "";
+  }
+  return "";
+};
+
 const getSubscriptionBranchLimit = (dependencies: unknown) => {
   const value = dependencies && typeof dependencies === "object"
     ? Number((dependencies as Record<string, unknown>).branchLimit ?? 1)
@@ -166,6 +178,55 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (action === "sync_subscription_billing") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const storeId = cleanText(body.storeId, 100);
+      const { data: selectedStore, error: selectedStoreError } = await admin
+        .from("stores").select("id,data").eq("id", storeId).maybeSingle();
+      if (selectedStoreError) throw selectedStoreError;
+      if (!selectedStore) return jsonResponse({ error: "Store was not found." }, 404);
+      const ownerId = cleanText(selectedStore.data?.ownerId, 100);
+      const primaryStore = ownerId ? await getPrimaryStoreForOwner(admin, ownerId) : selectedStore;
+      if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
+      const billingSubscription = await syncBillingSubscription(admin, primaryStore);
+      return jsonResponse({ updated: true, storeId: primaryStore.id, billingSubscription });
+    }
+
+    if (action === "retry_billing_invoice") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const invoiceId = cleanText(body.invoiceId, 100);
+      if (!invoiceId) return jsonResponse({ error: "Invoice ID is required." }, 400);
+
+      const { data: invoice, error: invoiceError } = await admin
+        .from("billing_invoices")
+        .select("id,status,paymongo_link_id")
+        .eq("id", invoiceId)
+        .maybeSingle();
+      if (invoiceError) throw invoiceError;
+      if (!invoice) return jsonResponse({ error: "Billing invoice was not found." }, 404);
+      if (["paid", "void", "expired"].includes(String(invoice.status))) {
+        return jsonResponse({ error: "This invoice is already closed and cannot be retried." }, 400);
+      }
+
+      const nextStatus = invoice.paymongo_link_id ? "link_created" : "pending";
+      const now = new Date().toISOString();
+      const { error: retryError } = await admin.from("billing_invoices").update({
+        status: nextStatus,
+        next_attempt_at: now,
+        last_error: null,
+      }).eq("id", invoice.id);
+      if (retryError) throw retryError;
+
+      const { error: notificationRetryError } = await admin.from("billing_notifications").update({
+        status: "pending",
+        next_attempt_at: now,
+        last_error: null,
+      }).eq("invoice_id", invoice.id).eq("status", "failed");
+      if (notificationRetryError) throw notificationRetryError;
+
+      return jsonResponse({ updated: true, invoiceId: invoice.id, status: nextStatus });
+    }
+
     if (action === "update_subscription_access") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
       const storeId = cleanText(body.storeId, 100);
@@ -217,7 +278,12 @@ Deno.serve(async (req) => {
       }).eq("id", primaryStore.id);
       if (updateError) throw updateError;
 
-      return jsonResponse({ updated: true, storeId: primaryStore.id, subscriptionAccess });
+      const billingSubscription = await syncBillingSubscription(admin, {
+        ...primaryStore,
+        data: { ...primaryStore.data, subscriptionAccess },
+      });
+
+      return jsonResponse({ updated: true, storeId: primaryStore.id, subscriptionAccess, billingSubscription });
     }
 
     if (action === "create_store") {
@@ -1220,6 +1286,68 @@ const getPrimaryStoreForOwner = async (admin: any, ownerId: string) => {
     stores.find((row: any) => !cleanText(row.data?.parentStoreId, 100)) ||
     stores[0] ||
     null;
+};
+
+const syncBillingSubscription = async (admin: any, primaryStore: { id: string; data: Record<string, any> }) => {
+  const store = primaryStore.data || {};
+  const access = store.subscriptionAccess && typeof store.subscriptionAccess === "object"
+    ? store.subscriptionAccess as Record<string, unknown>
+    : {};
+  const automationEnabled = access.automationEnabled === true;
+  if (!automationEnabled) {
+    const { error } = await admin.from("billing_subscriptions")
+      .update({ automation_enabled: false }).eq("store_id", primaryStore.id);
+    if (error && error.code !== "42P01") throw error;
+    return null;
+  }
+
+  const ownerId = cleanText(store.ownerId, 100);
+  const owner = ownerId ? await getUserProfile(admin, ownerId) : null;
+  const billingEmail = cleanText(owner?.email, 254).toLowerCase();
+  const periodStart = toIsoTimestamp(store.subscriptionStart);
+  const periodEnd = toIsoTimestamp(store.subscriptionEnd);
+  const amount = Number(store.owedAmount);
+  const amountCentavos = Math.round(amount * 100);
+  const pendingAmount = Number(store.pendingOwedAmount);
+  const pendingAmountCentavos = Number.isFinite(pendingAmount) ? Math.round(pendingAmount * 100) : null;
+  const pendingAmountEffectiveAt = pendingAmountCentavos && pendingAmountCentavos >= 100
+    ? toIsoTimestamp(store.pendingOwedAmountEffectiveAt)
+    : null;
+  const planId = cleanText(store.subscriptionLevel, 80);
+  if (!ownerId || !billingEmail || !periodStart || !periodEnd || !planId || !Number.isInteger(amountCentavos) || amountCentavos < 100) {
+    throw new Error("Automatic PayMongo billing requires an owner email, plan, amount, subscription start, and subscription end.");
+  }
+  if (new Date(periodEnd).getTime() <= new Date(periodStart).getTime()) {
+    throw new Error("Subscription end must be after subscription start before PayMongo automation can be enabled.");
+  }
+  if (cleanText(store.paymentSchedule, 60) !== "every_30_days") {
+    throw new Error("PayMongo automation currently requires the Every 30 days payment schedule.");
+  }
+
+  const status = cleanText(access.status, 20).toLowerCase();
+  const normalizedStatus = status === "frozen" ? "frozen" : status === "grace" ? "past_due" : "active";
+  const { data, error } = await admin.from("billing_subscriptions").upsert({
+    store_id: primaryStore.id,
+    owner_user_id: ownerId,
+    billing_email: billingEmail,
+    plan_id: planId,
+    amount_centavos: amountCentavos,
+    pending_amount_centavos: pendingAmountCentavos && pendingAmountCentavos >= 100
+      ? pendingAmountCentavos
+      : null,
+    pending_amount_effective_at: pendingAmountEffectiveAt,
+    currency: "PHP",
+    interval_days: 30,
+    current_period_start: periodStart,
+    current_period_end: periodEnd,
+    next_billing_at: periodEnd,
+    warning_lead_days: Math.max(0, Math.min(30, Math.trunc(Number(access.warningLeadDays ?? 7) || 0))),
+    grace_period_days: Math.max(0, Math.min(30, Math.trunc(Number(access.gracePeriodDays ?? 3) || 0))),
+    status: normalizedStatus,
+    automation_enabled: true,
+  }, { onConflict: "store_id" }).select("id,store_id,status,automation_enabled,next_billing_at,amount_centavos,pending_amount_centavos,pending_amount_effective_at").single();
+  if (error) throw error;
+  return data;
 };
 
 const getUserProfile = async (admin: any, userId: string): Promise<UserProfile | null> => {

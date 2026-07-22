@@ -99,6 +99,54 @@ function doPost(e) {
       });
     }
 
+    if (action === "subscription_payment_due" || action === "subscriptionpaymentdue") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        email: sendSubscriptionPaymentDueEmail(
+          data.recipientEmail,
+          data.userName,
+          data.invoice
+        )
+      });
+    }
+
+    if (action === "subscription_payment_reminder" || action === "subscriptionpaymentreminder") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        email: sendSubscriptionPaymentReminderEmail(
+          data.recipientEmail,
+          data.userName,
+          data.invoice
+        )
+      });
+    }
+
+    if (action === "subscription_payment_received" || action === "subscriptionpaymentreceived") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        email: sendSubscriptionPaymentReceivedEmail(
+          data.recipientEmail,
+          data.userName,
+          data.invoice
+        )
+      });
+    }
+
+    if (action === "subscription_billing_failure" || action === "subscriptionbillingfailure") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        email: sendSubscriptionBillingFailureEmail(
+          data.recipientEmail,
+          data.userName,
+          data.invoice
+        )
+      });
+    }
+
     if (action === "upload") {
       requireCrudSecret(data.secret);
       return createJsonResponse(uploadImage(data));

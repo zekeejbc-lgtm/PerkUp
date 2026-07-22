@@ -4,6 +4,7 @@ import { db } from "../../lib/backend";
 import { Check, ChevronDown, CreditCard, Edit3, Loader2, Plus, Save, Trash2, X } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { CustomDropdown } from "../../components/CustomDropdown";
+import { invokeAdminBackend } from "../../lib/adminBackend";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
   SubscriptionPlan,
@@ -100,6 +101,9 @@ export default function AdminSubscriptions() {
         }
 
         await updateDoc(doc(db, "stores", store.id), updates);
+        if (store.subscriptionAccess?.automationEnabled === true) {
+          await invokeAdminBackend({ action: "sync_subscription_billing", storeId: store.id });
+        }
       }));
       setOriginalPlans(plans);
       setIsEditing(false);

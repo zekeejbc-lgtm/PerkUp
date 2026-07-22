@@ -109,6 +109,37 @@
           </div>
         <? } ?>
 
+        <? if (invoice) { ?>
+          <div class="store-card">
+            <div class="store-name"><?= invoice.storeName ?></div>
+            <? if (invoice.documentNumber) { ?>
+              <div class="store-detail"><span class="store-label">Invoice:</span> <?= invoice.documentNumber ?></div>
+            <? } ?>
+            <? if (invoice.status) { ?>
+              <div class="store-detail"><span class="store-label">Status:</span> <?= invoice.status ?></div>
+            <? } ?>
+            <div class="store-detail"><span class="store-label">Plan:</span> <?= invoice.planName ?></div>
+            <div class="store-detail"><span class="store-label">Amount:</span> <?= invoice.amount ?></div>
+            <div class="store-detail"><span class="store-label">Due:</span> <?= invoice.dueDate ?></div>
+            <? if (invoice.graceEndsAt) { ?>
+              <div class="store-detail"><span class="store-label">Grace period ends:</span> <?= invoice.graceEndsAt ?></div>
+            <? } ?>
+            <? if (invoice.paidAt) { ?>
+              <div class="store-detail"><span class="store-label">Paid:</span> <?= invoice.paidAt ?></div>
+            <? } ?>
+            <? if (invoice.paymentMethod) { ?>
+              <div class="store-detail"><span class="store-label">Payment method:</span> <?= invoice.paymentMethod ?></div>
+            <? } ?>
+            <? if (invoice.renewedUntil) { ?>
+              <div class="store-detail"><span class="store-label">Access renewed until:</span> <?= invoice.renewedUntil ?></div>
+            <? } ?>
+            <div class="store-detail"><span class="store-label">PayMongo reference:</span> <?= invoice.referenceNumber ?></div>
+            <? if (invoice.testMode) { ?>
+              <div class="store-detail"><span class="store-label">Mode:</span> TEST — no real funds are collected</div>
+            <? } ?>
+          </div>
+        <? } ?>
+
         <p><?= secondaryText ?></p>
 
         <? if (showButton) { ?>

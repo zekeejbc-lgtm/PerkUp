@@ -72,7 +72,7 @@ export function SubscriptionFrozenScreen({ store, role = "store_owner" }: { stor
             <div>
               <p className="text-sm font-bold uppercase tracking-widest text-red-600 dark:text-red-400">Subscription frozen</p>
               <h1 className="mt-1 text-2xl font-bold text-gray-950 dark:text-white">Access to {store?.businessName || store?.name || "this store"} is temporarily paused</h1>
-              <p className="mt-2 leading-6 text-gray-600 dark:text-gray-300">{role === "staff" ? "Store access is paused. Please contact your store owner; they can coordinate with the PerkUp administrator." : "The subscription payment is overdue. Contact the PerkUp administrator to confirm payment and restore owner and staff access."}</p>
+              <p className="mt-2 leading-6 text-gray-600 dark:text-gray-300">{role === "staff" ? "Store access is paused. Please contact your store owner so they can settle the outstanding subscription." : "The subscription payment is overdue. Pay through the secure PayMongo page below; access reactivates automatically after PayMongo confirms the exact payment."}</p>
             </div>
           </div>
         </div>
@@ -87,8 +87,7 @@ export function SubscriptionFrozenScreen({ store, role = "store_owner" }: { stor
 
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-700 dark:bg-gray-800/60">
             <div className="flex items-center gap-2 font-bold text-gray-900 dark:text-white"><CreditCard className="h-5 w-5" /> How to restore access</div>
-            <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-600 dark:text-gray-300">{role === "staff" ? "Contact your store owner. Only the store owner should arrange payment or account restoration with the PerkUp administrator." : policy.paymentInstructions}</p>
-            {role === "store_owner" && <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">After paying, send proof of payment and include your store name so PerkUp can verify it promptly.</p>}
+            <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-600 dark:text-gray-300">{role === "staff" ? "Contact your store owner. Only the store owner can open the payment page." : paymentLink ? "Open the PayMongo payment page, verify the amount, and complete payment using an available method such as QR Ph. You do not need to send proof; PayMongo confirmation restores access automatically." : policy.paymentInstructions}</p>
           </div>
 
           {role === "store_owner" && <div className="flex flex-col gap-3 sm:flex-row">

@@ -261,6 +261,238 @@ function sendFeedbackReceivedEmail(recipientEmail, userName, feedback) {
   });
 }
 
+function sendSubscriptionPaymentDueEmail(recipientEmail, userName, invoice) {
+  validateEmailInput_(recipientEmail, userName);
+  invoice = invoice || {};
+
+  var paymentLink = String(invoice.paymentLink || "").trim();
+  var referenceNumber = String(invoice.referenceNumber || "").trim();
+  var amountCentavos = Number(invoice.amountCentavos || 0);
+  if (!/^https:\/\//i.test(paymentLink)) throw new Error("A secure paymentLink is required.");
+  if (!referenceNumber) throw new Error("invoice.referenceNumber is required.");
+  if (!isFinite(amountCentavos) || amountCentavos < 100) throw new Error("A valid invoice amount is required.");
+
+  var currency = String(invoice.currency || "PHP").toUpperCase();
+  var formattedAmount = currency + " " + (amountCentavos / 100).toFixed(2);
+  var dueDate = formatPhilippineDateTime_(invoice.dueAt);
+  var testMode = invoice.testMode === true;
+  var documentNumber = getSubscriptionDocumentNumber_(invoice);
+  var invoiceDetails = {
+    documentNumber: documentNumber,
+    status: "Payment due",
+    storeName: String(invoice.storeName || "Your store").trim(),
+    planName: String(invoice.planName || "PerkUp subscription").trim(),
+    amount: formattedAmount,
+    dueDate: dueDate,
+    referenceNumber: referenceNumber,
+    testMode: testMode
+  };
+
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: (testMode ? "[TEST] " : "") + "Your PerkUp subscription payment is due",
+    userName: userName,
+    heading: "Subscription payment due, " + userName + ".",
+    introText: "A secure PayMongo payment page is ready for your next PerkUp subscription cycle. Open it and select QR Ph to complete payment.",
+    secondaryText: testMode
+      ? "This is a PayMongo test-mode link and cannot collect real funds. Live billing will remain disabled until the merchant account is fully verified."
+      : "Once PayMongo confirms payment, PerkUp automatically extends your portal access for another 30 days.",
+    invoice: invoiceDetails,
+    buttonText: testMode ? "Open Test Payment Page" : "Pay with PayMongo",
+    buttonLink: paymentLink,
+    showButton: true,
+    plainText:
+      (testMode ? "TEST MODE - no real payment will be collected.\n" : "") +
+      "Your PerkUp subscription payment is due.\n" +
+      "Store: " + String(invoice.storeName || "Your store") + "\n" +
+      "Amount: " + formattedAmount + "\n" +
+      "Due: " + dueDate + "\n" +
+      "Reference: " + referenceNumber + "\n" +
+      "Pay here: " + paymentLink,
+    attachments: [createSubscriptionDocumentPdf_(invoiceDetails, "invoice")]
+  });
+}
+
+function sendSubscriptionPaymentReminderEmail(recipientEmail, userName, invoice) {
+  validateEmailInput_(recipientEmail, userName);
+  invoice = invoice || {};
+  var paymentLink = String(invoice.paymentLink || "").trim();
+  var referenceNumber = String(invoice.referenceNumber || "").trim();
+  var amountCentavos = Number(invoice.amountCentavos || 0);
+  if (!/^https:\/\//i.test(paymentLink)) throw new Error("A secure paymentLink is required.");
+  if (!referenceNumber) throw new Error("invoice.referenceNumber is required.");
+  if (!isFinite(amountCentavos) || amountCentavos < 100) throw new Error("A valid invoice amount is required.");
+
+  var currency = String(invoice.currency || "PHP").toUpperCase();
+  var formattedAmount = currency + " " + (amountCentavos / 100).toFixed(2);
+  var noticeType = String(invoice.noticeType || "payment_overdue");
+  var frozen = noticeType === "access_frozen";
+  var testMode = invoice.testMode === true;
+  var invoiceDetails = {
+    documentNumber: getSubscriptionDocumentNumber_(invoice),
+    status: frozen ? "Access frozen - payment outstanding" : "Overdue - grace period active",
+    storeName: String(invoice.storeName || "Your store").trim(),
+    planName: String(invoice.planName || "PerkUp subscription").trim(),
+    amount: formattedAmount,
+    dueDate: formatPhilippineDateTime_(invoice.dueAt),
+    graceEndsAt: formatPhilippineDateTime_(invoice.graceEndsAt),
+    referenceNumber: referenceNumber,
+    testMode: testMode
+  };
+
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: (testMode ? "[TEST] " : "") + (frozen ? "PerkUp access frozen - payment required" : "PerkUp payment overdue - grace period active"),
+    userName: userName,
+    heading: frozen ? "Your PerkUp access is temporarily frozen." : "Your PerkUp payment is overdue.",
+    introText: frozen
+      ? "Your grace period has ended. Use the secure PayMongo page below to settle the outstanding subscription invoice."
+      : "Your subscription is now in its grace period. Please settle the invoice before the grace period ends to avoid an interruption.",
+    secondaryText: testMode
+      ? "This is a test-mode notice. No real funds will be collected."
+      : "PayMongo will notify PerkUp after a successful payment, and access will reactivate automatically.",
+    invoice: invoiceDetails,
+    buttonText: testMode ? "Open Test Payment Page" : "Pay and Restore Access",
+    buttonLink: paymentLink,
+    showButton: true,
+    plainText:
+      (testMode ? "TEST MODE - no real payment will be collected.\n" : "") +
+      (frozen ? "Your PerkUp access is frozen.\n" : "Your PerkUp payment is overdue.\n") +
+      "Store: " + invoiceDetails.storeName + "\n" +
+      "Amount: " + formattedAmount + "\n" +
+      "Due: " + invoiceDetails.dueDate + "\n" +
+      "Reference: " + referenceNumber + "\n" +
+      "Pay here: " + paymentLink,
+    attachments: [createSubscriptionDocumentPdf_(invoiceDetails, "invoice")]
+  });
+}
+
+function sendSubscriptionPaymentReceivedEmail(recipientEmail, userName, invoice) {
+  validateEmailInput_(recipientEmail, userName);
+  invoice = invoice || {};
+  var amountCentavos = Number(invoice.grossAmountCentavos || invoice.amountCentavos || 0);
+  if (!isFinite(amountCentavos) || amountCentavos < 100) throw new Error("A valid paid amount is required.");
+  var currency = String(invoice.currency || "PHP").toUpperCase();
+  var formattedAmount = currency + " " + (amountCentavos / 100).toFixed(2);
+  var testMode = invoice.testMode === true;
+  var invoiceDetails = {
+    documentNumber: getSubscriptionDocumentNumber_(invoice),
+    status: "Paid",
+    storeName: String(invoice.storeName || "Your store").trim(),
+    planName: String(invoice.planName || "PerkUp subscription").trim(),
+    amount: formattedAmount,
+    dueDate: formatPhilippineDateTime_(invoice.dueAt),
+    paidAt: formatPhilippineDateTime_(invoice.paidAt),
+    renewedUntil: formatPhilippineDateTime_(invoice.renewedUntil),
+    paymentMethod: String(invoice.paymentMethod || "PayMongo").replace(/_/g, " "),
+    referenceNumber: String(invoice.referenceNumber || "").trim(),
+    testMode: testMode
+  };
+
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: (testMode ? "[TEST] " : "") + "PerkUp payment received and access restored",
+    userName: userName,
+    heading: "Payment received. Your access is active.",
+    introText: "PayMongo confirmed your subscription payment and PerkUp automatically renewed your access.",
+    secondaryText: "Keep the attached receipt for your records. You can also review payment history from your PerkUp subscription page.",
+    invoice: invoiceDetails,
+    buttonText: "Open PerkUp",
+    buttonLink: EMAIL_CONFIG.websiteLink.replace(/\/+$/, "") + "/owner/subscription",
+    showButton: true,
+    plainText:
+      (testMode ? "TEST MODE - no real funds were collected.\n" : "") +
+      "Payment received and access restored.\n" +
+      "Store: " + invoiceDetails.storeName + "\n" +
+      "Amount: " + formattedAmount + "\n" +
+      "Paid: " + invoiceDetails.paidAt + "\n" +
+      "Reference: " + invoiceDetails.referenceNumber + "\n" +
+      "Renewed until: " + invoiceDetails.renewedUntil,
+    attachments: [createSubscriptionDocumentPdf_(invoiceDetails, "receipt")]
+  });
+}
+
+function sendSubscriptionBillingFailureEmail(recipientEmail, userName, invoice) {
+  validateEmailInput_(recipientEmail, userName);
+  invoice = invoice || {};
+  var invoiceDetails = {
+    documentNumber: getSubscriptionDocumentNumber_(invoice),
+    status: "Automation needs attention",
+    storeName: String(invoice.storeName || "Unknown store").trim(),
+    planName: String(invoice.planName || "PerkUp subscription").trim(),
+    amount: String(invoice.currency || "PHP").toUpperCase() + " " + (Number(invoice.amountCentavos || 0) / 100).toFixed(2),
+    dueDate: formatPhilippineDateTime_(invoice.dueAt),
+    referenceNumber: String(invoice.referenceNumber || "Not yet created").trim(),
+    testMode: invoice.testMode === true
+  };
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: "PerkUp billing automation requires attention",
+    userName: userName,
+    heading: "A subscription billing task repeatedly failed.",
+    introText: "PerkUp could not complete a billing operation after several attempts. Review the invoice in the admin store subscription screen and use Retry after resolving the cause.",
+    secondaryText: "Latest error: " + String(invoice.failureReason || "No error detail was recorded.").slice(0, 500),
+    invoice: invoiceDetails,
+    buttonText: "Open PerkUp Admin",
+    buttonLink: EMAIL_CONFIG.websiteLink.replace(/\/+$/, "") + "/admin",
+    showButton: true,
+    plainText:
+      "PerkUp billing automation requires attention.\n" +
+      "Store: " + invoiceDetails.storeName + "\n" +
+      "Invoice: " + invoiceDetails.documentNumber + "\n" +
+      "Latest error: " + String(invoice.failureReason || "No error detail was recorded.").slice(0, 500)
+  });
+}
+
+function getSubscriptionDocumentNumber_(invoice) {
+  var rawId = String(invoice.invoiceId || invoice.referenceNumber || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  return "PU-" + (rawId.substring(0, 12) || Utilities.getUuid().replace(/-/g, "").substring(0, 12).toUpperCase());
+}
+
+function createSubscriptionDocumentPdf_(invoice, documentType) {
+  var isReceipt = documentType === "receipt";
+  var title = isReceipt ? "Subscription Payment Receipt" : "Subscription Invoice";
+  var rows = [
+    ["Document number", invoice.documentNumber],
+    ["Status", invoice.status],
+    ["Business", invoice.storeName],
+    ["Plan", invoice.planName],
+    ["Amount", invoice.amount],
+    ["Due", invoice.dueDate],
+    ["Paid", invoice.paidAt],
+    ["Payment method", invoice.paymentMethod],
+    ["PayMongo reference", invoice.referenceNumber],
+    ["Access renewed until", invoice.renewedUntil]
+  ];
+  var rowHtml = rows.filter(function(row) { return row[1]; }).map(function(row) {
+    return "<tr><th>" + escapeHtml_(row[0]) + "</th><td>" + escapeHtml_(row[1]) + "</td></tr>";
+  }).join("");
+  var modeNotice = invoice.testMode ? "<div class='test'>TEST MODE - no real funds were collected.</div>" : "";
+  var html = "<!doctype html><html><head><meta charset='UTF-8'><style>" +
+    "body{font-family:Arial,sans-serif;color:#171717;padding:42px}h1{margin:0 0 8px;font-size:26px}" +
+    ".brand{font-size:18px;font-weight:700;margin-bottom:30px}.meta{color:#666;margin-bottom:24px}" +
+    "table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:12px;border-bottom:1px solid #ddd}" +
+    "th{width:38%;color:#555}.test{margin:20px 0;padding:12px;background:#fff3cd;border:1px solid #f0cc65}" +
+    ".footer{margin-top:36px;color:#666;font-size:11px;line-height:1.5}</style></head><body>" +
+    "<div class='brand'>PerkUp</div><h1>" + escapeHtml_(title) + "</h1>" +
+    "<div class='meta'>Issued " + escapeHtml_(formatPhilippineDateTime_(new Date())) + "</div>" + modeNotice +
+    "<table>" + rowHtml + "</table>" +
+    "<div class='footer'>This system-generated document records a PerkUp subscription charge or payment. " +
+    "It is not represented as a VAT official receipt or tax invoice. For questions, contact " + escapeHtml_(EMAIL_CONFIG.contactEmail) + ".</div>" +
+    "</body></html>";
+  var filename = (isReceipt ? "PerkUp-Receipt-" : "PerkUp-Invoice-") + invoice.documentNumber + ".pdf";
+  return HtmlService.createHtmlOutput(html).getBlob().getAs(MimeType.PDF).setName(filename);
+}
+
+function escapeHtml_(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function sendTestOtpEmail() {
   return sendOtpEmail("user@example.com", "John Doe", "123456");
 }
@@ -324,6 +556,7 @@ function sendSystemEmail_(emailData) {
   template.store = emailData.store || null;
   template.application = emailData.application || null;
   template.feedback = emailData.feedback || null;
+  template.invoice = emailData.invoice || null;
   template.buttonText = emailData.buttonText || "View Dashboard";
   template.buttonLink = emailData.buttonLink || EMAIL_CONFIG.websiteLink;
   template.showButton = emailData.showButton !== false;
@@ -334,7 +567,8 @@ function sendSystemEmail_(emailData) {
   // UPDATED: Swapped MailApp for GmailApp to bypass external spam filters
   GmailApp.sendEmail(emailData.recipientEmail, emailData.subject, plainText, {
     htmlBody: htmlBody,
-    name: EMAIL_CONFIG.senderName
+    name: EMAIL_CONFIG.senderName,
+    attachments: emailData.attachments || []
   });
 
   Logger.log("Email sent to " + emailData.recipientEmail + " with Ref ID: " + referenceId);
