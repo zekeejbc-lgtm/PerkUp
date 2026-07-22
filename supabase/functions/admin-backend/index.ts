@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
     if (action === "list_public_engagement") {
       if (!actorCanReview) return jsonResponse({ error: "Admin access required." }, 403);
 
-      const [feedbackResult, newsletterResult] = await Promise.all([
+      const [feedbackResult, newsletterResult, errorReportsResult] = await Promise.all([
         admin
           .from("site_feedback_submissions")
           .select("id,name,email,category,message,reference_number,status,public_response,internal_notes,created_at,status_updated_at,updated_at")
@@ -117,9 +117,15 @@ Deno.serve(async (req) => {
           .select("id,email,created_at")
           .order("created_at", { ascending: false })
           .limit(1000),
+        admin
+          .from("client_error_reports")
+          .select("id,error_code,status,message,stack_trace,page_url,route,user_agent,app_version,context,reporter_user_id,reporter_role,internal_notes,created_at,status_updated_at,updated_at,resolved_at")
+          .order("created_at", { ascending: false })
+          .limit(1000),
       ]);
       if (feedbackResult.error) throw feedbackResult.error;
       if (newsletterResult.error) throw newsletterResult.error;
+      if (errorReportsResult.error) throw errorReportsResult.error;
 
       return jsonResponse({
         feedback: (feedbackResult.data || []).map((row) => ({
@@ -137,6 +143,25 @@ Deno.serve(async (req) => {
           updatedAt: row.updated_at,
         })),
         subscribers: newsletterResult.data || [],
+        errorReports: (errorReportsResult.data || []).map((row) => ({
+          id: row.id,
+          errorCode: row.error_code,
+          status: row.status,
+          message: row.message,
+          stack: row.stack_trace || "",
+          pageUrl: row.page_url || "",
+          route: row.route || "",
+          userAgent: row.user_agent || "",
+          appVersion: row.app_version || "",
+          context: row.context || {},
+          reporterUserId: row.reporter_user_id || "",
+          reporterRole: row.reporter_role || "",
+          internalNotes: row.internal_notes || "",
+          createdAt: row.created_at,
+          statusUpdatedAt: row.status_updated_at,
+          updatedAt: row.updated_at,
+          resolvedAt: row.resolved_at || "",
+        })),
       });
     }
 
@@ -174,6 +199,44 @@ Deno.serve(async (req) => {
           internalNotes: data.internal_notes || "",
           statusUpdatedAt: data.status_updated_at,
           updatedAt: data.updated_at,
+        },
+      });
+    }
+
+    if (action === "update_error_report") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const reportId = cleanText(body.reportId, 100);
+      const status = cleanText(body.status, 30).toLowerCase();
+      const internalNotes = cleanText(body.internalNotes, 4000);
+      if (!reportId || !["open", "in_progress", "fixed"].includes(status)) {
+        return jsonResponse({ error: "An error report and valid status are required." }, 400);
+      }
+
+      const now = new Date().toISOString();
+      const { data, error } = await admin
+        .from("client_error_reports")
+        .update({
+          status,
+          internal_notes: internalNotes || null,
+          status_updated_at: now,
+          updated_at: now,
+          resolved_at: status === "fixed" ? now : null,
+          resolved_by: status === "fixed" ? authData.user.id : null,
+        })
+        .eq("id", reportId)
+        .select("id,status,internal_notes,status_updated_at,updated_at,resolved_at")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return jsonResponse({ error: "Error report was not found." }, 404);
+
+      return jsonResponse({
+        errorReport: {
+          id: data.id,
+          status: data.status,
+          internalNotes: data.internal_notes || "",
+          statusUpdatedAt: data.status_updated_at,
+          updatedAt: data.updated_at,
+          resolvedAt: data.resolved_at || "",
         },
       });
     }

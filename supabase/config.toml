@@ -31,6 +31,9 @@ verify_jwt = false
 [functions.public-feedback]
 verify_jwt = false
 
+[functions.error-reports]
+verify_jwt = false
+
 [functions.subscription-billing-worker]
 enabled = true
 verify_jwt = false

@@ -41,7 +41,7 @@ export default function AdminDashboard() {
   const navigation = [
     { id: 'stores', label: 'Partner Stores', icon: Store },
     { id: 'applications', label: 'Applications', icon: FileText },
-    { id: 'inbox', label: 'Public Inbox', icon: Inbox },
+    { id: 'inbox', label: 'Admin Inbox', icon: Inbox },
     { id: 'homepage', label: 'Edit Homepage', icon: Layout },
     ...((user?.role === "admin" || user?.role === "assistant_admin")
       ? [{ id: 'legal' as const, label: 'Edit Legal Pages', icon: Scale }]

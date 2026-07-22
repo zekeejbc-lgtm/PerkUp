@@ -30,10 +30,12 @@ import { CategorySearchInput } from "../../components/CategorySearchInput";
 import { PayMongoDefaultsControl } from "../../components/PayMongoDefaultsControl";
 import { PAYMONGO_STANDARD_ACCESS } from "../../lib/subscriptionAccess";
 import { AlreadyPaidControl } from "../../components/AlreadyPaidControl";
+import { useToast } from "../../components/ToastProvider";
 
 const STORES_PER_PAGE = 8;
 
 export default function AdminStores() {
+  const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const [stores, setStores] = useState<any[]>([]);
   const [ownerProfiles, setOwnerProfiles] = useState<Record<string, any>>({});
@@ -235,14 +237,15 @@ export default function AdminStores() {
   const handleAddStore = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!alreadyPaid && !payMongoDefaultsEnabled) {
-      alert("Enable the PayMongo standard so the owner can complete the initial payment, or mark the subscription as already paid.");
+      toast.info("Enable the PayMongo standard so the owner can complete the initial payment, or mark the subscription as already paid.");
       return;
     }
     if (!validateStrongPassword(ownerPassword, { name: ownerName, email: ownerEmail }).valid) {
-      alert("Use a strong password that meets every requirement.");
+      toast.info("Use a strong password that meets every requirement.");
       return;
     }
     setIsSubmitting(true);
+    const progressToastId = toast.progress("Creating the store and owner account…", { title: "New store setup" });
     let uploadedLogoUrl = "";
     let storePersisted = false;
     try {
@@ -324,14 +327,24 @@ export default function AdminStores() {
       setPayMongoDefaultsEnabled(false);
       setAlreadyPaid(false);
       if (result.notification && !result.notification.sent) {
-        alert(`Store created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`);
+        toast.update(progressToastId, `Store created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`, "error", {
+          title: "Welcome email failed",
+          error: new Error(result.notification.error || "Email service unavailable."),
+          context: { operation: "create_store_welcome_email", storeName },
+        });
+      } else {
+        toast.update(progressToastId, `${storeName} and its owner account were created successfully.`, "success", { title: "Store created" });
       }
     } catch (error) {
       if (!storePersisted && uploadedLogoUrl) {
         await deleteImageFromDriveSecure(uploadedLogoUrl).catch(console.error);
       }
       console.error(error);
-      alert("Failed to create store: " + (error as Error).message);
+      toast.update(progressToastId, "Failed to create store: " + (error as Error).message, "error", {
+        title: "Store setup failed",
+        error,
+        context: { operation: "create_store", storeName },
+      });
     } finally {
       setIsSubmitting(false);
     }

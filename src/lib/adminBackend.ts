@@ -38,10 +38,35 @@ const getFunctionErrorMessage = async (error: unknown, fallback: string) => {
 export async function invokeAdminBackend<T extends Record<string, unknown>>(
   body: Record<string, unknown>,
 ): Promise<T> {
-  const { data, error } = await supabase.functions.invoke<AdminBackendResponse<T>>("admin-backend", {
+  const invoke = async (accessToken: string) => supabase.functions.invoke<AdminBackendResponse<T>>("admin-backend", {
     body,
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (error) throw new Error(await getFunctionErrorMessage(error, "Backend operation failed."));
-  if (!data || data.error) throw new Error(data?.error || "Backend operation returned no data.");
-  return data as T;
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  let session = sessionData.session;
+  if (!session) throw new Error("Your session has expired. Please sign in again.");
+
+  // Explicitly forward the user JWT. This avoids an occasional race where the
+  // Functions client still has the publishable key while Auth has restored the
+  // persisted user session.
+  let result = await invoke(session.access_token);
+  if (result.error) {
+    const firstMessage = await getFunctionErrorMessage(result.error, "Backend operation failed.");
+    if (/authentication required|jwt|token.*expired/i.test(firstMessage)) {
+      const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+      if (!refreshError && refreshed.session) {
+        session = refreshed.session;
+        result = await invoke(session.access_token);
+      } else {
+        throw new Error("Your session has expired. Please sign in again.");
+      }
+    } else {
+      throw new Error(firstMessage);
+    }
+  }
+
+  if (result.error) throw new Error(await getFunctionErrorMessage(result.error, "Backend operation failed."));
+  if (!result.data || result.data.error) throw new Error(result.data?.error || "Backend operation returned no data.");
+  return result.data as T;
 }
