@@ -1336,6 +1336,11 @@ Deno.serve(async (req) => {
           .order("created_at", { ascending: true })
         : { data: [], error: null };
       if (remainingStoresError) throw remainingStoresError;
+      const remainingStores = remainingStoreRows || [];
+      const retainedPrimaryStore = !deleteGroup && remainingStores.length > 0
+        ? remainingStores.find((row: any) => row.data?.isPrimaryBranch === true) || remainingStores[0]
+        : null;
+      const primaryStoreId = retainedPrimaryStore ? String(retainedPrimaryStore.id) : null;
       const { data: staffRows, error: usersError } = await admin
         .from("users")
         .select("id,data")
@@ -1447,14 +1452,40 @@ Deno.serve(async (req) => {
       }
       const { error: referralDeleteError } = await admin.from("store_referral_redemptions").delete().in("store_id", storeIds);
       if (referralDeleteError) throw referralDeleteError;
+
+      if (primaryStoreId) {
+        // Billing belongs to the store group. Preserve its subscription and
+        // invoice history when a surviving branch becomes the new primary.
+        const { error: invoiceRelinkError } = await admin
+          .from("billing_invoices")
+          .update({ store_id: primaryStoreId })
+          .in("store_id", storeIds);
+        if (invoiceRelinkError) throw invoiceRelinkError;
+        const { error: subscriptionRelinkError } = await admin
+          .from("billing_subscriptions")
+          .update({ store_id: primaryStoreId })
+          .in("store_id", storeIds);
+        if (subscriptionRelinkError) throw subscriptionRelinkError;
+      } else {
+        // Invoices use restrictive foreign keys so deletion must be explicit
+        // and must happen before subscriptions, stores, and owner profiles.
+        const { error: invoiceDeleteError } = await admin
+          .from("billing_invoices")
+          .delete()
+          .in("store_id", storeIds);
+        if (invoiceDeleteError) throw invoiceDeleteError;
+        const { error: subscriptionDeleteError } = await admin
+          .from("billing_subscriptions")
+          .delete()
+          .in("store_id", storeIds);
+        if (subscriptionDeleteError) throw subscriptionDeleteError;
+      }
+
       const { error: deleteStoreError } = await admin.from("stores").delete().in("id", storeIds);
       if (deleteStoreError) throw deleteStoreError;
-      let primaryStoreId: string | null = null;
-      if (!deleteGroup && ownerId && (remainingStoreRows || []).length > 0) {
-        const remainingStores = remainingStoreRows || [];
+      if (!deleteGroup && ownerId && retainedPrimaryStore && primaryStoreId) {
         const existingPrimary = remainingStores.find((row: any) => row.data?.isPrimaryBranch === true);
-        const promotedStore = existingPrimary || remainingStores[0];
-        primaryStoreId = String(promotedStore.id);
+        const promotedStore = retainedPrimaryStore;
 
         if (!existingPrimary) {
           const subscriptionFields = [
