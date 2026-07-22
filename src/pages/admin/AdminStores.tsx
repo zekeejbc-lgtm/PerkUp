@@ -13,6 +13,7 @@ import {
   getSubscriptionOwedAmount,
   getSubscriptionDependencies,
   PAYMENT_SCHEDULE_OPTIONS,
+  toDateInputValue,
 } from "../../lib/subscriptionBilling";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { ImageCropEditor } from "../../components/ImageCropEditor";
@@ -26,6 +27,9 @@ import { formatStoreHours } from "../../lib/dateTime";
 import { CategoryInput } from "../../components/CategoryInput";
 import { Pagination } from "../../components/Pagination";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
+import { PayMongoDefaultsControl } from "../../components/PayMongoDefaultsControl";
+import { PAYMONGO_STANDARD_ACCESS } from "../../lib/subscriptionAccess";
+import { AlreadyPaidControl } from "../../components/AlreadyPaidControl";
 
 const STORES_PER_PAGE = 8;
 
@@ -68,12 +72,26 @@ export default function AdminStores() {
   const [subStart, setSubStart] = useState("");
   const [subEnd, setSubEnd] = useState("");
   const [paymentSchedule, setPaymentSchedule] = useState("every_30_days");
+  const [billingIntervalDays, setBillingIntervalDays] = useState(30);
+  const [payMongoDefaultsEnabled, setPayMongoDefaultsEnabled] = useState(false);
+  const [alreadyPaid, setAlreadyPaid] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const billingPlans = subscriptionPlans.length > 0 ? subscriptionPlans : DEFAULT_SUBSCRIPTION_PLANS;
   const selectedOwedAmount = getSubscriptionOwedAmount(billingPlans, subLevel);
   const selectedSubscriptionDependencies = getSubscriptionDependencies(billingPlans, subLevel);
   const selectedBranchLimit = selectedSubscriptionDependencies.branchLimit > 0 ? selectedSubscriptionDependencies.branchLimit : 100;
   const categories = useMemo(() => getAvailableStoreCategories(stores), [stores]);
+  const applyPayMongoDefaults = () => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 30);
+    setSubStart(toDateInputValue(start));
+    setSubEnd(toDateInputValue(end));
+    setPaymentSchedule("every_30_days");
+    setBillingIntervalDays(30);
+    setPayMongoDefaultsEnabled(true);
+  };
   const filteredStores = useMemo(() => {
     return stores.filter((store) => {
       return storeMatchesCategorySearch(store, searchQuery, categories, [
@@ -216,6 +234,10 @@ export default function AdminStores() {
 
   const handleAddStore = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!alreadyPaid && !payMongoDefaultsEnabled) {
+      alert("Enable the PayMongo standard so the owner can complete the initial payment, or mark the subscription as already paid.");
+      return;
+    }
     if (!validateStrongPassword(ownerPassword, { name: ownerName, email: ownerEmail }).valid) {
       alert("Use a strong password that meets every requirement.");
       return;
@@ -241,6 +263,7 @@ export default function AdminStores() {
         password: ownerPassword,
         name: ownerName,
         forcePasswordReset: requirePasswordChange,
+        alreadyPaid,
         store: {
           name: storeName,
           businessName: storeName,
@@ -266,6 +289,8 @@ export default function AdminStores() {
           subscriptionStart: dateInputToDate(subStart),
           subscriptionEnd: dateInputToDate(subEnd),
           paymentSchedule,
+          billingIntervalDays,
+          ...(payMongoDefaultsEnabled ? { subscriptionAccess: PAYMONGO_STANDARD_ACCESS } : {}),
         },
       });
       storePersisted = true;
@@ -295,6 +320,9 @@ export default function AdminStores() {
       setSubStart("");
       setSubEnd("");
       setPaymentSchedule("every_30_days");
+      setBillingIntervalDays(30);
+      setPayMongoDefaultsEnabled(false);
+      setAlreadyPaid(false);
       if (result.notification && !result.notification.sent) {
         alert(`Store created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`);
       }
@@ -496,6 +524,7 @@ export default function AdminStores() {
                   <StoreLocationPicker
                     latitude={storeLatitude}
                     longitude={storeLongitude}
+                    logoUrl={storeLogo}
                     onChange={(latitude, longitude) => {
                       setStoreLatitude(latitude);
                       setStoreLongitude(longitude);
@@ -569,6 +598,15 @@ export default function AdminStores() {
                   </div>
                 </div>
 
+                <PayMongoDefaultsControl
+                  enabled={payMongoDefaultsEnabled}
+                  hasExistingValues={Boolean(subStart || subEnd || paymentSchedule !== "every_30_days" || billingIntervalDays !== 30)}
+                  onApply={applyPayMongoDefaults}
+                  onDisable={() => setPayMongoDefaultsEnabled(false)}
+                />
+                <AlreadyPaidControl value={alreadyPaid} onChange={setAlreadyPaid} />
+                {!alreadyPaid && !payMongoDefaultsEnabled && <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300">Initial payment is required by default. Enable the PayMongo standard to create the payment invoice, or turn on Already paid to bypass it.</p>}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Subscription Level</label>
@@ -604,6 +642,10 @@ export default function AdminStores() {
                       className="w-full"
                     />
                   </div>
+                  {paymentSchedule === "every_30_days" && <div className="space-y-2">
+                    <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Billing Interval (Days)</label>
+                    <input type="number" min="1" max="365" required value={billingIntervalDays} onChange={(event) => setBillingIntervalDays(Math.max(1, Math.min(365, Math.trunc(Number(event.target.value) || 1))))} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-800" />
+                  </div>}
                 </div>
               </div>
 
@@ -632,7 +674,7 @@ export default function AdminStores() {
 
               <footer className="sticky bottom-0 z-10 -mx-6 -mb-6 flex justify-end gap-2 border-t border-gray-200 bg-white/95 px-6 py-4 backdrop-blur-sm dark:border-gray-800 dark:bg-gray-900/95">
                 <button type="button" onClick={() => setShowAddModal(false)} className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700">Cancel</button>
-                <button type="submit" disabled={isSubmitting || !validateStrongPassword(ownerPassword, { name: ownerName, email: ownerEmail }).valid} className="rounded-lg bg-[#1b1b1b] px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-50 dark:bg-[#1b1b1b] dark:hover:bg-black">
+                <button type="submit" disabled={isSubmitting || (!alreadyPaid && !payMongoDefaultsEnabled) || !validateStrongPassword(ownerPassword, { name: ownerName, email: ownerEmail }).valid} className="rounded-lg bg-[#1b1b1b] px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-50 dark:bg-[#1b1b1b] dark:hover:bg-black">
                   {isSubmitting ? 'Creating...' : 'Create Record'}
                 </button>
               </footer>

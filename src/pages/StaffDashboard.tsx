@@ -4,8 +4,8 @@ import { lazy, Suspense, useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { doc, getDocFromServer } from "@/src/lib/dataCompat";
 import { db } from "../lib/backend";
-import { getEffectiveSubscriptionStatus } from "../lib/subscriptionAccess";
-import { SubscriptionAccessBanner, SubscriptionFrozenScreen } from "../components/SubscriptionAccessGate";
+import { getEffectiveSubscriptionStatus, isAccountSuspended } from "../lib/subscriptionAccess";
+import { AccountSuspendedScreen, SubscriptionAccessBanner, SubscriptionFrozenScreen } from "../components/SubscriptionAccessGate";
 
 import { DashboardShellSkeleton, PageSkeleton } from "../components/LoadingSkeleton";
 
@@ -75,6 +75,10 @@ export default function StaffDashboard() {
 
   if (loading) {
     return <DashboardShellSkeleton navigationItems={5}><PageSkeleton variant={fallbackVariant} /></DashboardShellSkeleton>;
+  }
+
+  if (subscriptionStore && isAccountSuspended(subscriptionStore.accountRestriction)) {
+    return <AccountSuspendedScreen store={subscriptionStore} role="staff" />;
   }
 
   if (subscriptionStore && getEffectiveSubscriptionStatus(subscriptionStore.subscriptionAccess, new Date(), subscriptionStore.subscriptionEnd) === "frozen") {

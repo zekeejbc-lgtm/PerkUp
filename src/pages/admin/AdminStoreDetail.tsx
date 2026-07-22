@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { deleteField, doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { AlertTriangle, ArrowLeft, BellRing, Building2, Check, ChevronDown, Clock3, Edit, Key, Loader2, MessageSquare, Plus, RotateCcw, Save, Snowflake, Star, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Ban, BellRing, Building2, Check, ChevronDown, Clock3, Edit, Key, Loader2, MessageSquare, Plus, RotateCcw, Save, Snowflake, Star, Trash2, Upload, X } from "lucide-react";
 
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
@@ -16,6 +16,7 @@ import {
   formatMoney,
   formatPaymentSchedule,
   formatPredictedPaymentDate,
+  getCurrentSubscriptionPaymentState,
   getSubscriptionOwedAmount,
   getNextPaymentDate,
   getSubscriptionBranchLimit,
@@ -29,10 +30,11 @@ import { TimeInput } from "../../components/TimeInput";
 import { formatPhilippineDateTime, formatStoreHours, formatTime12Hour } from "../../lib/dateTime";
 import { Pagination } from "../../components/Pagination";
 import { sanitizePasswordInput } from "../../lib/passwordStrength";
-import { getEffectiveSubscriptionStatus, normalizeSubscriptionAccess } from "../../lib/subscriptionAccess";
+import { DEFAULT_POLICY_SUSPENSION_MESSAGE, getEffectiveSubscriptionStatus, normalizeAccountRestriction, normalizeSubscriptionAccess } from "../../lib/subscriptionAccess";
 import { supabase } from "../../lib/supabase";
 import { StoreBranchesMap } from "../../components/StoreBranchesMap";
 import { PasswordVisibilityButton } from "../../components/PasswordVisibilityButton";
+import { ConfirmationModal } from "../../components/ConfirmationModal";
 
 const ACTIVITY_LOGS_PER_PAGE = 8;
 type SubscriptionAccessAction = "active" | "warning" | "grace" | "frozen";
@@ -103,15 +105,28 @@ export default function AdminStoreDetail({
   const [billingInvoices, setBillingInvoices] = useState<any[]>([]);
   const [billingInvoicesLoading, setBillingInvoicesLoading] = useState(false);
   const [billingRetryId, setBillingRetryId] = useState("");
+  const [restrictionReason, setRestrictionReason] = useState(DEFAULT_POLICY_SUSPENSION_MESSAGE);
+  const [restrictionInternalNote, setRestrictionInternalNote] = useState("");
+  const [restrictionBusy, setRestrictionBusy] = useState(false);
+  const [restrictionMessage, setRestrictionMessage] = useState("");
+  const [restrictionError, setRestrictionError] = useState("");
+  const [pendingRestrictionAction, setPendingRestrictionAction] = useState<"suspend" | "restore" | null>(null);
   const subscriptionStore = (store?.isPrimaryBranch !== false ? store : null) ||
     branches.find(branch => branch.isPrimaryBranch === true) ||
     branches.find(branch => branch.subscriptionLevel || branch.subscriptionDependencies) || null;
   const canEditSubscription = Boolean(store && subscriptionStore && store.id === subscriptionStore.id);
   const branchLimit = getSubscriptionBranchLimit(subscriptionStore?.subscriptionDependencies);
   const predictedPaymentDates = subscriptionStore
-    ? predictPaymentDates(subscriptionStore.paymentSchedule, subscriptionStore.subscriptionStart, subscriptionStore.subscriptionEnd, 6)
+    ? predictPaymentDates(subscriptionStore.paymentSchedule, subscriptionStore.subscriptionStart, subscriptionStore.subscriptionEnd, 6, new Date(), subscriptionStore.billingIntervalDays)
     : [];
+  const accountRestriction = normalizeAccountRestriction(subscriptionStore?.accountRestriction);
   const subscriptionAccessStatus = getEffectiveSubscriptionStatus(subscriptionStore?.subscriptionAccess, new Date(), subscriptionStore?.subscriptionEnd);
+  const currentPayment = getCurrentSubscriptionPaymentState(
+    billingInvoices,
+    subscriptionStore?.subscriptionStart,
+    subscriptionStore?.subscriptionEnd,
+    subscriptionStore?.initialPaymentRequired === true,
+  );
   const subscriptionAccessConfirmation = pendingSubscriptionAccessAction === "warning" ? {
     title: "Publish subscription warning?",
     description: "The warning message will immediately be shown to the store owner and staff. Their access will remain available.",
@@ -121,9 +136,9 @@ export default function AdminStoreDetail({
     description: `This immediately starts ${subscriptionAccessForm.gracePeriodDays} day${subscriptionAccessForm.gracePeriodDays === 1 ? "" : "s"} of grace access. Starting it again resets the countdown, and access will freeze when it expires.`,
     confirmLabel: "Start",
   } : pendingSubscriptionAccessAction === "frozen" ? {
-    title: "Freeze store access now?",
-    description: "The store owner and every staff member will immediately lose portal access until an administrator restores it.",
-    confirmLabel: "Freeze",
+    title: "Freeze for non-payment now?",
+    description: "The owner and staff will see the overdue-payment screen. A matching PayMongo payment can automatically restore access. Use Administrative suspension below for policy violations.",
+    confirmLabel: "Freeze for non-payment",
   } : pendingSubscriptionAccessAction === "active" ? {
     title: "Restore store access?",
     description: "The current warning, grace period, or frozen state will be cleared, and the store owner and staff will regain normal portal access.",
@@ -249,6 +264,7 @@ export default function AdminStoreDetail({
             subscriptionStart: toDateInputValue(storeData.subscriptionStart),
             subscriptionEnd: toDateInputValue(storeData.subscriptionEnd),
             paymentSchedule: storeData.paymentSchedule || "",
+            billingIntervalDays: Number(storeData.billingIntervalDays || 30),
             status: storeData.status || 'active',
           });
 
@@ -341,6 +357,34 @@ export default function AdminStoreDetail({
     setSubscriptionAccessForm(normalizeSubscriptionAccess(subscriptionStore?.subscriptionAccess));
   }, [subscriptionStore?.id, subscriptionStore?.subscriptionAccess]);
 
+  useEffect(() => {
+    const restriction = normalizeAccountRestriction(subscriptionStore?.accountRestriction);
+    setRestrictionReason(restriction.reason);
+    setRestrictionInternalNote(restriction.internalNote);
+  }, [subscriptionStore?.id, subscriptionStore?.accountRestriction]);
+
+  const updateAccountRestriction = async (status: "active" | "suspended") => {
+    if (!subscriptionStore || !canEditSubscription) return;
+    setRestrictionBusy(true);
+    setRestrictionMessage("");
+    setRestrictionError("");
+    try {
+      const result = await invokeAdminBackend<{ storeId: string; accountRestriction: any }>({
+        action: "update_account_restriction",
+        storeId: subscriptionStore.id,
+        accountRestriction: { status, reason: restrictionReason, internalNote: restrictionInternalNote },
+      });
+      if (store?.id === result.storeId) setStore({ ...store, accountRestriction: result.accountRestriction });
+      setBranches((current) => current.map((branch) => branch.id === result.storeId ? { ...branch, accountRestriction: result.accountRestriction } : branch));
+      setRestrictionMessage(status === "suspended" ? "Administrative suspension applied. Payments cannot restore access." : "Administrative suspension lifted.");
+      setPendingRestrictionAction(null);
+    } catch (error) {
+      setRestrictionError((error as Error).message);
+    } finally {
+      setRestrictionBusy(false);
+    }
+  };
+
   const loadBillingInvoices = async () => {
     if (!subscriptionStore?.id) {
       setBillingInvoices([]);
@@ -349,7 +393,7 @@ export default function AdminStoreDetail({
     setBillingInvoicesLoading(true);
     try {
       const { data, error } = await supabase.from("billing_invoices")
-        .select("id,status,due_at,amount_centavos,currency,paymongo_reference_number,payment_url,livemode,paid_at,attempt_count,last_error,created_at")
+        .select("id,status,due_at,period_start,period_end,amount_centavos,currency,paymongo_reference_number,payment_url,livemode,paid_at,attempt_count,last_error,created_at")
         .eq("store_id", subscriptionStore.id)
         .order("created_at", { ascending: false })
         .limit(12);
@@ -451,6 +495,8 @@ export default function AdminStoreDetail({
         editData.paymentSchedule,
         dateInputToDate(editData.subscriptionStart),
         dateInputToDate(editData.subscriptionEnd),
+        new Date(),
+        editData.billingIntervalDays,
       );
       const priceChangesNextCycle = nextPlanAmount !== currentAmount && Boolean(nextPaymentDate);
       const {
@@ -565,6 +611,7 @@ export default function AdminStoreDetail({
       subscriptionStart: toDateInputValue(store.subscriptionStart),
       subscriptionEnd: toDateInputValue(store.subscriptionEnd),
       paymentSchedule: store.paymentSchedule || "",
+      billingIntervalDays: Number(store.billingIntervalDays || 30),
       status: store.status || 'active',
     });
     setIsEditing(false);
@@ -981,7 +1028,10 @@ export default function AdminStoreDetail({
                   ) : (
                     <div>
                       <p className="text-red-600 font-medium">{formatMoney(Number(subscriptionStore?.owedAmount || 0))}</p>
-                      {Number.isFinite(Number(subscriptionStore?.pendingOwedAmount)) && Number(subscriptionStore?.pendingOwedAmount) !== Number(subscriptionStore?.owedAmount || 0) && (
+                      {subscriptionStore?.pendingOwedAmount != null &&
+                        formatBillingDate(subscriptionStore?.pendingOwedAmountEffectiveAt) !== "N/A" &&
+                        Number.isFinite(Number(subscriptionStore.pendingOwedAmount)) &&
+                        Number(subscriptionStore.pendingOwedAmount) !== Number(subscriptionStore?.owedAmount || 0) && (
                         <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
                           {formatMoney(Number(subscriptionStore?.pendingOwedAmount))} starts on {formatBillingDate(subscriptionStore?.pendingOwedAmountEffectiveAt)}.
                         </p>
@@ -989,6 +1039,26 @@ export default function AdminStoreDetail({
                     </div>
                   )}
                 </div>
+                {!isEditing && (
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-gray-600 dark:text-gray-300">Current Cycle Payment</label>
+                    {billingInvoicesLoading ? (
+                      <span className="inline-flex items-center gap-1.5 text-sm text-gray-500"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking payment…</span>
+                    ) : currentPayment.status === "paid" ? (
+                      <div>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-green-700 dark:bg-green-950/40 dark:text-green-300"><Check className="h-3.5 w-3.5" /> Paid</span>
+                        <p className="mt-1 text-xs text-gray-500">Received {formatBillingDate(currentPayment.invoice?.paid_at)}</p>
+                      </div>
+                    ) : currentPayment.status === "payment_due" ? (
+                      <div>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-red-700 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="h-3.5 w-3.5" /> Payment due</span>
+                        {currentPayment.invoice?.due_at && <p className="mt-1 text-xs text-gray-500">Due {formatBillingDate(currentPayment.invoice.due_at)}</p>}
+                      </div>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-gray-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">No payment record</span>
+                    )}
+                  </div>
+                )}
                 <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-xs font-semibold text-gray-600 dark:text-gray-300">Subscription Start</label>
@@ -1016,9 +1086,17 @@ export default function AdminStoreDetail({
                         className="w-full"
                       />
                     ) : (
-                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatPaymentSchedule(subscriptionStore?.paymentSchedule)}</p>
+                      <p className="text-sm text-gray-900 dark:text-gray-300">{formatPaymentSchedule(subscriptionStore?.paymentSchedule, subscriptionStore?.billingIntervalDays)}</p>
                     )}
                   </div>
+                  {editData.paymentSchedule === "every_30_days" || (!isEditing && subscriptionStore?.paymentSchedule === "every_30_days") ? <div className="sm:col-span-2">
+                    <label className="mb-1 block text-xs font-semibold text-gray-600 dark:text-gray-300">Billing Interval (Days)</label>
+                    {isEditing && canEditSubscription ? (
+                      <input type="number" min="1" max="365" value={editData.billingIntervalDays || 30} onChange={(event) => setEditData({ ...editData, billingIntervalDays: Math.max(1, Math.min(365, Math.trunc(Number(event.target.value) || 1))) })} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
+                    ) : (
+                      <p className="text-sm text-gray-900 dark:text-gray-300">{Number(subscriptionStore?.billingIntervalDays || 30)} days</p>
+                    )}
+                  </div> : null}
                 </div>
                 <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
                   <div className="mb-3">
@@ -1073,7 +1151,7 @@ export default function AdminStoreDetail({
 
                   <label className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
                     <input type="checkbox" checked={subscriptionAccessForm.automationEnabled} onChange={(event) => setSubscriptionAccessForm({ ...subscriptionAccessForm, automationEnabled: event.target.checked })} className="mt-1 h-4 w-4" />
-                    <span><span className="block text-sm font-semibold text-gray-900 dark:text-white">Automatic PayMongo billing</span><span className="mt-1 block text-xs leading-5 text-gray-600 dark:text-gray-400">Create one PayMongo payment link per 30-day cycle, send staged notices and an invoice, confirm payment by signed webhook, email a receipt, and restore access automatically. Each invoice clearly shows whether it is test or live.</span></span>
+                    <span><span className="block text-sm font-semibold text-gray-900 dark:text-white">Automatic PayMongo billing</span><span className="mt-1 block text-xs leading-5 text-gray-600 dark:text-gray-400">Create one PayMongo payment link per configured billing interval, send staged notices and an invoice, confirm payment by signed webhook, email a receipt, and restore billing access automatically. Administrative suspensions are never removed by payment.</span></span>
                   </label>
 
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -1144,7 +1222,7 @@ export default function AdminStoreDetail({
                       <Clock3 className="h-3.5 w-3.5" /> Grace
                     </button>
                     <button type="button" disabled={subscriptionAccessBusy} onClick={() => requestSubscriptionAccessUpdate("frozen")} className="inline-flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-red-600 bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-red-700 hover:shadow disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0">
-                      <Snowflake className="h-3.5 w-3.5" /> Freeze
+                      <Snowflake className="h-3.5 w-3.5" /> Freeze for non-payment
                     </button>
                     <button type="button" disabled={subscriptionAccessBusy} onClick={() => requestSubscriptionAccessUpdate("active")} className="inline-flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-800 shadow-sm transition hover:-translate-y-0.5 hover:border-gray-400 hover:bg-gray-100 hover:shadow disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 dark:border-gray-600 dark:bg-gray-900 dark:text-white dark:hover:border-gray-500 dark:hover:bg-gray-800">
                       {subscriptionAccessBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Restore
@@ -1155,18 +1233,43 @@ export default function AdminStoreDetail({
               )}
             </div>
 
+            <div className="rounded-2xl border border-red-200 bg-red-50/60 p-6 shadow-sm dark:border-red-900/60 dark:bg-red-950/20 sm:p-7">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-red-700 dark:text-red-300">Administrative suspension</h4>
+                  <p className="mt-1 max-w-2xl text-sm leading-6 text-red-800/80 dark:text-red-200/80">Use this for Terms violations, fraud, abuse, or investigation. It takes priority over billing, hides every payment action, and cannot be lifted by a PayMongo payment.</p>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${accountRestriction.status === "suspended" ? "bg-red-700 text-white" : "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300"}`}>{accountRestriction.status}</span>
+              </div>
+              {canEditSubscription && <div className="mt-5 space-y-4">
+                <label className="block text-sm font-semibold text-gray-800 dark:text-gray-200">Message shown to the store owner
+                  <textarea rows={3} maxLength={500} value={restrictionReason} onChange={(event) => setRestrictionReason(event.target.value)} className="mt-1.5 block w-full rounded-xl border border-red-200 bg-white px-4 py-3 font-normal text-gray-900 dark:border-red-900/60 dark:bg-gray-900 dark:text-white" />
+                </label>
+                <label className="block text-sm font-semibold text-gray-800 dark:text-gray-200">Internal note (admins only)
+                  <textarea rows={3} maxLength={2000} value={restrictionInternalNote} onChange={(event) => setRestrictionInternalNote(event.target.value)} placeholder="Record the violation, evidence, or review instructions." className="mt-1.5 block w-full rounded-xl border border-red-200 bg-white px-4 py-3 font-normal text-gray-900 dark:border-red-900/60 dark:bg-gray-900 dark:text-white" />
+                </label>
+                {restrictionMessage && <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">{restrictionMessage}</p>}
+                {restrictionError && <p className="rounded-xl border border-red-300 bg-white px-4 py-3 text-sm font-medium text-red-700">{restrictionError}</p>}
+                {accountRestriction.status === "suspended" ? (
+                  <button type="button" disabled={restrictionBusy} onClick={() => setPendingRestrictionAction("restore")} className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"><RotateCcw className="h-4 w-4" /> Lift suspension</button>
+                ) : (
+                  <button type="button" disabled={restrictionBusy || !restrictionReason.trim()} onClick={() => setPendingRestrictionAction("suspend")} className="inline-flex items-center gap-2 rounded-xl bg-red-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-50"><Ban className="h-4 w-4" /> Suspend for policy violation</button>
+                )}
+              </div>}
+            </div>
+
             <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 shadow-sm dark:border-gray-800 dark:bg-gray-800/50 sm:p-7">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">Billing activity</h4>
-                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">PayMongo invoices, delivery attempts, payment state, and actionable failures.</p>
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">Payment history</h4>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">PayMongo invoices and receipts for each subscription period.</p>
                 </div>
                 <button type="button" onClick={() => void loadBillingInvoices()} disabled={billingInvoicesLoading} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">
                   <RotateCcw className={`h-3.5 w-3.5 ${billingInvoicesLoading ? "animate-spin" : ""}`} /> Refresh
                 </button>
               </div>
               {billingInvoicesLoading ? (
-                <div className="mt-5 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading billing activity…</div>
+                <div className="mt-5 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading payment history…</div>
               ) : billingInvoices.length ? (
                 <div className="mt-5 space-y-3">
                   {billingInvoices.map((invoice) => (
@@ -1178,7 +1281,8 @@ export default function AdminStoreDetail({
                             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">{invoice.status}</span>
                             {!invoice.livemode && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">Test</span>}
                           </div>
-                          <p className="mt-1 text-xs text-gray-500">Due {formatBillingDate(invoice.due_at)} · Ref {invoice.paymongo_reference_number || "pending"} · Attempts {invoice.attempt_count || 0}</p>
+                          <p className="mt-1 text-xs text-gray-500">Period {formatBillingDate(invoice.period_start)} - {formatBillingDate(invoice.period_end)}</p>
+                          <p className="mt-1 text-xs text-gray-500">{invoice.paid_at ? `Paid ${formatBillingDate(invoice.paid_at)}` : `Due ${formatBillingDate(invoice.due_at)}`} · Ref {invoice.paymongo_reference_number || "pending"} · Attempts {invoice.attempt_count || 0}</p>
                         </div>
                         {invoice.status !== "paid" && (
                           <button type="button" onClick={() => void retryBillingInvoice(invoice.id)} disabled={billingRetryId === invoice.id} className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-black disabled:opacity-50 dark:bg-white dark:text-gray-900">
@@ -1544,6 +1648,19 @@ export default function AdminStoreDetail({
           </div>
         )}
       </div>
+
+      <ConfirmationModal
+        isOpen={pendingRestrictionAction !== null}
+        title={pendingRestrictionAction === "suspend" ? "Suspend this store administratively?" : "Lift the administrative suspension?"}
+        description={pendingRestrictionAction === "suspend"
+          ? "The owner and every staff member will immediately lose portal access. Payments will not restore access; only an administrator can lift this suspension."
+          : "The separate administrative restriction will be removed. Normal billing warning, grace, or frozen rules may still apply."}
+        confirmLabel={pendingRestrictionAction === "suspend" ? "Suspend access" : "Lift suspension"}
+        tone={pendingRestrictionAction === "suspend" ? "danger" : "default"}
+        isLoading={restrictionBusy}
+        onClose={() => !restrictionBusy && setPendingRestrictionAction(null)}
+        onConfirm={() => void updateAccountRestriction(pendingRestrictionAction === "suspend" ? "suspended" : "active")}
+      />
 
       {pendingSubscriptionAccessAction && subscriptionAccessConfirmation && (
         <div

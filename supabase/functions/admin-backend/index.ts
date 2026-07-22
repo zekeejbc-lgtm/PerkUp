@@ -253,6 +253,9 @@ Deno.serve(async (req) => {
       const ownerId = cleanText(selectedStore.data?.ownerId, 100);
       const primaryStore = ownerId ? await getPrimaryStoreForOwner(admin, ownerId) : selectedStore;
       if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
+      if (primaryStore.data?.initialPaymentRequired === true && status !== "frozen") {
+        return jsonResponse({ error: "This store is waiting for its initial PayMongo payment and must remain frozen until payment is confirmed." }, 409);
+      }
 
       const now = new Date();
       const existingAccess = primaryStore.data?.subscriptionAccess && typeof primaryStore.data.subscriptionAccess === "object"
@@ -286,6 +289,51 @@ Deno.serve(async (req) => {
       return jsonResponse({ updated: true, storeId: primaryStore.id, subscriptionAccess, billingSubscription });
     }
 
+    if (action === "update_account_restriction") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const storeId = cleanText(body.storeId, 100);
+      const input = body.accountRestriction && typeof body.accountRestriction === "object"
+        ? body.accountRestriction as Record<string, unknown>
+        : {};
+      const status = cleanText(input.status, 20).toLowerCase();
+      const reason = cleanText(input.reason, 500);
+      const internalNote = cleanText(input.internalNote, 2000);
+      if (!storeId || !["active", "suspended"].includes(status)) {
+        return jsonResponse({ error: "A valid store and restriction status are required." }, 400);
+      }
+      if (status === "suspended" && !reason) {
+        return jsonResponse({ error: "Add the message the store owner will see before suspending access." }, 400);
+      }
+
+      const { data: selectedStore, error: selectedStoreError } = await admin
+        .from("stores").select("id,data").eq("id", storeId).maybeSingle();
+      if (selectedStoreError) throw selectedStoreError;
+      if (!selectedStore) return jsonResponse({ error: "Store was not found." }, 404);
+      const ownerId = cleanText(selectedStore.data?.ownerId, 100);
+      const primaryStore = ownerId ? await getPrimaryStoreForOwner(admin, ownerId) : selectedStore;
+      if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
+
+      const now = new Date().toISOString();
+      const existing = primaryStore.data?.accountRestriction && typeof primaryStore.data.accountRestriction === "object"
+        ? primaryStore.data.accountRestriction as Record<string, unknown>
+        : {};
+      const accountRestriction = {
+        ...existing,
+        status,
+        reason: reason || cleanText(existing.reason, 500),
+        internalNote: status === "suspended" ? internalNote : cleanText(existing.internalNote, 2000),
+        suspendedAt: status === "suspended" ? now : cleanText(existing.suspendedAt, 100),
+        suspendedBy: status === "suspended" ? authData.user.id : cleanText(existing.suspendedBy, 100),
+        updatedAt: now,
+        updatedBy: authData.user.id,
+      };
+      const { error: updateError } = await admin.from("stores").update({
+        data: { ...primaryStore.data, accountRestriction, updatedAt: timestamp() },
+      }).eq("id", primaryStore.id);
+      if (updateError) throw updateError;
+      return jsonResponse({ updated: true, storeId: primaryStore.id, accountRestriction });
+    }
+
     if (action === "create_store") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
       const email = cleanText(body.email, 254).toLowerCase();
@@ -295,8 +343,16 @@ Deno.serve(async (req) => {
         ? body.store as Record<string, unknown>
         : {};
       const storeName = cleanText(storeInput.name, 120);
+      const alreadyPaid = body.alreadyPaid === true;
+      const requestedSubscriptionAccess = storeInput.subscriptionAccess && typeof storeInput.subscriptionAccess === "object"
+        ? storeInput.subscriptionAccess as Record<string, unknown>
+        : {};
+      const automaticBillingEnabled = requestedSubscriptionAccess.automationEnabled === true;
       if (!email || !name || !storeName || !isStrongPassword(password, name, email)) {
         return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, no spaces, and no owner name or email." }, 400);
+      }
+      if (!alreadyPaid && !automaticBillingEnabled) {
+        return jsonResponse({ error: "Enable the PayMongo standard or mark the initial subscription as already paid before creating the store." }, 400);
       }
 
       const { data: created, error: createError } = await admin.auth.admin.createUser({
@@ -335,6 +391,20 @@ Deno.serve(async (req) => {
         createdAt: timestamp(),
         updatedAt: timestamp(),
       };
+      const initialPaymentRequired = automaticBillingEnabled && !alreadyPaid;
+      if (automaticBillingEnabled) {
+        store.subscriptionAccess = {
+          ...requestedSubscriptionAccess,
+          status: initialPaymentRequired ? "frozen" : cleanText(requestedSubscriptionAccess.status, 20) || "active",
+          paymentLink: "",
+          graceStartedAt: "",
+          graceEndsAt: "",
+          updatedAt: new Date().toISOString(),
+          updatedBy: initialPaymentRequired ? "initial-payment-gate" : authData.user.id,
+        };
+      }
+      store.initialPaymentRequired = initialPaymentRequired;
+      store.initialPaymentStatus = initialPaymentRequired ? "pending" : "waived";
 
       const { error: profileError } = await admin.from("users").insert({ id: ownerId, data: profile });
       if (profileError) {
@@ -346,6 +416,38 @@ Deno.serve(async (req) => {
         await admin.from("users").delete().eq("id", ownerId);
         await admin.auth.admin.deleteUser(ownerId).catch(() => undefined);
         throw storeError;
+      }
+
+      if ((store.subscriptionAccess as Record<string, unknown> | undefined)?.automationEnabled === true) {
+        try {
+          const billingSubscription = await syncBillingSubscription(admin, { id: storeId, data: store });
+          if (initialPaymentRequired) {
+            const periodStart = toIsoTimestamp(store.subscriptionStart);
+            const periodEnd = toIsoTimestamp(store.subscriptionEnd);
+            if (!billingSubscription?.id || !periodStart || !periodEnd) {
+              throw new Error("The initial PayMongo invoice could not be prepared.");
+            }
+            const { error: invoiceError } = await admin.from("billing_invoices").insert({
+              subscription_id: billingSubscription.id,
+              store_id: storeId,
+              owner_user_id: ownerId,
+              invoice_type: "initial",
+              period_start: periodStart,
+              period_end: periodEnd,
+              due_at: new Date().toISOString(),
+              amount_centavos: billingSubscription.amount_centavos,
+              currency: billingSubscription.currency,
+              status: "pending",
+              next_attempt_at: new Date().toISOString(),
+            });
+            if (invoiceError) throw invoiceError;
+          }
+        } catch (billingError) {
+          await admin.from("stores").delete().eq("id", storeId);
+          await admin.from("users").delete().eq("id", ownerId);
+          await admin.auth.admin.deleteUser(ownerId).catch(() => undefined);
+          throw billingError;
+        }
       }
 
       const storeLogoFileId = extractDriveFileId(storeInput.logoUrl);
@@ -1321,8 +1423,9 @@ const syncBillingSubscription = async (admin: any, primaryStore: { id: string; d
     throw new Error("Subscription end must be after subscription start before PayMongo automation can be enabled.");
   }
   if (cleanText(store.paymentSchedule, 60) !== "every_30_days") {
-    throw new Error("PayMongo automation currently requires the Every 30 days payment schedule.");
+    throw new Error("PayMongo automation requires the fixed-interval payment schedule.");
   }
+  const intervalDays = Math.max(1, Math.min(365, Math.trunc(Number(store.billingIntervalDays ?? 30) || 30)));
 
   const status = cleanText(access.status, 20).toLowerCase();
   const normalizedStatus = status === "frozen" ? "frozen" : status === "grace" ? "past_due" : "active";
@@ -1337,7 +1440,7 @@ const syncBillingSubscription = async (admin: any, primaryStore: { id: string; d
       : null,
     pending_amount_effective_at: pendingAmountEffectiveAt,
     currency: "PHP",
-    interval_days: 30,
+    interval_days: intervalDays,
     current_period_start: periodStart,
     current_period_end: periodEnd,
     next_billing_at: periodEnd,
@@ -1345,7 +1448,8 @@ const syncBillingSubscription = async (admin: any, primaryStore: { id: string; d
     grace_period_days: Math.max(0, Math.min(30, Math.trunc(Number(access.gracePeriodDays ?? 3) || 0))),
     status: normalizedStatus,
     automation_enabled: true,
-  }, { onConflict: "store_id" }).select("id,store_id,status,automation_enabled,next_billing_at,amount_centavos,pending_amount_centavos,pending_amount_effective_at").single();
+    initial_payment_required: store.initialPaymentRequired === true,
+  }, { onConflict: "store_id" }).select("id,store_id,status,automation_enabled,next_billing_at,amount_centavos,currency,pending_amount_centavos,pending_amount_effective_at,initial_payment_required").single();
   if (error) throw error;
   return data;
 };
@@ -1499,9 +1603,9 @@ const emailDate = (value: unknown) => {
   return "";
 };
 
-const paymentScheduleLabel = (value: unknown) => {
+const paymentScheduleLabel = (value: unknown, intervalDays: unknown = 30) => {
   const schedule = cleanText(value, 60);
-  if (schedule === "every_30_days") return "Every 30 days from subscription start";
+  if (schedule === "every_30_days") return `Every ${Math.max(1, Math.min(365, Math.trunc(Number(intervalDays) || 30)))} days from subscription start`;
   return schedule.replaceAll("_", " ");
 };
 
@@ -1536,7 +1640,7 @@ const sendStoreCreatedEmail = async ({
         location: cleanText(store.location || store.address, 240),
         logoUrl: cleanText(store.logoUrl, 2000),
         subscriptionLevel: cleanText(store.subscriptionLevel, 80),
-        paymentSchedule: paymentScheduleLabel(store.paymentSchedule),
+        paymentSchedule: paymentScheduleLabel(store.paymentSchedule, store.billingIntervalDays),
         subscriptionStart: emailDate(store.subscriptionStart),
         subscriptionEnd: emailDate(store.subscriptionEnd),
       },

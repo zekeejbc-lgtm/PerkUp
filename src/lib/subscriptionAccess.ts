@@ -14,8 +14,33 @@ export interface SubscriptionAccessPolicy {
   warningLeadDays: number;
 }
 
+export interface AccountRestriction {
+  status: "active" | "suspended";
+  reason: string;
+  internalNote: string;
+  suspendedAt: string;
+  suspendedBy: string;
+  updatedAt: string;
+  updatedBy: string;
+}
+
 const DEFAULT_WARNING = "Your PerkUp subscription is almost ending. Please settle your balance to avoid an interruption.";
 const DEFAULT_PAYMENT_INSTRUCTIONS = "Contact PerkUp support for payment instructions and send your proof of payment for verification.";
+export const DEFAULT_POLICY_SUSPENSION_MESSAGE = "Access has been suspended because this store requires an administrative review. Contact PerkUp Support if you believe this was a mistake.";
+
+export const PAYMONGO_STANDARD_ACCESS: SubscriptionAccessPolicy = {
+  status: "active",
+  warningMessage: DEFAULT_WARNING,
+  gracePeriodDays: 3,
+  graceStartedAt: "",
+  graceEndsAt: "",
+  paymentInstructions: "Pay through the secure PayMongo payment page. Access updates automatically after PayMongo confirms the exact invoice amount.",
+  paymentLink: "",
+  paymentContact: "perkup.shop@youthserviceph.org",
+  updatedAt: "",
+  automationEnabled: true,
+  warningLeadDays: 7,
+};
 
 const text = (value: unknown) => String(value || "").trim();
 
@@ -52,6 +77,21 @@ export const normalizeSubscriptionAccess = (value: unknown): SubscriptionAccessP
     warningLeadDays: Math.max(0, Math.min(365, Math.trunc(Number(source.warningLeadDays ?? 7) || 0))),
   };
 };
+
+export const normalizeAccountRestriction = (value: unknown): AccountRestriction => {
+  const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return {
+    status: text(source.status).toLowerCase() === "suspended" ? "suspended" : "active",
+    reason: text(source.reason) || DEFAULT_POLICY_SUSPENSION_MESSAGE,
+    internalNote: text(source.internalNote),
+    suspendedAt: timestampToDate(source.suspendedAt)?.toISOString() || "",
+    suspendedBy: text(source.suspendedBy),
+    updatedAt: timestampToDate(source.updatedAt)?.toISOString() || "",
+    updatedBy: text(source.updatedBy),
+  };
+};
+
+export const isAccountSuspended = (value: unknown) => normalizeAccountRestriction(value).status === "suspended";
 
 export const resolveSubscriptionAccess = (
   value: unknown,

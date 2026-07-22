@@ -296,7 +296,7 @@ function sendSubscriptionPaymentDueEmail(recipientEmail, userName, invoice) {
     introText: "A secure PayMongo payment page is ready for your next PerkUp subscription cycle. Open it and select QR Ph to complete payment.",
     secondaryText: testMode
       ? "This is a PayMongo test-mode link and cannot collect real funds. Live billing will remain disabled until the merchant account is fully verified."
-      : "Once PayMongo confirms payment, PerkUp automatically extends your portal access for another 30 days.",
+      : "Once PayMongo confirms payment, PerkUp automatically extends your portal access for another " + String(Number(invoice.intervalDays || 30)) + " days.",
     invoice: invoiceDetails,
     buttonText: testMode ? "Open Test Payment Page" : "Pay with PayMongo",
     buttonLink: paymentLink,

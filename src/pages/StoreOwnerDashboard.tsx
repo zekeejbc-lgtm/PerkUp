@@ -18,8 +18,8 @@ import { getDisplayImageUrl } from "../lib/imageStorage";
 import { StoreLocationPicker } from "../components/StoreLocationPicker";
 import { supabase } from "../lib/supabase";
 import { getSubscriptionBranchLimit } from "../lib/subscriptionBilling";
-import { getEffectiveSubscriptionStatus } from "../lib/subscriptionAccess";
-import { SubscriptionAccessBanner, SubscriptionFrozenScreen } from "../components/SubscriptionAccessGate";
+import { getEffectiveSubscriptionStatus, isAccountSuspended } from "../lib/subscriptionAccess";
+import { AccountSuspendedScreen, SubscriptionAccessBanner, SubscriptionFrozenScreen } from "../components/SubscriptionAccessGate";
 
 const normalizeDataRows = (rows: { id: string; data: Record<string, unknown> | null }[] | null | undefined) =>
   (rows || []).map((row) => ({ id: row.id, ...(row.data || {}) }));
@@ -212,6 +212,10 @@ export default function StoreOwnerDashboard() {
 
   if (loading) {
     return <DashboardShellSkeleton navigationItems={9}><PageSkeleton variant={fallbackVariant} /></DashboardShellSkeleton>;
+  }
+
+  if (subscriptionStore && isAccountSuspended(subscriptionStore.accountRestriction)) {
+    return <AccountSuspendedScreen store={subscriptionStore} role="store_owner" />;
   }
 
   if (subscriptionStore && getEffectiveSubscriptionStatus(subscriptionStore.subscriptionAccess, new Date(), subscriptionStore.subscriptionEnd) === "frozen") {

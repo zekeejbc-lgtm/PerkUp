@@ -249,7 +249,9 @@ Deno.serve(async (req) => {
             ...storeRow?.data,
             subscriptionAccess: {
               ...existingAccess,
-              status: new Date(invoice.due_at).getTime() <= Date.now() ? "grace" : "warning",
+              status: storeRow?.data?.initialPaymentRequired === true
+                ? "frozen"
+                : new Date(invoice.due_at).getTime() <= Date.now() ? "grace" : "warning",
               paymentLink: link.url,
               updatedAt: new Date().toISOString(),
               updatedBy: "subscription-billing-worker",
@@ -338,7 +340,7 @@ Deno.serve(async (req) => {
         if (!invoice) throw new Error("Billing invoice was not found for its queued notification.");
 
         const [{ data: subscription, error: subscriptionError }, { data: storeRow, error: storeError }, { data: ownerRow, error: ownerError }] = await Promise.all([
-          supabase.from("billing_subscriptions").select("plan_id,billing_email,grace_period_days,current_period_start,current_period_end").eq("id", invoice.subscription_id).maybeSingle(),
+          supabase.from("billing_subscriptions").select("plan_id,billing_email,interval_days,grace_period_days,current_period_start,current_period_end").eq("id", invoice.subscription_id).maybeSingle(),
           supabase.from("stores").select("data").eq("id", invoice.store_id).maybeSingle(),
           supabase.from("users").select("data").eq("id", invoice.owner_user_id).maybeSingle(),
         ]);
@@ -357,6 +359,7 @@ Deno.serve(async (req) => {
           invoiceId: invoice.id,
           storeName,
           planName: subscription.plan_id,
+          intervalDays: subscription.interval_days,
           amountCentavos: invoice.amount_centavos,
           grossAmountCentavos: invoice.gross_amount_centavos,
           feeCentavos: invoice.fee_centavos,

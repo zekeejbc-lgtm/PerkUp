@@ -54,7 +54,7 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
 ];
 
 export const PAYMENT_SCHEDULE_OPTIONS = [
-  { value: "every_30_days", label: "Every 30 days from subscription start" },
+  { value: "every_30_days", label: "Every fixed billing interval from subscription start" },
   { value: "first_week", label: "Every 1st week of the month" },
   { value: "second_week", label: "Every 2nd week of the month" },
   { value: "third_week", label: "Every 3rd week of the month" },
@@ -64,7 +64,16 @@ export const PAYMENT_SCHEDULE_OPTIONS = [
   { value: "day_20", label: "Every 20th day of the month" },
 ];
 
-export function formatPaymentSchedule(value?: string) {
+export function normalizeBillingIntervalDays(value: unknown, fallback = 30) {
+  const parsed = Math.trunc(Number(value));
+  return Number.isFinite(parsed) ? Math.max(1, Math.min(365, parsed)) : fallback;
+}
+
+export function formatPaymentSchedule(value?: string, intervalDays?: unknown) {
+  if (value === "every_30_days") {
+    const days = normalizeBillingIntervalDays(intervalDays);
+    return `Every ${days} days from subscription start`;
+  }
   return PAYMENT_SCHEDULE_OPTIONS.find((option) => option.value === value)?.label || "Not set";
 }
 
@@ -74,6 +83,7 @@ export function predictPaymentDates(
   subscriptionEnd?: any,
   count = 6,
   today = new Date(),
+  intervalDays: unknown = 30,
 ) {
   if (!schedule || count <= 0) return [];
 
@@ -95,12 +105,13 @@ export function predictPaymentDates(
 
   if (schedule === "every_30_days") {
     if (!start) return [];
+    const days = normalizeBillingIntervalDays(intervalDays);
     const candidate = new Date(start);
-    candidate.setDate(candidate.getDate() + 30);
-    while (candidate < lowerBound) candidate.setDate(candidate.getDate() + 30);
+    candidate.setDate(candidate.getDate() + days);
+    while (candidate < lowerBound) candidate.setDate(candidate.getDate() + days);
     while (results.length < count && (!end || candidate <= end)) {
       results.push(new Date(candidate));
-      candidate.setDate(candidate.getDate() + 30);
+      candidate.setDate(candidate.getDate() + days);
     }
     return results;
   }
@@ -183,8 +194,9 @@ export function getNextPaymentDate(
   subscriptionStart?: any,
   subscriptionEnd?: any,
   today = new Date(),
+  intervalDays: unknown = 30,
 ) {
-  return predictPaymentDates(schedule, subscriptionStart, subscriptionEnd, 1, today)[0] || null;
+  return predictPaymentDates(schedule, subscriptionStart, subscriptionEnd, 1, today, intervalDays)[0] || null;
 }
 
 export function resolveStoreBilling(store: any, plans: SubscriptionPlan[], today = new Date()) {
@@ -193,7 +205,7 @@ export function resolveStoreBilling(store: any, plans: SubscriptionPlan[], today
     ? currentAmount
     : getSubscriptionOwedAmount(plans, store?.subscriptionLevel);
   const nextPlanAmount = getSubscriptionOwedAmount(plans, store?.subscriptionLevel, fallbackAmount);
-  const nextPaymentDate = getNextPaymentDate(store?.paymentSchedule, store?.subscriptionStart, store?.subscriptionEnd, today);
+  const nextPaymentDate = getNextPaymentDate(store?.paymentSchedule, store?.subscriptionStart, store?.subscriptionEnd, today, store?.billingIntervalDays);
   const pendingAmount = Number(store?.pendingOwedAmount);
   const effectiveAt = toDate(store?.pendingOwedAmountEffectiveAt);
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -265,6 +277,38 @@ export function dateInputToDate(value?: string) {
 export function formatBillingDate(value: any) {
   const date = toDate(value);
   return date ? date.toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }) : "N/A";
+}
+
+export function getCurrentSubscriptionPaymentState(
+  invoices: any[],
+  subscriptionStart: any,
+  subscriptionEnd: any,
+  initialPaymentRequired = false,
+  today = new Date(),
+) {
+  const periodStart = toDate(subscriptionStart);
+  const periodEnd = toDate(subscriptionEnd);
+  const sameInstant = (left: any, right: Date | null) => {
+    const date = toDate(left);
+    return Boolean(date && right && date.getTime() === right.getTime());
+  };
+  const paidInvoice = invoices.find((invoice) => invoice?.status === "paid" && (
+    sameInstant(invoice.period_start, periodStart) || sameInstant(invoice.paid_at, periodStart)
+  ));
+
+  if (paidInvoice) return { status: "paid" as const, invoice: paidInvoice };
+
+  const unpaidInvoice = invoices.find((invoice) =>
+    !["paid", "void", "expired"].includes(String(invoice?.status || "")) && (
+      sameInstant(invoice.period_start, periodStart) || sameInstant(invoice.period_start, periodEnd)
+    ));
+  const periodHasEnded = Boolean(periodEnd && periodEnd.getTime() <= today.getTime());
+
+  if (initialPaymentRequired || (periodHasEnded && unpaidInvoice)) {
+    return { status: "payment_due" as const, invoice: unpaidInvoice || null };
+  }
+
+  return { status: "no_record" as const, invoice: null };
 }
 
 function toDate(value: any) {

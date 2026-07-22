@@ -4,6 +4,7 @@ import {
   formatPaymentSchedule,
   formatPredictedPaymentDate,
   formatBillingDate,
+  getCurrentSubscriptionPaymentState,
   getSubscriptionBranchLimit,
   getSubscriptionGalleryPhotoLimit,
   predictPaymentDates,
@@ -150,8 +151,16 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
               store.subscriptionStart,
               store.subscriptionEnd,
               6,
+              new Date(),
+              store.billingIntervalDays,
             );
             const billing = resolveStoreBilling(store, []);
+            const currentPayment = getCurrentSubscriptionPaymentState(
+              billingInvoices,
+              store.subscriptionStart,
+              store.subscriptionEnd,
+              store.initialPaymentRequired === true,
+            );
             return (
               <section key={store.id} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
                 <div className="bg-gradient-to-br from-gray-900 to-gray-800 p-6 text-white">
@@ -166,7 +175,21 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                     <div className="sm:text-right">
                       <div className="text-3xl font-black">{formatCurrency(Number(billing.amountDue || 0))}</div>
                       <div className="mt-1 text-xs uppercase tracking-widest text-gray-400">amount due</div>
-                      {Number.isFinite(Number(store.pendingOwedAmount)) && Number(store.pendingOwedAmount) !== Number(billing.amountDue || 0) && (
+                      <div className="mt-3 flex justify-start sm:justify-end">
+                        {billingLoading ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-gray-300"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking payment</span>
+                        ) : currentPayment.status === "paid" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/20 px-3 py-1 text-xs font-bold uppercase tracking-wide text-green-300"><CheckCircle2 className="h-3.5 w-3.5" /> Current cycle paid</span>
+                        ) : currentPayment.status === "payment_due" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/20 px-3 py-1 text-xs font-bold uppercase tracking-wide text-red-300"><AlertCircle className="h-3.5 w-3.5" /> Payment due</span>
+                        ) : (
+                          <span className="inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-gray-300">No payment record</span>
+                        )}
+                      </div>
+                      {store.pendingOwedAmount != null &&
+                        formatBillingDate(store.pendingOwedAmountEffectiveAt) !== "N/A" &&
+                        Number.isFinite(Number(store.pendingOwedAmount)) &&
+                        Number(store.pendingOwedAmount) !== Number(billing.amountDue || 0) && (
                         <div className="mt-2 text-xs text-gray-300">
                           {formatCurrency(Number(store.pendingOwedAmount))} starts on {formatBillingDate(store.pendingOwedAmountEffectiveAt)}.
                         </div>
@@ -177,7 +200,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                     <CreditCard className="h-5 w-5 text-gray-300" />
                     <div>
                       <p className="text-xs text-gray-400">Payment schedule</p>
-                      <p className="text-sm font-semibold">{formatPaymentSchedule(store.paymentSchedule)}</p>
+                      <p className="text-sm font-semibold">{formatPaymentSchedule(store.paymentSchedule, billingSubscription?.interval_days || store.billingIntervalDays)}</p>
                     </div>
                   </div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -227,8 +250,8 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                   <FileText className="h-5 w-5" />
                 </span>
                 <div>
-                  <h4 className="font-bold text-gray-900 dark:text-white">Invoices &amp; receipts</h4>
-                  <p className="mt-1 max-w-xl text-sm text-gray-500">Download a detailed, PerkUp-branded PDF for every billing cycle. Unpaid invoices also include the secure PayMongo payment link.</p>
+                  <h4 className="font-bold text-gray-900 dark:text-white">Payment history</h4>
+                  <p className="mt-1 max-w-xl text-sm text-gray-500">Review invoices and receipts for every billing cycle. Unpaid invoices also include the secure PayMongo payment link.</p>
                 </div>
               </div>
               <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${billingEnabled ? "bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"}`}>
