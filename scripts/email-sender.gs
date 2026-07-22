@@ -301,9 +301,9 @@ function sendSubscriptionPaymentDueEmail(recipientEmail, userName, invoice) {
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: (testMode ? "[TEST] " : "") + (initialPayment ? "Payment required to activate your PerkUp store" : "Your PerkUp subscription payment is due"),
+    subject: (testMode ? "[TEST] " : "") + "Your PerkUp payment link is ready",
     userName: userName,
-    heading: "Subscription payment due, " + userName + ".",
+    heading: "Your secure payment link is ready, " + userName + ".",
     introText: initialPayment
       ? "Your first subscription payment is due and must be paid before your PerkUp store can be accessed or shown publicly. Use the secure PayMongo page below to complete payment."
       : "A secure PayMongo payment page is ready for your next PerkUp subscription cycle. Open it and select QR Ph to complete payment.",

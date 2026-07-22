@@ -256,6 +256,34 @@ export function SubscriptionFrozenScreen({
   }, [onPaymentConfirmed, paymentPageOpened, paymentWatchKey, role, store?.id]);
 
   useEffect(() => {
+    if (role !== "store_owner" || !store?.id || paymentLink || !paymentLookupComplete) return;
+    let cancelled = false;
+    const preparePaymentLink = async () => {
+      const { data, error } = await supabase.functions.invoke("subscription-payment-status", {
+        body: { storeId: store.id },
+      });
+      if (cancelled || error || !data?.paymentUrl) {
+        if (error) console.warn("Could not prepare the subscription payment link", error);
+        return;
+      }
+      const verifiedUrl = safePaymentLink(data.paymentUrl);
+      if (!verifiedUrl) return;
+      setLatestInvoice((current) => ({
+        amountCentavos: Number(data.amountCentavos || current?.amountCentavos || 0),
+        paymentUrl: verifiedUrl,
+        referenceNumber: data.referenceNumber || current?.referenceNumber || null,
+        status: "link_created",
+        createdAt: current?.createdAt || new Date().toISOString(),
+        nextAttemptAt: current?.nextAttemptAt || null,
+        paidAt: current?.paidAt || null,
+        periodEnd: current?.periodEnd || null,
+      }));
+    };
+    void preparePaymentLink();
+    return () => { cancelled = true; };
+  }, [paymentLink, paymentLookupComplete, role, store?.id]);
+
+  useEffect(() => {
     if (paymentLink || role !== "store_owner") return;
     const clockId = window.setInterval(() => setClock(Date.now()), 1_000);
     return () => window.clearInterval(clockId);

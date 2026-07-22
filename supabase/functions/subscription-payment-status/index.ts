@@ -9,6 +9,115 @@ const requiredEnv = (name: string) => {
   return value;
 };
 
+const createPaymentLink = async (invoice: any) => {
+  const response = await fetch(`${PAYMONGO_API}/payment_links`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Basic ${btoa(`${requiredEnv("PAYMONGO_SECRET_KEY")}:`)}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": `perkup-invoice-${invoice.id}`,
+    },
+    body: JSON.stringify({
+      amount: invoice.amount_centavos,
+      currency: invoice.currency,
+      description: `PerkUp ${invoice.subscription?.plan_id || "subscription"} subscription`,
+      remarks: `Invoice ${invoice.id}`,
+      metadata: {
+        invoice_id: invoice.id,
+        subscription_id: invoice.subscription_id,
+        store_id: invoice.store_id,
+      },
+      restriction: { completed_sessions: { limit: 1 } },
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = payload?.errors?.[0]?.detail || payload?.error || `HTTP ${response.status}`;
+    throw new Error(`PayMongo link creation failed: ${String(detail).slice(0, 500)}`);
+  }
+  const resource = payload?.data || {};
+  const attributes = resource?.attributes || resource;
+  const url = attributes?.checkout_url || attributes?.url || resource?.url;
+  const referenceNumber = attributes?.reference_number || resource?.reference_number;
+  if (!resource?.id || !url || !referenceNumber) throw new Error("PayMongo returned an incomplete Payment Link response.");
+  return {
+    id: String(resource.id),
+    url: String(url),
+    referenceNumber: String(referenceNumber),
+    livemode: Boolean(attributes?.livemode ?? resource?.livemode),
+  };
+};
+
+const sendPaymentLinkEmail = async (
+  admin: ReturnType<typeof createClient>,
+  invoice: any,
+  link: { id: string; url: string; referenceNumber: string; livemode: boolean },
+) => {
+  const [{ data: existing }, { data: storeRow }, { data: ownerRow }] = await Promise.all([
+    admin.from("billing_notifications").select("status").eq("invoice_id", invoice.id)
+      .eq("channel", "email").eq("notification_type", "payment_due").maybeSingle(),
+    admin.from("stores").select("data").eq("id", invoice.store_id).maybeSingle(),
+    admin.from("users").select("data").eq("id", invoice.owner_user_id).maybeSingle(),
+  ]);
+  if (existing?.status === "sent") return;
+
+  const recipient = String(invoice.subscription?.billing_email || ownerRow?.data?.email || "").trim().toLowerCase();
+  if (!recipient) throw new Error("The store owner has no billing email.");
+  const gasSecret = requiredEnv("DRIVE_CRUD_SECRET");
+  const gasUrl = Deno.env.get("GAS_EMAIL_URL") || Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") ||
+    "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
+  try {
+    const response = await fetch(gasUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        secret: gasSecret,
+        action: "subscription_payment_due",
+        recipientEmail: recipient,
+        userName: String(ownerRow?.data?.name || "Store owner").trim(),
+        invoice: {
+          invoiceId: invoice.id,
+          storeName: String(storeRow?.data?.businessName || storeRow?.data?.name || "your store").trim(),
+          planName: invoice.subscription?.plan_id,
+          amountCentavos: invoice.amount_centavos,
+          currency: invoice.currency,
+          dueAt: invoice.due_at,
+          referenceNumber: link.referenceNumber,
+          paymentLink: link.url,
+          testMode: !link.livemode,
+          initialPayment: invoice.invoice_type === "initial",
+          intervalDays: Number(storeRow?.data?.billingIntervalDays || 30),
+        },
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.success !== true) throw new Error(String(payload?.error || `Email service returned HTTP ${response.status}`));
+    await admin.from("billing_notifications").upsert({
+      invoice_id: invoice.id,
+      channel: "email",
+      notification_type: "payment_due",
+      recipient,
+      status: "sent",
+      attempt_count: 1,
+      sent_at: new Date().toISOString(),
+      last_error: null,
+    }, { onConflict: "invoice_id,channel,notification_type" });
+  } catch (error) {
+    await admin.from("billing_notifications").upsert({
+      invoice_id: invoice.id,
+      channel: "email",
+      notification_type: "payment_due",
+      recipient,
+      status: "failed",
+      attempt_count: 1,
+      next_attempt_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+      last_error: String(error instanceof Error ? error.message : error).slice(0, 1000),
+    }, { onConflict: "invoice_id,channel,notification_type" });
+    console.error("Payment-link email failed", { invoiceId: invoice.id, error });
+  }
+};
+
 const paidPaymentFromPayload = (payload: any) => {
   const payments = Array.isArray(payload?.data) ? payload.data : [];
   for (const resource of payments) {
@@ -54,10 +163,10 @@ Deno.serve(async (req) => {
       auth: { persistSession: false },
     });
     const { data: invoice, error: invoiceError } = await admin.from("billing_invoices")
-      .select("id,store_id,owner_user_id,status,paymongo_link_id,amount_centavos,currency,livemode,paid_at,period_end,paymongo_reference_number")
+      .select("id,subscription_id,store_id,owner_user_id,invoice_type,status,due_at,paymongo_link_id,payment_url,amount_centavos,currency,livemode,paid_at,period_end,paymongo_reference_number,subscription:billing_subscriptions(billing_email,plan_id)")
       .eq("store_id", storeId)
       .eq("owner_user_id", authData.user.id)
-      .in("status", ["link_created", "paid"])
+      .in("status", ["pending", "failed", "link_created", "paid"])
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -73,8 +182,59 @@ Deno.serve(async (req) => {
       });
     }
 
-    const linkId = String(invoice.paymongo_link_id || "");
-    if (!linkId) return jsonResponse({ paid: false, status: invoice.status });
+    let linkId = String(invoice.paymongo_link_id || "");
+    let paymentUrl = String(invoice.payment_url || "");
+    let referenceNumber = String(invoice.paymongo_reference_number || "");
+    if (!linkId || !paymentUrl || !referenceNumber) {
+      const link = await createPaymentLink(invoice);
+      const mode = (Deno.env.get("PAYMONGO_MODE") || "test").toLowerCase();
+      if (mode !== "test" && mode !== "live") throw new Error("PAYMONGO_MODE must be test or live.");
+      if ((mode === "live") !== link.livemode) throw new Error("PayMongo payment mode does not match the configured billing mode.");
+
+      const { error: linkUpdateError } = await admin.from("billing_invoices").update({
+        status: "link_created",
+        paymongo_link_id: link.id,
+        paymongo_reference_number: link.referenceNumber,
+        payment_url: link.url,
+        livemode: link.livemode,
+        last_error: null,
+      }).eq("id", invoice.id).eq("owner_user_id", authData.user.id);
+      if (linkUpdateError) throw linkUpdateError;
+
+      const { data: storeRow, error: storeError } = await admin.from("stores").select("data").eq("id", storeId).single();
+      if (storeError) throw storeError;
+      const existingAccess = storeRow.data?.subscriptionAccess && typeof storeRow.data.subscriptionAccess === "object"
+        ? storeRow.data.subscriptionAccess
+        : {};
+      const { error: mirrorError } = await admin.from("stores").update({
+        data: {
+          ...storeRow.data,
+          subscriptionAccess: {
+            ...existingAccess,
+            paymentLink: link.url,
+            updatedAt: new Date().toISOString(),
+            updatedBy: "owner-payment-link-preparation",
+          },
+        },
+      }).eq("id", storeId);
+      if (mirrorError) throw mirrorError;
+
+      linkId = link.id;
+      paymentUrl = link.url;
+      referenceNumber = link.referenceNumber;
+      const backgroundEmail = sendPaymentLinkEmail(admin, invoice, link);
+      // Supabase keeps the function alive for this email without delaying the payment link response.
+      if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(backgroundEmail);
+      else await backgroundEmail;
+      return jsonResponse({
+        paid: false,
+        status: "awaiting_payment",
+        paymentUrl,
+        referenceNumber,
+        amountCentavos: invoice.amount_centavos,
+      });
+    }
+
     const response = await fetch(`${PAYMONGO_API}/payment_links/${encodeURIComponent(linkId)}/payments?status=paid`, {
       method: "GET",
       headers: {
@@ -88,7 +248,13 @@ Deno.serve(async (req) => {
       throw new Error(`PayMongo status check failed: ${String(detail).slice(0, 500)}`);
     }
     const payment = paidPaymentFromPayload(payload);
-    if (!payment) return jsonResponse({ paid: false, status: "awaiting_payment" });
+    if (!payment) return jsonResponse({
+      paid: false,
+      status: "awaiting_payment",
+      paymentUrl,
+      referenceNumber,
+      amountCentavos: invoice.amount_centavos,
+    });
 
     const mode = (Deno.env.get("PAYMONGO_MODE") || "test").toLowerCase();
     if (mode !== "test" && mode !== "live") throw new Error("PAYMONGO_MODE must be test or live.");

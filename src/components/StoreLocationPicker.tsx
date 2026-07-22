@@ -24,22 +24,24 @@ function LocationMarker({
   });
 
   const markerIcon = useMemo(() => {
+    const displayLogoUrl = logoUrl?.trim() ? getDisplayImageUrl(logoUrl) : "";
     const content = (
       <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Store size={20} strokeWidth={2.5} color="#1b1b1b" />
-        {logoUrl && (
-          <div
+        {displayLogoUrl ? (
+          <img
+            src={displayLogoUrl}
+            alt=""
             aria-hidden="true"
             style={{
-              position: "absolute",
-              inset: 0,
+              width: "100%",
+              height: "100%",
               borderRadius: "50%",
-              backgroundImage: `url(${JSON.stringify(getDisplayImageUrl(logoUrl))})`,
-              backgroundPosition: "center",
-              backgroundRepeat: "no-repeat",
-              backgroundSize: "cover",
+              objectFit: "cover",
+              display: "block",
             }}
           />
+        ) : (
+          <Store size={20} strokeWidth={2.5} color="#1b1b1b" />
         )}
       </div>
     );
