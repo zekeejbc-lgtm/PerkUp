@@ -14,14 +14,25 @@ interface LandingStoreMapProps {
 }
 
 const createCustomPin = (store: DirectoryStore) => {
-  const markerContent = store.logoUrl ? (
-    <img
-      src={getDisplayImageUrl(store.logoUrl)}
-      alt=""
-      referrerPolicy="no-referrer"
-      style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover" }}
-    />
-  ) : <StoreIcon size={20} strokeWidth={2.5} color="#1b1b1b" />;
+  const markerContent = (
+    <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <StoreIcon size={20} strokeWidth={2.5} color="#1b1b1b" />
+      {store.logoUrl && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "50%",
+            backgroundImage: `url(${JSON.stringify(getDisplayImageUrl(store.logoUrl))})`,
+            backgroundPosition: "center",
+            backgroundRepeat: "no-repeat",
+            backgroundSize: "cover",
+          }}
+        />
+      )}
+    </div>
+  );
 
   return L.divIcon({
     className: "custom-pin",

@@ -1,6 +1,8 @@
 import { useEffect, useMemo } from "react";
+import * as ReactDOMServer from "react-dom/server";
 import L from "leaflet";
 import { MapContainer, Marker, useMap, useMapEvents } from "react-leaflet";
+import { Store } from "lucide-react";
 import { MapBaseLayers } from "./MapBaseLayers";
 import { getDisplayImageUrl } from "../lib/imageStorage";
 
@@ -21,34 +23,36 @@ function LocationMarker({
     },
   });
 
-  const logoIcon = useMemo(() => {
-    if (!logoUrl) return undefined;
-
-    const imageUrl = getDisplayImageUrl(logoUrl);
-    if (!imageUrl) return undefined;
-
-    const escapedImageUrl = imageUrl
-      .replaceAll("&", "&amp;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
+  const markerIcon = useMemo(() => {
+    const content = (
+      <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Store size={20} strokeWidth={2.5} color="#1b1b1b" />
+        {logoUrl && (
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "50%",
+              backgroundImage: `url(${JSON.stringify(getDisplayImageUrl(logoUrl))})`,
+              backgroundPosition: "center",
+              backgroundRepeat: "no-repeat",
+              backgroundSize: "cover",
+            }}
+          />
+        )}
+      </div>
+    );
 
     return L.divIcon({
-      className: "store-logo-map-marker",
-      html: `<div style="position:relative;z-index:0;width:44px;height:50px">
-        <div style="position:relative;z-index:1;width:40px;height:40px;overflow:hidden;border-radius:9999px;border:3px solid white;background:white;box-shadow:0 4px 10px rgba(0,0,0,.35)">
-          <img src="${escapedImageUrl}" alt="" style="display:block;width:100%;height:100%;object-fit:cover" />
-        </div>
-        <div style="position:absolute;left:14px;bottom:1px;z-index:0;width:12px;height:12px;transform:rotate(45deg);background:white;box-shadow:3px 3px 5px rgba(0,0,0,.18)"></div>
-      </div>`,
-      iconSize: [44, 50],
-      iconAnchor: [20, 49],
+      className: "custom-pin",
+      html: `<div style="background:white;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);border:2px solid #1b1b1b;position:relative">${ReactDOMServer.renderToString(content)}<div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:6px solid #1b1b1b"></div></div>`,
+      iconSize: [40, 46],
+      iconAnchor: [20, 46],
     });
   }, [logoUrl]);
 
-  return logoIcon
-    ? <Marker position={position} icon={logoIcon} />
-    : <Marker position={position} />;
+  return <Marker position={position} icon={markerIcon} />;
 }
 
 function MapViewport({ position }: { position: Coordinates }) {

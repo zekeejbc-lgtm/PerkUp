@@ -7,9 +7,25 @@ import { getDisplayImageUrl } from "../lib/imageStorage";
 import { MapBaseLayers } from "./MapBaseLayers";
 
 const logoPin = (branch: any) => {
-  const content = branch.logoUrl
-    ? <img src={getDisplayImageUrl(branch.logoUrl)} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover" }} />
-    : <Building2 size={20} strokeWidth={2.5} color="#1b1b1b" />;
+  const content = (
+    <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <Building2 size={20} strokeWidth={2.5} color="#1b1b1b" />
+      {branch.logoUrl && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "50%",
+            backgroundImage: `url(${JSON.stringify(getDisplayImageUrl(branch.logoUrl))})`,
+            backgroundPosition: "center",
+            backgroundRepeat: "no-repeat",
+            backgroundSize: "cover",
+          }}
+        />
+      )}
+    </div>
+  );
 
   return L.divIcon({
     className: "custom-pin",
