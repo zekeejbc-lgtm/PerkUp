@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Check, ChevronDown, Search, SlidersHorizontal, X } from "lucide-react";
 import { normalizeStoreCategory } from "../lib/storeDirectory";
 
@@ -31,6 +31,7 @@ export function CategorySearchInput({
 }: CategorySearchInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const suggestionsId = useId();
   const availableCategories = useMemo(
     () => categories.filter((category) => normalizeStoreCategory(category) !== "all"),
     [categories],
@@ -199,8 +200,10 @@ export function CategorySearchInput({
           }
         }}
         autoComplete="off"
+        role="combobox"
         aria-label={ariaLabel}
         aria-autocomplete="list"
+        aria-controls={isFocused && suggestions.length > 0 ? suggestionsId : undefined}
         aria-expanded={isFocused && suggestions.length > 0}
         placeholder={placeholder}
         className={className}
@@ -218,6 +221,7 @@ export function CategorySearchInput({
       )}
       {isFocused && suggestions.length > 0 && (
         <div
+          id={suggestionsId}
           role="listbox"
           className="absolute z-30 mt-2 max-h-60 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 text-left shadow-xl dark:border-gray-700 dark:bg-gray-900"
         >

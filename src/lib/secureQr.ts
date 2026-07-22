@@ -118,7 +118,7 @@ export const normalizeCustomerUsername = (value: string) =>
 
 const getAppOrigin = () => {
   if (typeof window !== "undefined") return window.location.origin;
-  return "https://perk-up-navy.vercel.app";
+  return "https://www.perktoday.com";
 };
 
 export const buildCustomerScanUrl = (input: { scanToken?: string; username?: string }) => {

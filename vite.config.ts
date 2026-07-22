@@ -17,6 +17,7 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
     },
     build: {
+      manifest: true,
       rollupOptions: {
         output: {
           manualChunks(id) {

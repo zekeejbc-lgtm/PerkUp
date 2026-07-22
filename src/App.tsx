@@ -12,6 +12,8 @@ import { getMfaPromptReason, TrustedLoginProfile } from "./lib/trustedDevice";
 import { FirstLoginPasswordChange } from "./components/FirstLoginPasswordChange";
 import { PublicSiteFooter } from "./components/PublicPageShell";
 import { GlobalImageViewer } from "./components/GlobalImageViewer";
+import { RouteSeo } from "./components/Seo";
+import { PwaPrompts } from "./components/PwaPrompts";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
@@ -30,6 +32,7 @@ const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
 const MarketingPage = lazy(() => import("./pages/MarketingPage"));
 const PricingPage = lazy(() => import("./pages/MarketingPage").then((module) => ({ default: module.PricingPage })));
 const CustomerQrLandingPage = lazy(() => import("./pages/CustomerQrLandingPage"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 
 const SCROLL_POSITIONS_KEY = "perkup:scroll-positions";
 
@@ -380,7 +383,9 @@ export default function App() {
   return (
     <>
       <ScrollPositionManager />
+      <RouteSeo />
       <GlobalImageViewer />
+      <PwaPrompts />
       <Routes>
       <Route path="/" element={<Suspense fallback={<PageSkeleton variant="landing" />}><LandingPage /></Suspense>} />
       <Route path="/reset-password" element={<Suspense fallback={<PageSkeleton variant="auth" />}><ResetPasswordPage /></Suspense>} />
@@ -422,6 +427,7 @@ export default function App() {
           <Layout><Suspense fallback={<DashboardShellSkeleton navigationItems={6} />}><AdminDashboard /></Suspense></Layout>
         </ProtectedRoute>
       } />
+      <Route path="*" element={<Suspense fallback={<PageSkeleton variant="content" />}><NotFoundPage /></Suspense>} />
       </Routes>
     </>
   );

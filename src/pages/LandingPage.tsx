@@ -2,18 +2,13 @@ import { Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { AUTH_REDIRECT_MESSAGE_KEY, GOOGLE_SIGNUP_PENDING_KEY, db } from "../lib/backend";
 import { QrCode, Star, Coffee, ArrowRight, MapPin, Pizza, Scissors, BookOpen, Shirt, Dumbbell, Glasses, Anchor, Search, Store as StoreIcon, Mail, Phone, Clock3, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
-import { MapContainer, Marker, Popup } from "react-leaflet";
-import * as ReactDOMServer from "react-dom/server";
-import L from "leaflet";
 import { BrandMark } from "../components/BrandMark";
 import { AuthModal } from "../components/AuthModal";
 import { PublicSiteHeader } from "../components/PublicSiteHeader";
 import { getDisplayImageUrl } from "../lib/imageStorage";
 import { PageSkeleton, SkeletonBlock } from "../components/LoadingSkeleton";
-import { DirectionsButton } from "../components/DirectionsButton";
-import { MapBaseLayers } from "../components/MapBaseLayers";
 import { DirectoryStore, getStoreCategories, isStoreOpenNow, storeMatchesCategorySearch } from "../lib/storeDirectory";
 import { CategorySearchInput } from "../components/CategorySearchInput";
 
@@ -37,39 +32,34 @@ const LOGOS = [
   { icon: Anchor, name: "Sea Catch" },
 ];
 
+const LandingStoreMap = lazy(() => import("../components/LandingStoreMap"));
+
 const DEFAULT_MAP_CENTER: [number, number] = [7.4478, 125.8078];
+const DEFAULT_HERO_IMAGE_URL = "https://images.unsplash.com/photo-1554118811-1e0d58224f24?q=35&w=1280&auto=format&fit=crop";
 
-const getStoreIcon = (name: string) => {
-  const logo = LOGOS.find(l => l.name.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(l.name.toLowerCase()));
-  return logo ? logo.icon : StoreIcon;
-};
+const getResponsiveHeroImage = (value: string) => {
+  const src = getDisplayImageUrl(value);
 
-const createCustomPin = (store: DirectoryStore) => {
-  const IconComponent = getStoreIcon(store.name);
-  const markerContent = store.logoUrl
-    ? (
-      <img
-        src={getDisplayImageUrl(store.logoUrl)}
-        alt=""
-        referrerPolicy="no-referrer"
-        style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover" }}
-      />
-    )
-    : <IconComponent size={20} strokeWidth={2.5} color="#1b1b1b" />;
-  const iconHtml = ReactDOMServer.renderToString(markerContent);
+  try {
+    const source = new URL(src);
+    if (source.hostname !== "images.unsplash.com") return { src };
 
-  return L.divIcon({
-    className: 'custom-pin',
-    html: `
-      <div style="background-color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); border: 2px solid #1b1b1b; position: relative;">
-        ${iconHtml}
-        <div style="position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 6px solid #1b1b1b;"></div>
-      </div>
-    `,
-    iconSize: [40, 46],
-    iconAnchor: [20, 46],
-    popupAnchor: [0, -46]
-  });
+    const variant = (width: number) => {
+      const url = new URL(source);
+      url.searchParams.set("auto", "format");
+      url.searchParams.set("fit", "crop");
+      url.searchParams.set("q", "35");
+      url.searchParams.set("w", String(width));
+      return url.toString();
+    };
+
+    return {
+      src: variant(1280),
+      srcSet: [640, 768, 960, 1280, 1600].map((width) => `${variant(width)} ${width}w`).join(", "),
+    };
+  } catch {
+    return { src };
+  }
 };
 
 export default function LandingPage() {
@@ -78,6 +68,8 @@ export default function LandingPage() {
   const navigationState = location.state as AuthNavigationState | null;
   const [stores, setStores] = useState<DirectoryStore[]>([]);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapInViewport, setMapInViewport] = useState(false);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [openNowOnly, setOpenNowOnly] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -87,7 +79,7 @@ export default function LandingPage() {
   const [config, setConfig] = useState<any>({
     heroHeadline: "Reward your \nbest customers.",
     heroSubheadline: "Ditch the paper punch cards. PerkUp is a minimal, fast, and secure digital loyalty system that runs right in your browser. No apps to install.",
-    heroImageUrl: "https://images.unsplash.com/photo-1554118811-1e0d58224f24?q=80&w=2047&auto=format&fit=crop",
+    heroImageUrl: DEFAULT_HERO_IMAGE_URL,
     trustedBusinesses: [],
     usePartnerStores: false,
     animateTrustedBusinesses: true,
@@ -185,6 +177,26 @@ export default function LandingPage() {
     fetchConfig();
   }, []);
 
+  useEffect(() => {
+    if (loading || mapInViewport) return;
+    const container = mapContainerRef.current;
+    if (!container || typeof IntersectionObserver === "undefined") {
+      setMapInViewport(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        setMapInViewport(true);
+        observer.disconnect();
+      },
+      { rootMargin: "100px 0px" },
+    );
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [loading, mapInViewport]);
+
   if (loading) return <PageSkeleton variant="landing" />;
 
   if (user) {
@@ -200,6 +212,7 @@ export default function LandingPage() {
     ? [stores[0].lat, stores[0].lng]
     : DEFAULT_MAP_CENTER;
   const hasActiveFilters = openNowOnly || Boolean(searchQuery.trim());
+  const heroImage = getResponsiveHeroImage(config.heroImageUrl);
   const trustedBusinesses = config.usePartnerStores && stores.length > 0
     ? stores
     : config.trustedBusinesses?.length > 0
@@ -228,8 +241,12 @@ export default function LandingPage() {
           <div className="absolute inset-0 z-0">
             <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/85 dark:via-[#1b1b1b]/85 to-white dark:to-[#1b1b1b] z-10 transition-colors" />
             <img
-              src={getDisplayImageUrl(config.heroImageUrl)}
-              alt="Hero image"
+              src={heroImage.src}
+              srcSet={heroImage.srcSet}
+              sizes="100vw"
+              alt=""
+              aria-hidden="true"
+              data-image-viewer-ignore="true"
               data-eager="true"
               loading="eager"
               fetchPriority="high"
@@ -291,7 +308,7 @@ export default function LandingPage() {
 
                   <div className="bg-white dark:bg-[#1b1b1b] p-4 sm:p-6 rounded-3xl shadow-sm border border-[#1b1b1b]/10 dark:border-white/10 w-full max-w-64 transform sm:translate-x-8 rotate-2 sm:rotate-3 transition-all hover:rotate-0 duration-500">
                     <div className="flex justify-between items-center mb-4">
-                      <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Coffee Card</span>
+                      <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Coffee Card</span>
                       <span className="text-xs font-medium text-white dark:text-[#1b1b1b] bg-[#1b1b1b] dark:bg-white px-2 py-1 rounded-full">8/10</span>
                     </div>
                     <div className="grid grid-cols-10 gap-1.5 mb-2">
@@ -410,60 +427,11 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <div id="landing-store-search-results" className="scroll-mt-6 rounded-[2rem] overflow-hidden border border-[#1b1b1b]/10 dark:border-white/10 shadow-sm h-[400px] sm:h-[600px] relative z-0 transition-colors">
-               {mapLoaded ? (
-                 <MapContainer
-                   center={mapCenter}
-                   zoom={14}
-                   scrollWheelZoom={false}
-                   style={{ height: "100%", width: "100%", zIndex: 1 }}
-                 >
-                   <MapBaseLayers />
-                   {filteredStores.map(store => store.lat && store.lng ? (
-                     <Marker key={store.id} position={[store.lat, store.lng]} icon={createCustomPin(store)}>
-                       <Popup className="rounded-xl overflow-hidden shadow-md">
-                         <div className="p-1 -m-1">
-                           {store.logoUrl && (
-                             <div className="mb-3 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-                               <img
-                                 src={getDisplayImageUrl(store.logoUrl)}
-                                 alt={`${store.name} logo`}
-                                 referrerPolicy="no-referrer"
-                                 className="h-full w-full object-cover"
-                               />
-                             </div>
-                           )}
-                           <h3 className="font-bold text-gray-900 text-lg mb-1">{store.name}</h3>
-                           <div className={`mb-2 flex items-center gap-1.5 text-xs font-medium ${isStoreOpenNow(store.hours) ? "text-emerald-700" : "text-gray-500"}`}>
-                             <span className={`h-2 w-2 rounded-full ${isStoreOpenNow(store.hours) ? "bg-emerald-500" : "bg-gray-400"}`} />
-                             {isStoreOpenNow(store.hours) ? "Open now" : store.hours ? "Closed now" : "Hours unavailable"}
-                           </div>
-                           {store.description && (
-                             <p className="text-sm text-gray-600 mb-2 leading-tight">{store.description}</p>
-                           )}
-                           {store.contact && (
-                             <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-2">
-                               <MapPin className="w-3 h-3" />
-                               {store.contact}
-                             </div>
-                           )}
-                           <div className="flex flex-col gap-2 mt-3">
-                             <Link
-                               to={`/store/${store.id}`}
-                               className="w-full text-center bg-gray-900 !text-white font-medium py-2 rounded-lg text-xs hover:bg-gray-800 transition-colors"
-                             >
-                               View Details
-                             </Link>
-                             <DirectionsButton
-                               destination={{ lat: store.lat, lng: store.lng, name: store.name }}
-                               className="w-full bg-gray-100 text-[#1b1b1b] font-medium py-2 rounded-lg text-xs hover:bg-gray-200 transition-colors"
-                             />
-                           </div>
-                         </div>
-                       </Popup>
-                     </Marker>
-                   ) : null)}
-                 </MapContainer>
+            <div ref={mapContainerRef} id="landing-store-search-results" className="scroll-mt-6 rounded-[2rem] overflow-hidden border border-[#1b1b1b]/10 dark:border-white/10 shadow-sm h-[400px] sm:h-[600px] relative z-0 transition-colors">
+               {mapLoaded && mapInViewport ? (
+                 <Suspense fallback={<SkeletonBlock className="h-full w-full" />}>
+                   <LandingStoreMap stores={filteredStores} center={mapCenter} />
+                 </Suspense>
                ) : (
                  <SkeletonBlock className="h-full w-full" />
                )}
@@ -593,7 +561,7 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
-          <div className="border-t border-gray-100 dark:border-gray-800 pt-8 flex justify-center text-xs text-gray-400 dark:text-gray-500 transition-colors">
+          <div className="border-t border-gray-100 dark:border-gray-800 pt-8 flex justify-center text-xs text-gray-500 dark:text-gray-400 transition-colors">
             <p>&copy; {new Date().getFullYear()} PerkUp. All rights reserved.</p>
           </div>
         </div>

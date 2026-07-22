@@ -44,7 +44,13 @@ export function StoreBranchesMap({ branches, onOpenBranch }: { branches: any[]; 
         <MapBaseLayers />
         <FitAllBranches positions={positions} />
         {mappedBranches.map((branch) => (
-          <Marker key={branch.id} position={[Number(branch.lat), Number(branch.lng)]} icon={logoPin(branch)}>
+          <Marker
+            key={branch.id}
+            position={[Number(branch.lat), Number(branch.lng)]}
+            icon={logoPin(branch)}
+            title={`${branch.branchName || branch.name || "Branch"} location`}
+            alt={`${branch.branchName || branch.name || "Branch"} location`}
+          >
             <Popup>
               <div className="min-w-44">
                 <p className="font-bold">{branch.branchName || branch.name || "Branch"}</p>

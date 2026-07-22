@@ -17,6 +17,7 @@ import { MapBaseLayers } from "../components/MapBaseLayers";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../lib/imageStorage";
 import { PublicSiteFooter } from "../components/PublicPageShell";
 import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../lib/dateTime";
+import { Seo } from "../components/Seo";
 
 interface StoreContent {
   id: string;
@@ -519,6 +520,7 @@ export default function StorePage() {
   if (!store) {
     return (
       <div className="min-h-screen bg-white dark:bg-[#1b1b1b] flex flex-col justify-center items-center transition-colors">
+        <Seo title="Store Not Found | PerkUp" canonicalPath={location.pathname} noIndex />
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Store Not Found</h2>
         <p className="text-gray-500 dark:text-gray-400 mb-6">The store you are looking for does not exist or has been removed.</p>
         <Link to="/" className="text-[#1b1b1b] dark:text-white hover:text-[#1b1b1b] dark:hover:text-white font-medium">Return to Home</Link>
@@ -545,6 +547,30 @@ export default function StorePage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-white selection:bg-[#1b1b1b] selection:text-white transition-colors dark:bg-[#1b1b1b] dark:selection:bg-white dark:selection:text-[#1b1b1b]">
+      <Seo
+        title={`${store.name} | PerkUp Partner Store`}
+        description={store.description || `View ${store.name}'s store details, current promotions, products, and PerkUp loyalty rewards.`}
+        canonicalPath={`/store/${store.id}`}
+        image={store.logoUrl ? getDisplayImageUrl(store.logoUrl) : undefined}
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@type": "LocalBusiness",
+          name: store.name,
+          url: `https://www.perktoday.com/store/${store.id}`,
+          description: store.description,
+          image: store.logoUrl ? getDisplayImageUrl(store.logoUrl) : undefined,
+          telephone: store.contact,
+          address: store.address,
+          openingHours: store.openingHours || store.hours,
+          ...(selectedCoordinates ? {
+            geo: {
+              "@type": "GeoCoordinates",
+              latitude: selectedCoordinates[0],
+              longitude: selectedCoordinates[1],
+            },
+          } : {}),
+        }}
+      />
       <header className="sticky top-0 z-50 border-b border-[#1b1b1b]/10 bg-white/85 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#1b1b1b]/85">
         <nav className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-6">
           <Link to="/" aria-label="PerkUp home">

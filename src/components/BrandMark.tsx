@@ -11,12 +11,12 @@ export function BrandMark({ className = "", compact = false }: BrandMarkProps) {
       <img
         src="/icons/perkup-wordmark-light-transparent.png?v=20260625-brand"
         alt="perk."
-        className={`${sizeClass} w-auto object-contain dark:hidden`}
-      />
-      <img
-        src="/icons/perkup-wordmark-dark-transparent.png?v=20260625-brand"
-        alt="perk."
-        className={`hidden ${sizeClass} w-auto object-contain dark:block`}
+        width="70"
+        height="32"
+        loading="eager"
+        decoding="async"
+        data-eager="true"
+        className={`${sizeClass} w-auto object-contain dark:invert`}
       />
     </span>
   );

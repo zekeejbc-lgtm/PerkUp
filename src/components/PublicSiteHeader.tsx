@@ -26,6 +26,7 @@ export function PublicSiteHeader({ onSignIn, onSignUp, onTrack }: PublicSiteHead
             <button
               type="button"
               onClick={onTrack}
+              aria-label="Track partner application"
               className="inline-flex items-center gap-1.5 text-sm font-medium text-[#1b1b1b] transition-opacity hover:opacity-70 dark:text-white"
             >
               <Search className="h-4 w-4" />

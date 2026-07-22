@@ -5,7 +5,7 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#ffffff",
   "theme_color": "#1b1b1b",
   "description": "PerkUp is a secure digital loyalty system for customers, staff, and partner stores.",
@@ -29,6 +29,22 @@
       "purpose": "maskable"
     }
   ],
-  "categories": ["business", "productivity"],
-  "lang": "en"
+  "categories": ["business", "productivity", "lifestyle"],
+  "shortcuts": [
+    {
+      "name": "Browse stores",
+      "short_name": "Stores",
+      "url": "/stores",
+      "icons": [{ "src": "/icons/favicon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Open dashboard",
+      "short_name": "Dashboard",
+      "url": "/dashboard",
+      "icons": [{ "src": "/icons/favicon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+  "prefer_related_applications": false,
+  "lang": "en",
+  "dir": "ltr"
 }

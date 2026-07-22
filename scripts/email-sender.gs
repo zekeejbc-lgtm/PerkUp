@@ -1,8 +1,8 @@
 var EMAIL_CONFIG = {
   systemName: "PerkUp",
   senderName: "PerkUp",
-  websiteLink: "https://perks.youthserviceph.org/",
-  logoUrl: "https://perks.youthserviceph.org/icons/perkup-wordmark-light-transparent.png?v=20260625-brand",
+  websiteLink: "https://www.perktoday.com/",
+  logoUrl: "https://www.perktoday.com/icons/perkup-wordmark-light-transparent.png?v=20260625-brand",
   contactEmail: "perkup.shop@youthserviceph.org",
   contactPhone: "0962 232 8290",
   contactPhoneLink: "+639622328290",

@@ -4,7 +4,7 @@ import { sessionNeedsMfa } from "../_shared/auth.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
-const DEFAULT_APP_URL = "https://perk-up-navy.vercel.app";
+const DEFAULT_APP_URL = "https://www.perktoday.com";
 
 const requiredEnv = (name: string) => {
   const value = Deno.env.get(name);
