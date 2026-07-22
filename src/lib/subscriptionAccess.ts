@@ -101,7 +101,14 @@ export const safePaymentLink = (value: unknown) => {
   if (!link) return "";
   try {
     const url = new URL(link);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : "";
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    const isPayMongoHost = hostname === "pm.link"
+      || hostname.endsWith(".pm.link")
+      || hostname === "paymongo.page"
+      || hostname.endsWith(".paymongo.page")
+      || hostname === "paymongo.com"
+      || hostname.endsWith(".paymongo.com");
+    return url.protocol === "https:" && isPayMongoHost ? url.toString() : "";
   } catch {
     return "";
   }

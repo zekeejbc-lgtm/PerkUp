@@ -9,9 +9,22 @@ import {
   subscriptionNoticeDismissKey,
   timestampToDate,
 } from "../lib/subscriptionAccess";
-import { useCurrency } from "../contexts/CurrencyContext";
+import { supabase } from "../lib/supabase";
 
 type PortalRole = "store_owner" | "staff";
+
+type FrozenInvoice = {
+  amountCentavos: number;
+  paymentUrl: string;
+  referenceNumber: string | null;
+};
+
+const formatPhp = (amount: number) => new Intl.NumberFormat("en-PH", {
+  style: "currency",
+  currency: "PHP",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+}).format(Number.isFinite(amount) ? amount : 0);
 
 export function SubscriptionAccessBanner({ store, role = "store_owner" }: { store: any; role?: PortalRole }) {
   const policy = resolveSubscriptionAccess(store?.subscriptionAccess, store?.subscriptionEnd);
@@ -54,12 +67,56 @@ export function SubscriptionAccessBanner({ store, role = "store_owner" }: { stor
 }
 
 export function SubscriptionFrozenScreen({ store, role = "store_owner" }: { store: any; role?: PortalRole }) {
-  const { formatCurrency } = useCurrency();
   const policy = resolveSubscriptionAccess(store?.subscriptionAccess, store?.subscriptionEnd);
-  const paymentLink = safePaymentLink(policy.paymentLink);
+  const mirroredPaymentLink = safePaymentLink(policy.paymentLink);
+  const [latestInvoice, setLatestInvoice] = useState<FrozenInvoice | null>(null);
+  const [paymentLookupComplete, setPaymentLookupComplete] = useState(role !== "store_owner");
+  const paymentLink = latestInvoice?.paymentUrl || mirroredPaymentLink;
+  const amountDue = latestInvoice
+    ? latestInvoice.amountCentavos / 100
+    : Number(store?.owedAmount || 0);
   const subscriptionEnd = timestampToDate(store?.subscriptionEnd);
   const graceEnd = timestampToDate(policy.graceEndsAt);
   const contactIsEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(policy.paymentContact);
+
+  useEffect(() => {
+    if (role !== "store_owner" || !store?.id) return;
+    let cancelled = false;
+
+    const loadLatestInvoice = async () => {
+      const { data, error } = await supabase
+        .from("billing_invoices")
+        .select("amount_centavos,payment_url,paymongo_reference_number")
+        .eq("store_id", store.id)
+        .in("status", ["link_created", "failed"])
+        .not("payment_url", "is", null)
+        .order("due_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (cancelled) return;
+      setPaymentLookupComplete(true);
+      if (error) {
+        console.warn("Could not refresh the frozen subscription invoice", error);
+        return;
+      }
+      const verifiedUrl = safePaymentLink(data?.payment_url);
+      if (data && verifiedUrl) {
+        setLatestInvoice({
+          amountCentavos: Number(data.amount_centavos || 0),
+          paymentUrl: verifiedUrl,
+          referenceNumber: data.paymongo_reference_number || null,
+        });
+      }
+    };
+
+    void loadLatestInvoice();
+    const refreshId = window.setInterval(loadLatestInvoice, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshId);
+    };
+  }, [role, store?.id]);
 
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-10rem)] max-w-3xl items-center justify-center py-8">
@@ -80,20 +137,21 @@ export function SubscriptionFrozenScreen({ store, role = "store_owner" }: { stor
         <div className="space-y-6 p-6 sm:p-8">
           {role === "store_owner" && <div className="grid gap-3 sm:grid-cols-2">
             <Info label="Subscription" value={store?.subscriptionLevel || "Not specified"} />
-            <Info label="Amount due" value={formatCurrency(Number(store?.owedAmount || 0))} />
+            <Info label="Exact amount due" value={formatPhp(amountDue)} />
+            {latestInvoice?.referenceNumber && <Info label="PayMongo reference" value={latestInvoice.referenceNumber} />}
             <Info label="Subscription ended" value={subscriptionEnd ? subscriptionEnd.toLocaleDateString("en-PH", { dateStyle: "long" }) : "Contact PerkUp"} />
             <Info label="Grace period ended" value={graceEnd ? graceEnd.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "Not applicable"} />
           </div>}
 
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-700 dark:bg-gray-800/60">
             <div className="flex items-center gap-2 font-bold text-gray-900 dark:text-white"><CreditCard className="h-5 w-5" /> How to restore access</div>
-            <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-600 dark:text-gray-300">{role === "staff" ? "Contact your store owner. Only the store owner can open the payment page." : paymentLink ? "Open the PayMongo payment page, verify the amount, and complete payment using an available method such as QR Ph. You do not need to send proof; PayMongo confirmation restores access automatically." : policy.paymentInstructions}</p>
+            <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-600 dark:text-gray-300">{role === "staff" ? "Contact your store owner. Only the store owner can open the payment page." : paymentLink ? `Open the official PayMongo payment page and confirm that it shows exactly ${formatPhp(amountDue)} before paying. Complete payment using an available method such as QR Ph. You do not need to send proof; signed PayMongo confirmation restores access automatically.` : paymentLookupComplete ? "A secure PayMongo payment link is not available yet. PerkUp is retrying automatically; please contact support if it does not appear shortly." : "Checking for your secure PayMongo payment link..."}</p>
           </div>
 
           {role === "store_owner" && <div className="flex flex-col gap-3 sm:flex-row">
             {paymentLink && (
-              <a href={paymentLink} target="_blank" rel="noreferrer" aria-label="Open payment page" className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-green-700">
-                Pay <ExternalLink className="h-4 w-4" />
+              <a href={paymentLink} target="_blank" rel="noopener noreferrer" aria-label={`Pay ${formatPhp(amountDue)} securely with PayMongo`} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-green-700">
+                Pay {formatPhp(amountDue)} securely <ExternalLink className="h-4 w-4" />
               </a>
             )}
             <a href={contactIsEmail ? `mailto:${policy.paymentContact}` : undefined} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 px-5 py-3 text-sm font-bold text-gray-800 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800">

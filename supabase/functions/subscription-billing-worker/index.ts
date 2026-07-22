@@ -66,22 +66,21 @@ const paymongoRequest = async (path: string, init: RequestInit) => {
 };
 
 const createPaymentLink = async (invoice: ClaimedInvoice) => {
-  const payload = await paymongoRequest("/links", {
+  const payload = await paymongoRequest("/payment_links", {
     method: "POST",
     headers: { "Idempotency-Key": `perkup-invoice-${invoice.invoice_id}` },
     body: JSON.stringify({
-      data: {
-        attributes: {
-          amount: invoice.amount_centavos,
-          currency: invoice.currency,
-          description: `PerkUp ${invoice.plan_id} subscription`,
-          remarks: `Invoice ${invoice.invoice_id}`,
-          metadata: {
-            invoice_id: invoice.invoice_id,
-            subscription_id: invoice.subscription_id,
-            store_id: invoice.store_id,
-          },
-        },
+      amount: invoice.amount_centavos,
+      currency: invoice.currency,
+      description: `PerkUp ${invoice.plan_id} subscription`,
+      remarks: `Invoice ${invoice.invoice_id}`,
+      metadata: {
+        invoice_id: invoice.invoice_id,
+        subscription_id: invoice.subscription_id,
+        store_id: invoice.store_id,
+      },
+      restriction: {
+        completed_sessions: { limit: 1 },
       },
     }),
   });
@@ -100,17 +99,23 @@ const createPaymentLink = async (invoice: ClaimedInvoice) => {
   };
 };
 
-const retrievePaymentLink = async (linkId: string) => {
-  const payload = await paymongoRequest(`/links/${encodeURIComponent(linkId)}`, { method: "GET" });
-  const resource = payload?.data || {};
-  const attributes = resource?.attributes || resource;
+const retrievePaidPayment = async (linkId: string) => {
+  const payload = await paymongoRequest(
+    `/payment_links/${encodeURIComponent(linkId)}/payments?status=paid`,
+    { method: "GET" },
+  );
+  const payments = Array.isArray(payload?.data) ? payload.data : [];
+  const payment = payments.find((candidate: Record<string, unknown>) =>
+    String(candidate?.status || "").toLowerCase() === "paid"
+  );
+  if (!payment) return null;
+  const paidAt = new Date(String(payment.updated_at || payment.created_at || ""));
   return {
-    id: String(resource?.id || linkId),
-    status: String(attributes?.status || "").toLowerCase(),
-    amount: Number(attributes?.amount),
-    currency: String(attributes?.currency || "").toUpperCase(),
-    livemode: Boolean(attributes?.livemode ?? resource?.livemode),
-    paidAt: Number(attributes?.paid_at || attributes?.payments?.[0]?.attributes?.paid_at || attributes?.updated_at || 0),
+    id: String(payment.payment_id || ""),
+    amount: Number(payment.amount),
+    currency: String(payment.currency || "").toUpperCase(),
+    livemode: Boolean(payment.livemode),
+    paidAt: Number.isNaN(paidAt.getTime()) ? new Date().toISOString() : paidAt.toISOString(),
   };
 };
 
@@ -288,20 +293,23 @@ Deno.serve(async (req) => {
     if (unresolvedError) throw unresolvedError;
     for (const invoice of unresolved || []) {
       try {
-        const link = await retrievePaymentLink(String(invoice.paymongo_link_id));
-        if (link.status !== "paid") continue;
-        const paidAtNumber = link.paidAt || Math.floor(Date.now() / 1000);
-        const paidAt = new Date(paidAtNumber > 10_000_000_000 ? paidAtNumber : paidAtNumber * 1000).toISOString();
+        const payment = await retrievePaidPayment(String(invoice.paymongo_link_id));
+        if (!payment) continue;
         const { error } = await supabase.rpc("fulfill_billing_invoice", {
           p_invoice_id: invoice.id,
-          p_paymongo_event_id: `reconciled:${link.id}:${paidAtNumber}`,
-          p_paymongo_link_id: link.id,
-          p_amount_centavos: link.amount,
-          p_currency: link.currency,
-          p_livemode: link.livemode,
-          p_paid_at: paidAt,
+          p_paymongo_event_id: `reconciled:${invoice.paymongo_link_id}:${payment.id}`,
+          p_paymongo_link_id: invoice.paymongo_link_id,
+          p_amount_centavos: payment.amount,
+          p_currency: payment.currency,
+          p_livemode: payment.livemode,
+          p_paid_at: payment.paidAt,
         });
         if (error) throw error;
+        const { error: paymentUpdateError } = await supabase.from("billing_invoices").update({
+          paymongo_payment_id: payment.id || null,
+          gross_amount_centavos: payment.amount,
+        }).eq("id", invoice.id);
+        if (paymentUpdateError) throw paymentUpdateError;
         results.reconciled += 1;
       } catch (error) {
         results.failed += 1;
