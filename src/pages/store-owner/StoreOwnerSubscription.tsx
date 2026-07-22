@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, CalendarDays, CheckCircle2, CreditCard, ExternalLink, Images, Loader2, Printer } from "lucide-react";
+import { AlertCircle, CalendarDays, CheckCircle2, CreditCard, Download, ExternalLink, FileText, Images, Loader2 } from "lucide-react";
 import {
   formatPaymentSchedule,
   formatPredictedPaymentDate,
@@ -11,10 +11,12 @@ import {
 } from "../../lib/subscriptionBilling";
 import { useCurrency } from "../../contexts/CurrencyContext";
 import { supabase } from "../../lib/supabase";
+import { downloadSubscriptionInvoicePdf } from "../../lib/subscriptionInvoicePdf";
 
 type BillingInvoice = {
   id: string;
   status: string;
+  created_at: string;
   due_at: string;
   period_start: string;
   period_end: string;
@@ -25,17 +27,19 @@ type BillingInvoice = {
   livemode: boolean;
   paid_at: string | null;
   payment_method: string | null;
+  paymongo_payment_id: string | null;
   gross_amount_centavos: number | null;
   fee_centavos: number | null;
   net_amount_centavos: number | null;
 };
 
-const escapeInvoiceText = (value: unknown) => String(value ?? "")
-  .replace(/&/g, "&amp;")
-  .replace(/</g, "&lt;")
-  .replace(/>/g, "&gt;")
-  .replace(/"/g, "&quot;")
-  .replace(/'/g, "&#39;");
+type BillingSubscriptionSummary = {
+  automation_enabled: boolean;
+  billing_email: string | null;
+  plan_id: string | null;
+  interval_days: number | null;
+  grace_period_days: number | null;
+};
 
 const invoiceNumber = (invoice: BillingInvoice) => `PU-${invoice.id.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
 
@@ -48,38 +52,49 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
   const galleryPhotoLimit = getSubscriptionGalleryPhotoLimit(subscriptionStore?.subscriptionDependencies);
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingEnabled, setBillingEnabled] = useState(false);
+  const [billingSubscription, setBillingSubscription] = useState<BillingSubscriptionSummary | null>(null);
   const [billingInvoices, setBillingInvoices] = useState<BillingInvoice[]>([]);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
 
-  const printInvoice = (invoice: BillingInvoice) => {
-    const popup = window.open("", "_blank", "width=900,height=720");
-    if (!popup) {
-      window.alert("Allow pop-ups for PerkUp to open the printable invoice.");
-      return;
+  const downloadInvoice = async (invoice: BillingInvoice) => {
+    setDownloadingInvoiceId(invoice.id);
+    try {
+      await downloadSubscriptionInvoicePdf({
+        invoice: {
+          id: invoice.id,
+          status: invoice.status,
+          createdAt: invoice.created_at,
+          dueAt: invoice.due_at,
+          periodStart: invoice.period_start,
+          periodEnd: invoice.period_end,
+          amountCentavos: invoice.amount_centavos,
+          currency: invoice.currency,
+          paymentUrl: invoice.payment_url,
+          referenceNumber: invoice.paymongo_reference_number,
+          livemode: invoice.livemode,
+          paidAt: invoice.paid_at,
+          paymentMethod: invoice.payment_method,
+          paymentId: invoice.paymongo_payment_id,
+          grossAmountCentavos: invoice.gross_amount_centavos,
+        },
+        subscription: {
+          planId: billingSubscription?.plan_id || subscriptionStore?.subscriptionLevel || null,
+          billingEmail: billingSubscription?.billing_email || null,
+          intervalDays: billingSubscription?.interval_days || null,
+          gracePeriodDays: billingSubscription?.grace_period_days || null,
+        },
+        business: {
+          name: subscriptionStore?.businessName || subscriptionStore?.name || "PerkUp merchant",
+          address: subscriptionStore?.address || subscriptionStore?.location || null,
+          contact: subscriptionStore?.contact || subscriptionStore?.contactNumber || subscriptionStore?.phone || null,
+        },
+      });
+    } catch (error) {
+      console.error("Could not generate subscription invoice PDF", error);
+      window.alert("We could not prepare this PDF. Please refresh the page and try again.");
+    } finally {
+      setDownloadingInvoiceId(null);
     }
-    popup.opener = null;
-    const amount = formatCurrency((invoice.gross_amount_centavos || invoice.amount_centavos) / 100);
-    const status = invoice.status === "paid" ? "PAID" : "PAYMENT DUE";
-    popup.document.write(`<!doctype html><html><head><title>${escapeInvoiceText(invoiceNumber(invoice))}</title><style>
-      body{font-family:Arial,sans-serif;color:#171717;margin:48px;line-height:1.5}.brand{font-size:20px;font-weight:800;margin-bottom:30px}
-      h1{margin:0;font-size:30px}.muted{color:#666}.status{display:inline-block;margin:16px 0;padding:6px 10px;border-radius:8px;background:#eee;font-weight:700}
-      table{width:100%;border-collapse:collapse;margin-top:24px}th,td{text-align:left;padding:13px;border-bottom:1px solid #ddd}th{width:38%;color:#555}
-      .footer{margin-top:40px;font-size:12px;color:#666}@media print{button{display:none}body{margin:24px}}
-    </style></head><body>
-      <div class="brand">PerkUp</div><h1>Subscription ${invoice.status === "paid" ? "Receipt" : "Invoice"}</h1>
-      <div class="muted">Document ${escapeInvoiceText(invoiceNumber(invoice))}</div><div class="status">${status}${invoice.livemode ? "" : " · TEST MODE"}</div>
-      <table>
-        <tr><th>Business</th><td>${escapeInvoiceText(subscriptionStore?.businessName || subscriptionStore?.name || "Store")}</td></tr>
-        <tr><th>Amount</th><td>${escapeInvoiceText(amount)}</td></tr>
-        <tr><th>Billing period</th><td>${escapeInvoiceText(formatBillingDate(invoice.period_start))} – ${escapeInvoiceText(formatBillingDate(invoice.period_end))}</td></tr>
-        <tr><th>Due</th><td>${escapeInvoiceText(formatBillingDate(invoice.due_at))}</td></tr>
-        ${invoice.paid_at ? `<tr><th>Paid</th><td>${escapeInvoiceText(formatBillingDate(invoice.paid_at))}</td></tr>` : ""}
-        ${invoice.payment_method ? `<tr><th>Payment method</th><td>${escapeInvoiceText(invoice.payment_method.replace(/_/g, " "))}</td></tr>` : ""}
-        <tr><th>PayMongo reference</th><td>${escapeInvoiceText(invoice.paymongo_reference_number || "Pending")}</td></tr>
-      </table>
-      <div class="footer">This system-generated document records a PerkUp subscription charge or payment. It is not represented as a VAT official receipt or tax invoice. Contact perkup.shop@youthserviceph.org for assistance.</div>
-      <p><button onclick="window.print()">Print / Save as PDF</button></p>
-    </body></html>`);
-    popup.document.close();
   };
 
   useEffect(() => {
@@ -87,9 +102,9 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
     let cancelled = false;
     setBillingLoading(true);
     Promise.all([
-      supabase.from("billing_subscriptions").select("automation_enabled").eq("store_id", subscriptionStore.id).maybeSingle(),
+      supabase.from("billing_subscriptions").select("automation_enabled,billing_email,plan_id,interval_days,grace_period_days").eq("store_id", subscriptionStore.id).maybeSingle(),
       supabase.from("billing_invoices")
-        .select("id,status,due_at,period_start,period_end,amount_centavos,currency,payment_url,paymongo_reference_number,livemode,paid_at,payment_method,gross_amount_centavos,fee_centavos,net_amount_centavos")
+        .select("id,status,created_at,due_at,period_start,period_end,amount_centavos,currency,payment_url,paymongo_reference_number,livemode,paid_at,payment_method,paymongo_payment_id,gross_amount_centavos,fee_centavos,net_amount_centavos")
         .eq("store_id", subscriptionStore.id)
         .order("created_at", { ascending: false })
         .limit(6),
@@ -98,11 +113,13 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
       if (subscriptionResult.error) throw subscriptionResult.error;
       if (invoiceResult.error) throw invoiceResult.error;
       setBillingEnabled(subscriptionResult.data?.automation_enabled === true);
+      setBillingSubscription((subscriptionResult.data || null) as BillingSubscriptionSummary | null);
       setBillingInvoices((invoiceResult.data || []) as BillingInvoice[]);
     }).catch((error) => {
       console.error("Could not load subscription billing history", error);
       if (!cancelled) {
         setBillingEnabled(false);
+        setBillingSubscription(null);
         setBillingInvoices([]);
       }
     }).finally(() => {
@@ -205,9 +222,14 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
 
           <section className="mt-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h4 className="font-bold text-gray-900 dark:text-white">PayMongo billing</h4>
-                <p className="mt-1 text-sm text-gray-500">Use the latest payment page and select QR Ph at checkout.</p>
+              <div className="flex items-start gap-3">
+                <span className="rounded-xl bg-teal-50 p-2.5 text-[#1b5660] dark:bg-teal-950/40 dark:text-teal-300">
+                  <FileText className="h-5 w-5" />
+                </span>
+                <div>
+                  <h4 className="font-bold text-gray-900 dark:text-white">Invoices &amp; receipts</h4>
+                  <p className="mt-1 max-w-xl text-sm text-gray-500">Download a detailed, PerkUp-branded PDF for every billing cycle. Unpaid invoices also include the secure PayMongo payment link.</p>
+                </div>
               </div>
               <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${billingEnabled ? "bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"}`}>
                 {billingEnabled ? "Automatic" : "Not enabled"}
@@ -215,18 +237,20 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
             </div>
 
             {billingLoading ? (
-              <div className="flex items-center gap-2 py-8 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading billing history…</div>
+              <div className="flex items-center gap-2 py-8 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading billing history...</div>
             ) : billingInvoices.length ? (
               <div className="mt-5 space-y-3">
                 {billingInvoices.map((invoice) => (
-                  <div key={invoice.id} className="flex flex-col gap-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between">
+                  <div key={invoice.id} className="flex flex-col gap-3 rounded-2xl border border-gray-200 p-4 transition-colors hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600 sm:flex-row sm:items-center sm:justify-between">
                     <div>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">{invoice.status === "paid" ? "Receipt" : "Invoice"} {invoiceNumber(invoice)}</p>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold text-gray-900 dark:text-white">{formatCurrency(invoice.amount_centavos / 100)}</span>
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">{invoice.status}</span>
                         {!invoice.livemode && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">Test mode</span>}
                       </div>
-                      <p className="mt-1 text-xs text-gray-500">Due {formatBillingDate(invoice.due_at)}{invoice.paymongo_reference_number ? ` · Ref ${invoice.paymongo_reference_number}` : ""}</p>
+                      <p className="mt-1 text-xs text-gray-500">Period {formatBillingDate(invoice.period_start)} - {formatBillingDate(invoice.period_end)}</p>
+                      <p className="mt-1 text-xs text-gray-500">{invoice.paid_at ? `Paid ${formatBillingDate(invoice.paid_at)}` : `Due ${formatBillingDate(invoice.due_at)}`}{invoice.paymongo_reference_number ? ` | Ref ${invoice.paymongo_reference_number}` : ""}</p>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       {invoice.status !== "paid" && invoice.payment_url && (
@@ -234,8 +258,14 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                           Open payment page <ExternalLink className="h-4 w-4" />
                         </a>
                       )}
-                      <button type="button" onClick={() => printInvoice(invoice)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">
-                        Print / PDF <Printer className="h-4 w-4" />
+                      <button
+                        type="button"
+                        onClick={() => downloadInvoice(invoice)}
+                        disabled={downloadingInvoiceId !== null}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                      >
+                        {downloadingInvoiceId === invoice.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                        {downloadingInvoiceId === invoice.id ? "Preparing PDF..." : `Download ${invoice.status === "paid" ? "receipt" : "invoice"}`}
                       </button>
                     </div>
                   </div>
