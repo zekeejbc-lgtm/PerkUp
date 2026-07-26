@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Store, User, Mail, PenTool, Image as ImageIcon, MapPin, Phone, Check, Upload, LoaderCircle, Copy } from 'lucide-react';
+import { X, Store, User, Mail, PenTool, Image as ImageIcon, MapPin, Phone, Check, Upload, LoaderCircle, Copy, Link2, Globe2 } from 'lucide-react';
 import { doc, getDoc } from '@/src/lib/dataCompat';
 import { db } from '../lib/backend';
 import 'leaflet/dist/leaflet.css';
@@ -68,6 +68,9 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [description, setDescription] = useState('');
+  const [personalFacebookUrl, setPersonalFacebookUrl] = useState('');
+  const [businessFacebookUrl, setBusinessFacebookUrl] = useState('');
+  const [businessWebsiteUrl, setBusinessWebsiteUrl] = useState('');
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoEditFile, setLogoEditFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState('');
@@ -167,6 +170,9 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     setEmail('');
     setPhoneNumber('');
     setDescription('');
+    setPersonalFacebookUrl('');
+    setBusinessFacebookUrl('');
+    setBusinessWebsiteUrl('');
     if (logoPreview) URL.revokeObjectURL(logoPreview);
     setLogoFile(null);
     setLogoEditFile(null);
@@ -230,11 +236,14 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
         address,
         coordinates,
         subscriptionLevel: selectedPlanId,
+        personalFacebookUrl,
+        businessFacebookUrl,
+        businessWebsiteUrl,
       }, logoFile);
       setTrackingNumber(result.trackingNumber || formatApplicationTrackingCode(result.applicationId, businessName));
       setIsSuccess(true);
     } catch (error) {
-      alert("Failed to submit application");
+      alert(error instanceof Error ? error.message : "Failed to submit application");
     } finally {
       setIsSubmitting(false);
     }
@@ -442,6 +451,63 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                       </div>
                     </div>
                   </div>
+
+                  <section className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50/70 p-4 text-left dark:border-gray-700 dark:bg-gray-800/40 md:col-span-2">
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Online presence <span className="font-normal text-gray-500 dark:text-gray-400">(Optional)</span></h3>
+                      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Add any links that can help us verify and learn more about you and your business.</p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className="space-y-1">
+                        <label htmlFor="personal-facebook-url" className="text-xs font-semibold text-gray-700 dark:text-gray-300">Personal Facebook</label>
+                        <div className="relative">
+                          <Link2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                          <input
+                            id="personal-facebook-url"
+                            type="url"
+                            value={personalFacebookUrl}
+                            onChange={(event) => setPersonalFacebookUrl(event.target.value)}
+                            className="block w-full rounded-xl border border-gray-200 bg-white py-2 pl-10 pr-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                            placeholder="https://facebook.com/your-profile"
+                            autoComplete="url"
+                            maxLength={1000}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <label htmlFor="business-facebook-url" className="text-xs font-semibold text-gray-700 dark:text-gray-300">Business Facebook Page</label>
+                        <div className="relative">
+                          <Link2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                          <input
+                            id="business-facebook-url"
+                            type="url"
+                            value={businessFacebookUrl}
+                            onChange={(event) => setBusinessFacebookUrl(event.target.value)}
+                            className="block w-full rounded-xl border border-gray-200 bg-white py-2 pl-10 pr-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                            placeholder="https://facebook.com/your-business"
+                            autoComplete="url"
+                            maxLength={1000}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <label htmlFor="business-website-url" className="text-xs font-semibold text-gray-700 dark:text-gray-300">Business Website</label>
+                        <div className="relative">
+                          <Globe2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                          <input
+                            id="business-website-url"
+                            type="url"
+                            value={businessWebsiteUrl}
+                            onChange={(event) => setBusinessWebsiteUrl(event.target.value)}
+                            className="block w-full rounded-xl border border-gray-200 bg-white py-2 pl-10 pr-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                            placeholder="https://yourbusiness.com"
+                            autoComplete="url"
+                            maxLength={1000}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </section>
                 </div>
               )}
 
@@ -487,16 +553,20 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
 
             </div>
             
-            <div className="p-6 md:p-8 pt-4 shrink-0 flex gap-3 justify-end border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 rounded-b-[2rem]">
+            <div className="shrink-0 flex items-center justify-end gap-2.5 border-t border-gray-100 bg-white px-4 py-3.5 dark:border-gray-800 dark:bg-gray-900 sm:px-6 md:px-8 md:py-4 rounded-b-[2rem]">
               {step === 2 && (
-                <button type="button" onClick={() => setStep(1)} className="px-6 py-2.5 rounded-xl font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors">
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white px-4 text-sm font-semibold leading-none text-gray-700 transition-colors hover:bg-gray-50 active:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                >
                   Back
                 </button>
               )}
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-6 py-2.5 bg-[#1b1b1b] text-white font-medium rounded-xl hover:bg-black transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2"
+                className="inline-flex h-10 min-w-0 items-center justify-center whitespace-nowrap rounded-lg bg-[#1b1b1b] px-5 text-sm font-semibold leading-none text-white transition-all hover:bg-black active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
               >
                 {isSubmitting ? 'Submitting...' : step === 1 ? 'Next Step' : 'Submit Application'}
               </button>

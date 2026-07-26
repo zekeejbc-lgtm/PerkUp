@@ -29,12 +29,13 @@ import {
 import { TimeInput } from "../../components/TimeInput";
 import { formatPhilippineDateTime, formatStoreHours, formatTime12Hour } from "../../lib/dateTime";
 import { Pagination } from "../../components/Pagination";
-import { sanitizePasswordInput } from "../../lib/passwordStrength";
+import { generateStrongPassword, validateStrongPassword } from "../../lib/passwordStrength";
 import { DEFAULT_POLICY_SUSPENSION_MESSAGE, getEffectiveSubscriptionStatus, normalizeAccountRestriction, normalizeSubscriptionAccess } from "../../lib/subscriptionAccess";
 import { supabase } from "../../lib/supabase";
 import { StoreBranchesMap } from "../../components/StoreBranchesMap";
 import { PasswordVisibilityButton } from "../../components/PasswordVisibilityButton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
+import { TemporaryPasswordField } from "../../components/TemporaryPasswordField";
 
 const ACTIVITY_LOGS_PER_PAGE = 8;
 type SubscriptionAccessAction = "active" | "warning" | "grace" | "frozen";
@@ -166,10 +167,14 @@ export default function AdminStoreDetail({
   
   // Password reset state
   const [resetModalUser, setResetModalUser] = useState<any>(null);
-  const [newPasswordType, setNewPasswordType] = useState<'default' | 'random' | 'custom'>('default');
-  const [customPassword, setCustomPassword] = useState('');
-  const [showCustomPassword, setShowCustomPassword] = useState(false);
+  const [temporaryPassword, setTemporaryPassword] = useState(() => generateStrongPassword());
   const [requirePasswordChange, setRequirePasswordChange] = useState(false);
+  const [resetPasswordBusy, setResetPasswordBusy] = useState(false);
+  const [resetPasswordError, setResetPasswordError] = useState("");
+  const resetPasswordValidation = validateStrongPassword(temporaryPassword, {
+    name: resetModalUser?.name,
+    email: resetModalUser?.email,
+  });
   const deleteTargetName = deleteScope === "store"
     ? String(store?.businessName || store?.name || "").trim()
     : String(store?.branchName || store?.name || "").trim();
@@ -830,24 +835,45 @@ export default function AdminStoreDetail({
   };
 
   const handleResetPassword = async () => {
-    if (!resetModalUser) return;
+    if (!resetModalUser || resetPasswordBusy) return;
+    if (!resetPasswordValidation.valid) {
+      setResetPasswordError("Use a password that meets every security requirement.");
+      return;
+    }
+    setResetPasswordBusy(true);
+    setResetPasswordError("");
     try {
-      let tempPassword = "Password123!";
-      if (newPasswordType === 'random') tempPassword = Math.random().toString(36).slice(-8) + "!";
-      if (newPasswordType === 'custom') tempPassword = customPassword;
-
       await invokeAdminBackend<{ updated: boolean }>({
         action: "reset_password",
         userId: resetModalUser.id,
-        password: tempPassword,
+        password: temporaryPassword,
         forcePasswordReset: requirePasswordChange,
       });
-      alert(`Password has been reset for ${resetModalUser.email}.\nTemporary password: ${tempPassword}`);
+      alert(`Password has been reset for ${resetModalUser.email}.\nTemporary password: ${temporaryPassword}`);
       setResetModalUser(null);
     } catch (e) {
       console.error(e);
-      alert("Failed to initiate password reset.");
+      const message = e instanceof Error && e.message
+        ? e.message
+        : "The password could not be reset. Please try again.";
+      setResetPasswordError(message);
+      alert(message);
+    } finally {
+      setResetPasswordBusy(false);
     }
+  };
+
+  const openResetPasswordModal = (user: any) => {
+    setTemporaryPassword(generateStrongPassword());
+    setRequirePasswordChange(false);
+    setResetPasswordError("");
+    setResetModalUser(user);
+  };
+
+  const closeResetPasswordModal = () => {
+    if (resetPasswordBusy) return;
+    setResetModalUser(null);
+    setResetPasswordError("");
   };
 
   if (loading) {
@@ -1606,7 +1632,7 @@ export default function AdminStoreDetail({
                       <p className="text-xs text-gray-500">{owner.email}</p>
                       <p className="mt-1 text-xs font-medium text-gray-500">{isStorePhase ? `Owner of ${store.businessName || store.name} · ${branches.length} branch${branches.length === 1 ? "" : "es"}` : `Store owner · Access to ${store.branchName || store.name}`}</p>
                     </div>
-                    <button onClick={() => setResetModalUser(owner)} className="p-2 text-gray-500 hover:text-[#1b1b1b] bg-gray-50 dark:bg-gray-800 rounded-lg" title="Reset Password">
+                    <button onClick={() => openResetPasswordModal(owner)} className="p-2 text-gray-500 hover:text-[#1b1b1b] bg-gray-50 dark:bg-gray-800 rounded-lg" title="Reset Password">
                       <Key className="w-4 h-4" />
                     </button>
                   </div>
@@ -1628,7 +1654,7 @@ export default function AdminStoreDetail({
                             {branches.find((branch) => branch.id === s.storeId)?.branchName || branches.find((branch) => branch.id === s.storeId)?.name || "Unassigned branch"}
                           </span>
                         </div>
-                        <button onClick={() => setResetModalUser(s)} className="p-2 text-gray-500 hover:text-[#1b1b1b] bg-gray-50 dark:bg-gray-800 rounded-lg" title="Reset Password">
+                        <button onClick={() => openResetPasswordModal(s)} className="p-2 text-gray-500 hover:text-[#1b1b1b] bg-gray-50 dark:bg-gray-800 rounded-lg" title="Reset Password">
                           <Key className="w-4 h-4" />
                         </button>
                       </div>
@@ -2011,37 +2037,40 @@ export default function AdminStoreDetail({
             
             <div className="space-y-4 mb-6">
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-2">Password Type</label>
-                <CustomDropdown
-                  value={newPasswordType}
-                  onChange={(value) => setNewPasswordType(value as "default" | "random" | "custom")}
-                  options={[
-                    { label: "Default (Password123!)", value: "default" },
-                    { label: "Randomize", value: "random" },
-                    { label: "Set Custom", value: "custom" },
-                  ]}
+                <label className="block text-xs font-semibold text-gray-500 mb-2">Temporary password</label>
+                <TemporaryPasswordField
+                  value={temporaryPassword}
+                  onChange={(value) => {
+                    setTemporaryPassword(value);
+                    setResetPasswordError("");
+                  }}
+                  name={resetModalUser.name}
+                  email={resetModalUser.email}
                 />
               </div>
-
-              {newPasswordType === 'custom' && (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-2">Custom Password</label>
-                  <div className="relative">
-                    <input type={showCustomPassword ? "text" : "password"} autoComplete="new-password" value={customPassword} onChange={e => setCustomPassword(sanitizePasswordInput(e.target.value))} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 pr-11 rounded-lg text-sm" placeholder="Enter new password (no spaces)" />
-                    <PasswordVisibilityButton visible={showCustomPassword} onToggle={() => setShowCustomPassword((visible) => !visible)} label="custom password" />
-                  </div>
-                </div>
-              )}
 
               <label className="flex items-center gap-2 cursor-pointer mt-4">
                 <input type="checkbox" checked={requirePasswordChange} onChange={e => setRequirePasswordChange(e.target.checked)} className="rounded border-gray-300 text-[#1b1b1b] focus:ring-[#1b1b1b]" />
                 <span className="text-sm text-gray-700 dark:text-gray-300">Require change on next login</span>
               </label>
+
+              {resetPasswordError && (
+                <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                  {resetPasswordError}
+                </p>
+              )}
             </div>
 
             <div className="flex gap-3">
-              <button onClick={() => setResetModalUser(null)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-medium py-2 px-4 rounded-xl hover:bg-gray-200 transition-colors">Cancel</button>
-              <button onClick={handleResetPassword} className="flex-1 bg-[#1b1b1b] text-white font-medium py-2 px-4 rounded-xl hover:bg-black transition-colors">Confirm Reset</button>
+              <button disabled={resetPasswordBusy} onClick={closeResetPasswordModal} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-medium py-2 px-4 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-60">Cancel</button>
+              <button
+                disabled={resetPasswordBusy || !resetPasswordValidation.valid}
+                onClick={handleResetPassword}
+                className="inline-flex flex-1 items-center justify-center gap-2 bg-[#1b1b1b] text-white font-medium py-2 px-4 rounded-xl hover:bg-black transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {resetPasswordBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+                {resetPasswordBusy ? "Resetting..." : "Confirm Reset"}
+              </button>
             </div>
           </div>
         </div>

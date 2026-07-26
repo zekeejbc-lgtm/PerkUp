@@ -2,15 +2,18 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <style>
+    :root { color-scheme: light dark; supported-color-schemes: light dark; }
     body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
     body { margin: 0; padding: 0; background-color: #f3f4f6; font-family: Inter, 'Segoe UI', Helvetica, Arial, sans-serif; }
 
     .email-wrapper { width: 100%; background-color: #f3f4f6; padding: 36px 12px; }
     .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 24px; overflow: hidden; box-shadow: 0 12px 32px rgba(17,24,39,0.07); }
 
-    .header { padding: 32px 32px 24px; text-align: left; border-bottom: 1px solid #eeeeee; }
-    .header img { display: block; width: 92px; max-width: 92px; height: auto; }
+    .header { padding: 32px 32px 24px; text-align: left; background-color: #ffffff; border-bottom: 1px solid #eeeeee; }
+    .brand-logo { display: block; width: 112px; max-width: 112px; height: auto; color: #111111; }
 
     .content { padding: 36px 32px 40px; color: #4b5563; line-height: 1.65; font-size: 16px; }
     .content h2 { color: #111111; margin: 0 0 16px; font-size: 26px; line-height: 1.25; font-weight: 700; letter-spacing: -0.02em; }
@@ -37,6 +40,29 @@
     .disclaimer { font-size: 11px; color: #9ca3af; line-height: 1.5; margin-bottom: 12px; }
     .ref-id { font-size: 10px; color: #6b7280; }
 
+    /* Clients such as Apple Mail honor this and receive the intended dark palette. */
+    @media (prefers-color-scheme: dark) {
+      body, .email-wrapper { background-color: #0f1115 !important; }
+      .email-container { background-color: #17191e !important; border-color: #34373f !important; }
+      .header { background-color: #17191e !important; border-bottom-color: #34373f !important; }
+      .content { color: #d1d5db !important; }
+      .content h2, .store-name { color: #f9fafb !important; }
+      .otp-code, .store-card { color: #e5e7eb !important; background-color: #202227 !important; border-color: #3d414a !important; }
+      .store-detail { border-top-color: #3d414a !important; }
+      .store-label { color: #aeb4bf !important; }
+      .action-button { color: #111111 !important; background-color: #ffffff !important; }
+    }
+
+    /* Outlook mobile uses data-ogsc instead of the standard media query. */
+    [data-ogsc] body, [data-ogsc] .email-wrapper { background-color: #0f1115 !important; }
+    [data-ogsc] .email-container, [data-ogsc] .header { background-color: #17191e !important; border-color: #34373f !important; }
+    [data-ogsc] .content { color: #d1d5db !important; }
+    [data-ogsc] .content h2, [data-ogsc] .store-name { color: #f9fafb !important; }
+    [data-ogsc] .otp-code, [data-ogsc] .store-card { color: #e5e7eb !important; background-color: #202227 !important; border-color: #3d414a !important; }
+    [data-ogsc] .store-detail { border-top-color: #3d414a !important; }
+    [data-ogsc] .store-label { color: #aeb4bf !important; }
+    [data-ogsc] .action-button { color: #111111 !important; background-color: #ffffff !important; }
+
     @media only screen and (max-width: 620px) {
       .email-wrapper { padding: 16px 8px !important; }
       .email-container { border-radius: 18px !important; }
@@ -47,11 +73,16 @@
     }
   </style>
 </head>
-<body>
+<body class="email-body">
   <div class="email-wrapper">
     <div class="email-container">
       <div class="header">
-        <img src="<?= logoUrl ?>" alt="<?= systemName ?> Logo">
+        <!--
+          This asset has its own opaque light badge. Gmail can force background
+          colors without honoring prefers-color-scheme, but it does not recolor
+          the pixels inside this image, so the wordmark remains readable.
+        -->
+        <img src="<?= logoUrl ?>" alt="<?= systemName ?> Logo" class="brand-logo" width="112">
       </div>
 
       <div class="content">

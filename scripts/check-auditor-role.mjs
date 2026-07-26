@@ -24,6 +24,8 @@ assert.doesNotMatch(maintenanceScreen, /variant="maintenance"/);
 assert.match(app, /\["admin", "auditor"\]\.includes\(user\?\.role \|\| ""\)/);
 assert.match(authContext, /\["admin", "auditor"\]\.includes\(existingUser\.role \|\| ""\)/);
 assert.match(authContext, /runtimeModeRef\.current === "maintenance" && !hasMaintenanceAccess/);
+assert.match(authContext, /if \(runtimeModeLoading\) return;[\s\S]*?auth\.onAuthStateChanged/);
+assert.match(authContext, /\}, \[runtimeModeLoading\]\);/);
 
 const requiredAuditedMutations = [
   "update_public_feedback",

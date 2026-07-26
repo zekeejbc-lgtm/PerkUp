@@ -8,8 +8,22 @@ const fileToDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 
+export interface PartnerApplicationInput {
+  businessName: string;
+  applicantName: string;
+  email: string;
+  phoneNumber: string;
+  description: string;
+  address: string;
+  coordinates: [number, number] | null;
+  subscriptionLevel: string;
+  personalFacebookUrl?: string;
+  businessFacebookUrl?: string;
+  businessWebsiteUrl?: string;
+}
+
 export async function submitPartnerApplication(
-  application: Record<string, unknown>,
+  application: PartnerApplicationInput,
   logoFile: File | null,
 ) {
   const logo = logoFile

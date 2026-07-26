@@ -93,7 +93,7 @@ export default function AdminSystemHealth() {
             </div>
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400">
-            Live checks for the database, authentication, subscription billing, PayMongo webhooks, receipt delivery, and client diagnostics.
+            Live checks for the database, authentication, subscription billing, GAS email quota and queue, PayMongo webhooks, receipt delivery, and client diagnostics.
           </p>
         </div>
         <button

@@ -17,6 +17,7 @@ function getViewedImage(target: EventTarget | null): ViewedImage | null {
   if (
     !(image instanceof HTMLImageElement)
     || image.dataset.imageViewerIgnore === "true"
+    || image.closest(INTERACTIVE_PARENT_SELECTOR)
     || image.closest(IMAGE_VIEWER_EXCLUDED_SELECTOR)
   ) {
     return null;

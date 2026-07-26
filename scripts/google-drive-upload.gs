@@ -19,6 +19,14 @@ function doPost(e) {
     var data = JSON.parse(e.postData.contents);
     var action = String(data.action || "upload").toLowerCase();
 
+    if (action === "email_diagnostics" || action === "emaildiagnostics") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        emailDiagnostics: getEmailQuotaDiagnostics()
+      });
+    }
+
     if (action === "request_otp" || action === "requestotp") {
       return createJsonResponse({
         success: true,
@@ -173,7 +181,11 @@ function doPost(e) {
   } catch (error) {
     return createJsonResponse({
       success: false,
-      error: error.toString()
+      error: error.toString(),
+      code: String(error && error.code || ""),
+      remainingDailyRecipientQuota: error && typeof error.remainingDailyRecipientQuota === "number"
+        ? error.remainingDailyRecipientQuota
+        : null
     });
   }
 }
@@ -219,6 +231,15 @@ function setupPermissions() {
   // Calling MailApp from the editor forces Google to request the send-mail
   // permission before an anonymous web-app request needs it.
   return forceAuthorize();
+}
+
+function getEmailQuotaDiagnostics() {
+  var remainingQuota = MailApp.getRemainingDailyQuota();
+  return {
+    checkedAt: new Date().toISOString(),
+    remainingDailyRecipientQuota: remainingQuota,
+    quotaAvailable: remainingQuota > 0
+  };
 }
 
 function forceAuthorize() {

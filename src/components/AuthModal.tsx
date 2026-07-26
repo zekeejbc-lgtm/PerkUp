@@ -108,7 +108,6 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
       const redirectMessage = window.sessionStorage.getItem(AUTH_REDIRECT_MESSAGE_KEY);
       setError(redirectMessage || '');
       if (redirectMessage) {
-        toast.error(redirectMessage);
         window.sessionStorage.removeItem(AUTH_REDIRECT_MESSAGE_KEY);
       }
       setMessage('');
@@ -222,7 +221,6 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
 
   const showInlineError = (text: string) => {
     setError(text);
-    toast.error(text);
   };
 
   const showInlineSuccess = (text: string) => {
@@ -472,24 +470,32 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
     } catch (err: any) {
       // Improve error messages
       let errorMessage = '';
+      let isUserError = false;
       if (err.code === 'auth/email-already-in-use') {
         errorMessage = 'This email is already registered.';
+        isUserError = true;
       } else if (mode === 'signin' && (err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential')) {
-        errorMessage = 'No account was found, try registering.';
+        errorMessage = 'The email or password is incorrect. Please try again.';
+        isUserError = true;
       } else if (err.code === 'auth/weak-password') {
         errorMessage = 'Password should be at least 6 characters.';
+        isUserError = true;
       } else if (err.code === 'auth/operation-not-allowed') {
         errorMessage = 'Email/password sign-in is disabled. Please enable it in Supabase Auth.';
       } else if (err.code === 'auth/email-not-authorized') {
         errorMessage = 'Supabase rejected this email address. Use a real email address, disable email confirmation for local testing, or configure custom SMTP.';
       } else if (err.code === 'auth/invalid-email') {
         errorMessage = 'Enter a valid email address.';
+        isUserError = true;
       } else if (mode === 'signup' && err.code === 'auth/signup-failed') {
         errorMessage = err.message || 'Supabase could not create the account.';
       } else {
         errorMessage = err.message || 'An error occurred. Make sure email/password sign-in is enabled in Supabase Auth.';
       }
-      showInlineError(errorMessage);
+      setError(errorMessage);
+      if (!isUserError) {
+        toast.error(errorMessage, { error: err });
+      }
     } finally {
       setLoading(false);
     }

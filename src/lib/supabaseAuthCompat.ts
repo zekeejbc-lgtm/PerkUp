@@ -123,6 +123,13 @@ const toSignInError = (error: { code?: string; message?: string }) => {
   const normalizedMessage = message.toLowerCase();
 
   if (
+    code.includes("invalid_credentials") ||
+    normalizedMessage.includes("invalid login credentials")
+  ) {
+    return createCompatAuthError(message, "auth/invalid-credential");
+  }
+
+  if (
     code.includes("email_provider_disabled") ||
     code.includes("provider_disabled") ||
     normalizedMessage.includes("email logins are disabled") ||

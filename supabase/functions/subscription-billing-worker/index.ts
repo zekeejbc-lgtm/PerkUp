@@ -31,6 +31,18 @@ type BillingNotification = {
   attempt_count: number;
 };
 
+class GasEmailError extends Error {
+  code: string;
+  remainingDailyRecipientQuota: number | null;
+
+  constructor(message: string, code = "", remainingDailyRecipientQuota: number | null = null) {
+    super(message);
+    this.name = "GasEmailError";
+    this.code = code;
+    this.remainingDailyRecipientQuota = remainingDailyRecipientQuota;
+  }
+}
+
 const requiredEnv = (name: string) => {
   const value = Deno.env.get(name)?.trim();
   if (!value) throw new Error(`${name} is not configured.`);
@@ -131,6 +143,8 @@ const retryAt = (attemptCount: number) => {
   return new Date(Date.now() + minutes * 60_000).toISOString();
 };
 
+const quotaRetryAt = () => new Date(Date.now() + 60 * 60_000).toISOString();
+
 const sendGasRequest = async (body: Record<string, unknown>) => {
   const gasSecret = requiredEnv("DRIVE_CRUD_SECRET");
   const gasUrl = Deno.env.get("GAS_EMAIL_URL") || Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") || DEFAULT_GAS_URL;
@@ -141,7 +155,12 @@ const sendGasRequest = async (body: Record<string, unknown>) => {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload?.success !== true) {
-    throw new Error(String(payload?.error || `Email service returned HTTP ${response.status}`).slice(0, 500));
+    const rawQuota = Number(payload?.remainingDailyRecipientQuota);
+    throw new GasEmailError(
+      String(payload?.error || `Email service returned HTTP ${response.status}`).slice(0, 500),
+      String(payload?.code || ""),
+      Number.isFinite(rawQuota) ? rawQuota : null,
+    );
   }
   return payload;
 };
@@ -258,6 +277,7 @@ Deno.serve(async (req) => {
       emailsSent: 0,
       remindersSent: 0,
       receiptsSent: 0,
+      emailsDeferred: 0,
       reconciled: 0,
       expiredAccountsDeleted: 0,
       failed: 0,
@@ -265,6 +285,21 @@ Deno.serve(async (req) => {
     for (const invoice of (claimed || []) as ClaimedInvoice[]) {
       let hasPersistedLink = Boolean(invoice.paymongo_link_id && invoice.payment_url);
       try {
+        const { data: currentSubscription, error: currentSubscriptionError } = await supabase
+          .from("billing_subscriptions")
+          .select("automation_enabled,renewal_mode,status")
+          .eq("id", invoice.subscription_id)
+          .maybeSingle();
+        if (currentSubscriptionError) throw currentSubscriptionError;
+        if (
+          !currentSubscription
+          || currentSubscription.automation_enabled !== true
+          || currentSubscription.renewal_mode === "manual"
+          || ["paused", "cancelled"].includes(String(currentSubscription.status))
+        ) {
+          continue;
+        }
+
         let link = invoice.paymongo_link_id && invoice.payment_url
           ? {
             id: invoice.paymongo_link_id,
@@ -422,8 +457,21 @@ Deno.serve(async (req) => {
       .rpc("claim_billing_notifications", { p_limit: 50 });
     if (notificationClaimError) throw notificationClaimError;
 
+    let emailQuotaExhausted = false;
+    const deferredUntil = quotaRetryAt();
     for (const notification of (notifications || []) as BillingNotification[]) {
       const attemptCount = Math.max(1, Number(notification.attempt_count || 1));
+      if (emailQuotaExhausted) {
+        const { error: deferError } = await supabase.from("billing_notifications").update({
+          status: "pending",
+          attempt_count: Math.max(0, attemptCount - 1),
+          last_error: "Waiting for Google Apps Script email recipient quota to become available.",
+          next_attempt_at: deferredUntil,
+        }).eq("id", notification.id);
+        if (deferError) throw deferError;
+        results.emailsDeferred += 1;
+        continue;
+      }
       try {
         const { data: invoice, error: invoiceError } = await supabase
           .from("billing_invoices")
@@ -434,7 +482,7 @@ Deno.serve(async (req) => {
         if (!invoice) throw new Error("Billing invoice was not found for its queued notification.");
 
         const [{ data: subscription, error: subscriptionError }, { data: storeRow, error: storeError }, { data: ownerRow, error: ownerError }] = await Promise.all([
-          supabase.from("billing_subscriptions").select("plan_id,billing_email,interval_days,grace_period_days,current_period_start,current_period_end").eq("id", invoice.subscription_id).maybeSingle(),
+          supabase.from("billing_subscriptions").select("plan_id,billing_email,interval_days,grace_period_days,current_period_start,current_period_end,automation_enabled,renewal_mode,status").eq("id", invoice.subscription_id).maybeSingle(),
           supabase.from("stores").select("data").eq("id", invoice.store_id).maybeSingle(),
           supabase.from("users").select("data").eq("id", invoice.owner_user_id).maybeSingle(),
         ]);
@@ -442,6 +490,22 @@ Deno.serve(async (req) => {
         if (storeError) throw storeError;
         if (ownerError) throw ownerError;
         if (!subscription) throw new Error("Billing subscription was not found for its queued notification.");
+        if (
+          notification.notification_type !== "admin_failure"
+          && (
+            subscription.automation_enabled !== true
+            || subscription.renewal_mode === "manual"
+            || ["paused", "cancelled"].includes(String(subscription.status))
+          )
+        ) {
+          const { error: cancelledError } = await supabase.from("billing_notifications").update({
+            status: "cancelled",
+            last_error: "Automatic renewal is disabled.",
+            next_attempt_at: new Date().toISOString(),
+          }).eq("id", notification.id);
+          if (cancelledError) throw cancelledError;
+          continue;
+        }
 
         const recipient = String(notification.recipient || subscription.billing_email || ownerRow?.data?.email || "").trim().toLowerCase();
         const userName = String(ownerRow?.data?.name || "Store owner").trim();
@@ -498,15 +562,30 @@ Deno.serve(async (req) => {
         if (notification.notification_type === "payment_received") results.receiptsSent += 1;
         else results.remindersSent += 1;
       } catch (error) {
-        results.failed += 1;
         const message = error instanceof Error ? error.message : "Billing notification failed.";
+        const quotaExhausted = error instanceof GasEmailError && error.code === "EMAIL_QUOTA_EXHAUSTED";
+        const remainingQuota = error instanceof GasEmailError ? error.remainingDailyRecipientQuota : null;
+        if (quotaExhausted) {
+          emailQuotaExhausted = true;
+          results.emailsDeferred += 1;
+        } else {
+          results.failed += 1;
+        }
         await supabase.from("billing_notifications").update({
-          status: "failed",
-          attempt_count: attemptCount,
+          status: quotaExhausted ? "pending" : "failed",
+          attempt_count: quotaExhausted ? Math.max(0, attemptCount - 1) : attemptCount,
           last_error: message.slice(0, 1000),
-          next_attempt_at: retryAt(attemptCount),
+          next_attempt_at: quotaExhausted ? deferredUntil : retryAt(attemptCount),
         }).eq("id", notification.id);
-        console.error("Billing lifecycle notification failed", { notificationId: notification.id, error: message });
+        if (quotaExhausted) {
+          console.warn("Billing lifecycle notification deferred until GAS email quota is available", {
+            notificationId: notification.id,
+            remainingDailyRecipientQuota: remainingQuota,
+            nextAttemptAt: deferredUntil,
+          });
+        } else {
+          console.error("Billing lifecycle notification failed", { notificationId: notification.id, error: message });
+        }
       }
     }
 

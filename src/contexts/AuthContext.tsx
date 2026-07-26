@@ -56,7 +56,7 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { config: runtimeConfig } = useRuntimeMode();
+  const { config: runtimeConfig, loading: runtimeModeLoading } = useRuntimeMode();
   const runtimeModeRef = useRef(runtimeConfig.mode);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [user, setUser] = useState<AppUser | null>(null);
@@ -188,6 +188,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    // RuntimeModeContext starts in a fail-closed maintenance state. Wait for its
+    // initial server read so a valid customer session is not rejected by that
+    // temporary placeholder while the app is actually in production.
+    if (runtimeModeLoading) return;
+
     const unsubscribe = auth.onAuthStateChanged(async (sessionUser) => {
       // Cached RLS-scoped rows must not survive an account/session change.
       clearDataCache();
@@ -207,7 +212,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [runtimeModeLoading]);
 
   return (
     <AuthContext.Provider value={{ user, authUser, loading, refreshUser }}>

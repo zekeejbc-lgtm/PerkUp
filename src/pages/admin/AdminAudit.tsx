@@ -101,8 +101,11 @@ const STATUS_OPTIONS: Record<AuditTab, Array<{ label: string; value: string }>> 
   ],
 };
 
-const titleCase = (value: string) =>
-  value.replace(/[_-]+/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
+const titleCase = (value: unknown, fallback = "Not available") => {
+  const text = String(value ?? "").trim();
+  if (!text) return fallback;
+  return text.replace(/[_-]+/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
+};
 
 const formatDateTime = (value: unknown) => {
   const date = new Date(String(value || ""));
@@ -114,7 +117,8 @@ const formatDateTime = (value: unknown) => {
   }).format(date);
 };
 
-const tone = (status: string) => {
+const tone = (value: unknown) => {
+  const status = String(value ?? "").toLowerCase();
   if (["healthy", "success", "sent", "paid", "completed", "redeemed"].includes(status)) {
     return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300";
   }
@@ -173,8 +177,8 @@ export default function AdminAudit() {
           page,
           pageSize: PAGE_SIZE,
         });
-        setRecords(response.records);
-        setTotal(response.total);
+        setRecords(Array.isArray(response.records) ? response.records : []);
+        setTotal(Number.isFinite(Number(response.total)) ? Number(response.total) : 0);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Audit data could not be loaded.", { error });
@@ -206,7 +210,8 @@ export default function AdminAudit() {
     const query = search.toLowerCase();
     return (health?.checks || []).filter((check) =>
       (status === "all" || check.status === status) &&
-      (!query || [check.name, check.status, check.value, check.detail].some((value) => value.toLowerCase().includes(query))));
+      (!query || [check.name, check.status, check.value, check.detail]
+        .some((value) => String(value ?? "").toLowerCase().includes(query))));
   }, [health, search, status]);
 
   if (loading && !overview) return <PageSkeleton variant="table" />;
@@ -371,7 +376,7 @@ function FinancialRow({ record, formatCurrency }: { record: any; formatCurrency:
     <article className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)] lg:items-center">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.status)}`}>{titleCase(record.status)}</span>
+          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.status)}`}>{titleCase(record.status, "Unknown status")}</span>
           <span className="text-xs font-semibold text-gray-500">{titleCase(record.invoice_type || "invoice")}</span>
         </div>
         <p className="mt-2 truncate font-bold text-gray-900 dark:text-white">{record.storeName || record.store_id}</p>
@@ -399,8 +404,8 @@ function ReceiptRow({ record, formatCurrency }: { record: any; formatCurrency: (
       <div>
         <div className="flex flex-wrap items-center gap-2">
           <ReceiptText className="h-4 w-4 text-gray-400" />
-          <p className="font-bold text-gray-900 dark:text-white">{titleCase(record.notification_type)}</p>
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.status)}`}>{record.status}</span>
+          <p className="font-bold text-gray-900 dark:text-white">{titleCase(record.notification_type, "Notification")}</p>
+          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.status)}`}>{titleCase(record.status, "Unknown")}</span>
         </div>
         <p className="mt-2 truncate text-sm text-gray-500">{record.recipient}</p>
       </div>
@@ -409,7 +414,7 @@ function ReceiptRow({ record, formatCurrency }: { record: any; formatCurrency: (
         <p className="mt-1 text-sm text-gray-500">{formatCurrency(Number(record.amountCentavos || 0) / 100)} · Invoice {titleCase(record.invoiceStatus)}</p>
       </div>
       <div className="lg:text-right">
-        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{record.channel.toUpperCase()} · Attempt {record.attempt_count || 0}</p>
+        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{titleCase(record.channel, "Unknown channel")} · Attempt {record.attempt_count || 0}</p>
         <p className="mt-1 text-xs text-gray-500">{formatDateTime(record.sent_at || record.created_at)}</p>
         {record.last_error && <p className="mt-1 text-xs text-red-600">{record.last_error}</p>}
       </div>
@@ -423,8 +428,8 @@ function LoyaltyRow({ record }: { record: any }) {
       <div>
         <div className="flex items-center gap-2">
           <TicketCheck className="h-4 w-4 text-gray-400" />
-          <p className="font-bold text-gray-900 dark:text-white">{titleCase(record.type)}</p>
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.status)}`}>{record.status}</span>
+          <p className="font-bold text-gray-900 dark:text-white">{titleCase(record.type, "Loyalty activity")}</p>
+          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.status)}`}>{titleCase(record.status, "Unknown")}</span>
         </div>
         <p className="mt-2 text-sm text-gray-500">{record.storeName || record.storeId || "Unknown store"}</p>
       </div>
@@ -446,10 +451,10 @@ function EventRow({ record }: { record: any }) {
       <div>
         <div className="flex flex-wrap items-center gap-2">
           <Activity className="h-4 w-4 text-gray-400" />
-          <p className="font-bold text-gray-900 dark:text-white">{titleCase(record.action)}</p>
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.outcome)}`}>{record.outcome}</span>
+          <p className="font-bold text-gray-900 dark:text-white">{titleCase(record.action, "Recorded event")}</p>
+          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.outcome)}`}>{titleCase(record.outcome, "Unknown")}</span>
         </div>
-        <p className="mt-2 text-sm text-gray-500">{titleCase(record.entity_type)} · <span className="font-mono">{record.entity_id || "No ID"}</span></p>
+        <p className="mt-2 text-sm text-gray-500">{titleCase(record.entity_type, "Unknown entity")} · <span className="font-mono">{record.entity_id || "No ID"}</span></p>
       </div>
       <div>
         <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{record.actor_email || "System process"}</p>

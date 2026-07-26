@@ -11,6 +11,8 @@ export interface SubscriptionAccessPolicy {
   paymentContact: string;
   updatedAt: string;
   automationEnabled: boolean;
+  renewalMode: "automatic" | "manual";
+  autoRenewCancelledAt: string;
   warningLeadDays: number;
 }
 
@@ -39,6 +41,8 @@ export const PAYMONGO_STANDARD_ACCESS: SubscriptionAccessPolicy = {
   paymentContact: "perkup.shop@youthserviceph.org",
   updatedAt: "",
   automationEnabled: true,
+  renewalMode: "automatic",
+  autoRenewCancelledAt: "",
   warningLeadDays: 7,
 };
 
@@ -74,6 +78,8 @@ export const normalizeSubscriptionAccess = (value: unknown): SubscriptionAccessP
     paymentContact: text(source.paymentContact) || "perkup.shop@youthserviceph.org",
     updatedAt: timestampToDate(source.updatedAt)?.toISOString() || "",
     automationEnabled: source.automationEnabled === true,
+    renewalMode: text(source.renewalMode).toLowerCase() === "manual" ? "manual" : "automatic",
+    autoRenewCancelledAt: timestampToDate(source.autoRenewCancelledAt)?.toISOString() || "",
     warningLeadDays: Math.max(0, Math.min(365, Math.trunc(Number(source.warningLeadDays ?? 7) || 0))),
   };
 };
@@ -99,6 +105,18 @@ export const resolveSubscriptionAccess = (
   now = new Date(),
 ): SubscriptionAccessPolicy => {
   const policy = normalizeSubscriptionAccess(value);
+  if (policy.renewalMode === "manual") {
+    const end = timestampToDate(subscriptionEnd);
+    if (!end || now.getTime() < end.getTime()) {
+      return policy.status === "frozen" ? policy : { ...policy, status: "active" };
+    }
+    return {
+      ...policy,
+      status: "frozen",
+      graceStartedAt: end.toISOString(),
+      graceEndsAt: end.toISOString(),
+    };
+  }
   if (policy.status === "grace") {
     const graceEndsAt = timestampToDate(policy.graceEndsAt);
     return { ...policy, status: graceEndsAt && graceEndsAt.getTime() <= now.getTime() ? "frozen" : "grace" };

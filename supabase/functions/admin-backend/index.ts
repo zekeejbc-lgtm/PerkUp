@@ -21,6 +21,7 @@ const AUTO_AUDITED_MUTATIONS = new Set([
   "update_public_feedback",
   "update_error_report",
   "sync_subscription_billing",
+  "cancel_subscription_auto_renewal",
   "retry_billing_invoice",
   "update_subscription_access",
   "update_account_restriction",
@@ -982,10 +983,12 @@ const handleAdminRequest = async (req: Request) => {
         openErrorsResult,
         failedWebhooksResult,
         failedNotificationsResult,
+        queuedNotificationsResult,
         overdueInvoicesResult,
         latestInvoiceResult,
         latestWebhookResult,
         authResult,
+        gasEmailDiagnosticsResult,
       ] = await Promise.all([
         admin.from("users").select("id", { count: "exact", head: true })
           .or("data->>isDemo.is.null,data->>isDemo.eq.false"),
@@ -994,10 +997,16 @@ const handleAdminRequest = async (req: Request) => {
         admin.from("client_error_reports").select("id", { count: "exact", head: true }).in("status", ["open", "in_progress"]),
         admin.from("paymongo_webhook_events").select("event_id", { count: "exact", head: true }).eq("status", "failed"),
         admin.from("billing_notifications").select("id", { count: "exact", head: true }).eq("status", "failed"),
+        admin.from("billing_notifications")
+          .select("id,status,next_attempt_at", { count: "exact" })
+          .in("status", ["pending", "failed", "sending"])
+          .order("next_attempt_at", { ascending: true })
+          .limit(1),
         admin.from("billing_invoices").select("id", { count: "exact", head: true }).in("status", ["pending", "link_created"]).lt("due_at", now.toISOString()),
         admin.from("billing_invoices").select("id,status,updated_at").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
         admin.from("paymongo_webhook_events").select("event_id,status,received_at,processed_at").order("received_at", { ascending: false }).limit(1).maybeSingle(),
         admin.auth.admin.listUsers({ page: 1, perPage: 1 }),
+        getGasEmailDiagnostics(),
       ]);
       const queryResults = [
         usersResult,
@@ -1005,11 +1014,20 @@ const handleAdminRequest = async (req: Request) => {
         openErrorsResult,
         failedWebhooksResult,
         failedNotificationsResult,
+        queuedNotificationsResult,
         overdueInvoicesResult,
         latestInvoiceResult,
         latestWebhookResult,
       ];
       const databaseError = queryResults.find((result: any) => result.error)?.error;
+      const queuedEmailCount = queuedNotificationsResult.count || 0;
+      const remainingEmailQuota = gasEmailDiagnosticsResult.remainingDailyRecipientQuota;
+      const nextQueuedAttempt = queuedNotificationsResult.data?.[0]?.next_attempt_at || "";
+      const emailCapacityStatus = gasEmailDiagnosticsResult.error || remainingEmailQuota === null
+        ? "warning"
+        : remainingEmailQuota <= 10
+        ? "warning"
+        : "healthy";
       const checks = [
         {
           id: "database",
@@ -1054,6 +1072,22 @@ const handleAdminRequest = async (req: Request) => {
           value: `${failedNotificationsResult.count || 0} failed`,
           detail: "Tracks payment reminders, confirmations, and receipt delivery.",
           checkedAt: now.toISOString(),
+        },
+        {
+          id: "gas_email_capacity",
+          name: "GAS email quota & queue",
+          status: emailCapacityStatus,
+          value: remainingEmailQuota === null
+            ? `${queuedEmailCount} queued · quota unavailable`
+            : `${remainingEmailQuota} left today · ${queuedEmailCount} queued`,
+          detail: gasEmailDiagnosticsResult.error
+            ? `GAS quota check failed: ${gasEmailDiagnosticsResult.error}`
+            : remainingEmailQuota === 0 && queuedEmailCount > 0
+            ? `Quota is exhausted. Messages remain queued and the hourly worker will retry them${nextQueuedAttempt ? ` after ${nextQueuedAttempt}` : ""}.`
+            : queuedEmailCount > 0
+            ? `Queued messages will be attempted by the hourly billing worker${nextQueuedAttempt ? ` at or after ${nextQueuedAttempt}` : ""}.`
+            : "Google Apps Script recipient capacity is available and the billing email queue is empty.",
+          checkedAt: gasEmailDiagnosticsResult.checkedAt || now.toISOString(),
         },
         {
           id: "client_errors",
@@ -1338,6 +1372,55 @@ const handleAdminRequest = async (req: Request) => {
       return jsonResponse({ updated: true, storeId: primaryStore.id, billingSubscription });
     }
 
+    if (action === "cancel_subscription_auto_renewal") {
+      if (cleanText(actor.role, 30) !== "store_owner") {
+        return jsonResponse({ error: "Store-owner access required." }, 403);
+      }
+      const storeId = cleanText(body.storeId, 100);
+      if (!storeId) return jsonResponse({ error: "Store is required." }, 400);
+
+      const { data: ownedStore, error: ownedStoreError } = await admin
+        .from("stores")
+        .select("id,data")
+        .eq("id", storeId)
+        .eq("data->>ownerId", authData.user.id)
+        .maybeSingle();
+      if (ownedStoreError) throw ownedStoreError;
+      if (!ownedStore) return jsonResponse({ error: "The primary store was not found for this owner." }, 404);
+
+      const primaryStore = await getPrimaryStoreForOwner(admin, authData.user.id);
+      if (!primaryStore || primaryStore.id !== ownedStore.id) {
+        return jsonResponse({ error: "Automatic renewal can only be cancelled from the primary store." }, 409);
+      }
+
+      const { data: subscription, error: subscriptionError } = await admin
+        .from("billing_subscriptions")
+        .select("id,initial_payment_required")
+        .eq("store_id", primaryStore.id)
+        .eq("owner_user_id", authData.user.id)
+        .maybeSingle();
+      if (subscriptionError) throw subscriptionError;
+      if (!subscription) return jsonResponse({ error: "Billing subscription was not found." }, 404);
+      if (subscription.initial_payment_required === true) {
+        return jsonResponse({ error: "Complete the initial subscription payment before cancelling automatic renewal." }, 409);
+      }
+
+      const { data: cancellation, error: cancellationError } = await admin.rpc(
+        "cancel_subscription_auto_renewal",
+        {
+          p_store_id: primaryStore.id,
+          p_owner_user_id: authData.user.id,
+        },
+      );
+      if (cancellationError) throw cancellationError;
+
+      return jsonResponse({
+        updated: true,
+        storeId: primaryStore.id,
+        cancellation,
+      });
+    }
+
     if (action === "retry_billing_invoice") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
       const invoiceId = cleanText(body.invoiceId, 100);
@@ -1488,6 +1571,12 @@ const handleAdminRequest = async (req: Request) => {
         paymentLink: cleanText(input.paymentLink, 2000),
         paymentContact: cleanText(input.paymentContact, 254) || "perkup.shop@youthserviceph.org",
         automationEnabled: input.automationEnabled === true,
+        renewalMode: input.automationEnabled === true
+          ? "automatic"
+          : cleanText(existingAccess.renewalMode, 20) || "automatic",
+        autoRenewCancelledAt: input.automationEnabled === true
+          ? ""
+          : cleanText(existingAccess.autoRenewCancelledAt, 100),
         warningLeadDays: Math.max(0, Math.min(365, Math.trunc(Number(input.warningLeadDays ?? 7) || 0))),
         updatedAt: now.toISOString(),
         updatedBy: authData.user.id,
@@ -3227,7 +3316,9 @@ const assertStaffSlotAvailable = async (
 const mutationEntityType = (action: string) => {
   if (["update_public_feedback"].includes(action)) return "site_feedback";
   if (["update_error_report"].includes(action)) return "client_error_report";
-  if (["sync_subscription_billing", "update_subscription_access"].includes(action)) return "billing_subscription";
+  if (["sync_subscription_billing", "cancel_subscription_auto_renewal", "update_subscription_access"].includes(action)) {
+    return "billing_subscription";
+  }
   if (["retry_billing_invoice"].includes(action)) return "billing_invoice";
   if (["update_account_restriction", "create_store", "create_branch", "delete_store", "delete_store_group"].includes(action)) {
     return "store";
@@ -3403,8 +3494,10 @@ const syncBillingSubscription = async (admin: any, primaryStore: { id: string; d
     grace_period_days: Math.max(0, Math.min(30, Math.trunc(Number(access.gracePeriodDays ?? 3) || 0))),
     status: normalizedStatus,
     automation_enabled: true,
+    renewal_mode: "automatic",
+    auto_renew_cancelled_at: null,
     initial_payment_required: store.initialPaymentRequired === true,
-  }, { onConflict: "store_id" }).select("id,store_id,status,automation_enabled,next_billing_at,amount_centavos,currency,pending_amount_centavos,pending_amount_effective_at,initial_payment_required").single();
+  }, { onConflict: "store_id" }).select("id,store_id,status,automation_enabled,renewal_mode,auto_renew_cancelled_at,next_billing_at,amount_centavos,currency,pending_amount_centavos,pending_amount_effective_at,initial_payment_required").single();
   if (error) throw error;
   return data;
 };
@@ -3454,6 +3547,41 @@ const collectDriveFileIds = (value: unknown, result: Set<string>) => {
   }
   if (value && typeof value === "object") {
     Object.values(value as Record<string, unknown>).forEach((entry) => collectDriveFileIds(entry, result));
+  }
+};
+
+const getGasEmailDiagnostics = async (): Promise<{
+  remainingDailyRecipientQuota: number | null;
+  checkedAt: string;
+  error: string;
+}> => {
+  const checkedAt = new Date().toISOString();
+  try {
+    const secret = requiredEnv("DRIVE_CRUD_SECRET");
+    const url = Deno.env.get("GAS_EMAIL_URL") ||
+      Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") ||
+      DEFAULT_GAS_UPLOAD_URL;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "email_diagnostics", secret }),
+    });
+    const data = await response.json().catch(() => ({}));
+    const quota = Number(data?.emailDiagnostics?.remainingDailyRecipientQuota);
+    if (!response.ok || data?.success !== true || !Number.isFinite(quota)) {
+      throw new Error(data?.error || `GAS diagnostics returned HTTP ${response.status}.`);
+    }
+    return {
+      remainingDailyRecipientQuota: Math.max(0, Math.trunc(quota)),
+      checkedAt: String(data?.emailDiagnostics?.checkedAt || checkedAt),
+      error: "",
+    };
+  } catch (error) {
+    return {
+      remainingDailyRecipientQuota: null,
+      checkedAt,
+      error: error instanceof Error ? error.message.slice(0, 500) : "GAS diagnostics could not be reached.",
+    };
   }
 };
 

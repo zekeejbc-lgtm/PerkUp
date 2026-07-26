@@ -12,6 +12,9 @@ import {
   Mail,
   MapPin,
   Phone,
+  ExternalLink,
+  Globe2,
+  Link2,
   Loader2,
   Search,
   Store,
@@ -288,6 +291,8 @@ export default function AdminApplications() {
           logoUrl,
           status: "active",
           subscriptionLevel: subLevel,
+          website: selectedApplication?.businessWebsiteUrl || "",
+          businessFacebookUrl: selectedApplication?.businessFacebookUrl || "",
           owedAmount: selectedOwedAmount,
           subscriptionDependencies: selectedSubscriptionDependencies,
           branchLimit: selectedBranchLimit,
@@ -547,6 +552,34 @@ export default function AdminApplications() {
                       {detailApplication.description || "No business description provided."}
                     </p>
                   </section>
+
+                  {(detailApplication.personalFacebookUrl || detailApplication.businessFacebookUrl || detailApplication.businessWebsiteUrl) && (
+                    <section>
+                      <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">Online presence</h3>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {[
+                          { label: "Personal Facebook", url: detailApplication.personalFacebookUrl, Icon: Link2 },
+                          { label: "Business Facebook", url: detailApplication.businessFacebookUrl, Icon: Link2 },
+                          { label: "Business website", url: detailApplication.businessWebsiteUrl, Icon: Globe2 },
+                        ].filter((item) => item.url).map(({ label, url, Icon }) => (
+                          <a
+                            key={label}
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex min-w-0 gap-3 rounded-2xl border border-gray-200 p-4 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                          >
+                            <Icon className="mt-0.5 h-5 w-5 shrink-0 text-gray-400" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+                              <p className="mt-1 truncate text-sm font-semibold text-gray-900 dark:text-white">{String(url).replace(/^https?:\/\//, "")}</p>
+                            </div>
+                            <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                          </a>
+                        ))}
+                      </div>
+                    </section>
+                  )}
 
                   <section>
                     <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">Location</h3>

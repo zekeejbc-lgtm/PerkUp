@@ -18,6 +18,30 @@ const requiredEnv = (name: string) => {
 const cleanText = (value: unknown, maxLength: number) =>
   String(value || "").trim().slice(0, maxLength);
 
+class ApplicationValidationError extends Error {}
+
+const cleanOptionalUrl = (value: unknown, label: string, facebookOnly = false) => {
+  const rawValue = cleanText(value, 1000);
+  if (!rawValue) return "";
+
+  let url: URL;
+  try {
+    url = new URL(rawValue);
+  } catch {
+    throw new ApplicationValidationError(`${label} must be a complete URL starting with http:// or https://.`);
+  }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+    throw new ApplicationValidationError(`${label} must be a valid public website URL.`);
+  }
+  if (facebookOnly) {
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+    if (hostname !== "facebook.com" && !hostname.endsWith(".facebook.com") && hostname !== "fb.com" && !hostname.endsWith(".fb.com")) {
+      throw new ApplicationValidationError(`${label} must link to Facebook.`);
+    }
+  }
+  return url.toString();
+};
+
 const getBusinessSlug = (businessName: string) => {
   const words = businessName
     .trim()
@@ -198,6 +222,9 @@ Deno.serve(async (req) => {
       coordinates[0] < -90 || coordinates[0] > 90 || coordinates[1] < -180 || coordinates[1] > 180) {
       return jsonResponse({ error: "A valid map location is required." }, 400);
     }
+    const personalFacebookUrl = cleanOptionalUrl(body.personalFacebookUrl, "Personal Facebook URL", true);
+    const businessFacebookUrl = cleanOptionalUrl(body.businessFacebookUrl, "Business Facebook URL", true);
+    const businessWebsiteUrl = cleanOptionalUrl(body.businessWebsiteUrl, "Business website URL");
 
     let logoUrl = "";
     const logo = body.logo && typeof body.logo === "object" ? body.logo as Record<string, unknown> : null;
@@ -236,6 +263,9 @@ Deno.serve(async (req) => {
       lat: coordinates[0],
       lng: coordinates[1],
       subscriptionLevel,
+      personalFacebookUrl,
+      businessFacebookUrl,
+      businessWebsiteUrl,
       trackingCode,
       status: "pending",
       createdAt: timestamp(),
@@ -279,6 +309,9 @@ Deno.serve(async (req) => {
     if (uploadedFileId) {
       const secret = Deno.env.get("DRIVE_CRUD_SECRET");
       if (secret) await callDrive({ action: "delete", secret, fileId: uploadedFileId }).catch(console.error);
+    }
+    if (error instanceof ApplicationValidationError) {
+      return jsonResponse({ error: error.message }, 400);
     }
     console.error("partner-application failed", error);
     return jsonResponse({ error: error instanceof Error ? error.message : "Application submission failed." }, 500);

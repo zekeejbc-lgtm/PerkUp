@@ -344,26 +344,12 @@ function Layout({ children }: { children: ReactNode }) {
     staff: "/staff/account",
     store_owner: "/owner/account",
   };
-  const dashboardPathByRole: Partial<Record<Role, string>> = {
-    admin: "/admin",
-    assistant_admin: "/admin",
-    auditor: "/admin",
-    customer: "/customer",
-    staff: "/staff",
-    store_owner: "/owner",
-  };
-
   const handleAccountClick = () => {
     const accountPath = user?.role ? accountPathByRole[user.role] : undefined;
-    const dashboardPath = user?.role ? dashboardPathByRole[user.role] : undefined;
-    if (!accountPath || !dashboardPath) return;
+    if (!accountPath) return;
 
     const ownerBranchQuery = user?.role === "store_owner" ? location.search : "";
-    navigate(
-      location.pathname === accountPath
-        ? `${dashboardPath}${ownerBranchQuery}`
-        : `${accountPath}${ownerBranchQuery}`,
-    );
+    navigate(`${accountPath}${ownerBranchQuery}`);
   };
 
   return (
@@ -382,8 +368,8 @@ function Layout({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 onClick={handleAccountClick}
-                aria-pressed={Boolean(user?.role && location.pathname === accountPathByRole[user.role])}
-                title={user?.role && location.pathname === accountPathByRole[user.role] ? "Back to dashboard" : "Open profile"}
+                aria-label="Open profile"
+                title="Open profile"
                 className="flex items-center gap-3 sm:mr-4 rounded-2xl px-2 py-1.5 text-left transition-colors hover:bg-gray-100 dark:hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[#1b1b1b]/30 dark:focus:ring-white/40"
               >
                 <div className="h-8 w-8 min-w-8 shrink-0 aspect-square rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center overflow-hidden">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, CalendarDays, CheckCircle2, CreditCard, Download, ExternalLink, FileText, Images, Loader2 } from "lucide-react";
+import { AlertCircle, CalendarDays, CheckCircle2, CreditCard, Download, ExternalLink, FileText, Images, Loader2, RefreshCwOff } from "lucide-react";
 import {
   formatPaymentSchedule,
   formatPredictedPaymentDate,
@@ -15,6 +15,8 @@ import { supabase } from "../../lib/supabase";
 import { downloadSubscriptionInvoicePdf } from "../../lib/subscriptionInvoicePdf";
 import { markSubscriptionPaymentPending } from "../../lib/subscriptionAccess";
 import { useAuth } from "../../contexts/AuthContext";
+import { invokeAdminBackend } from "../../lib/adminBackend";
+import { ConfirmationModal } from "../../components/ConfirmationModal";
 
 type BillingInvoice = {
   id: string;
@@ -43,6 +45,11 @@ type BillingSubscriptionSummary = {
   plan_id: string | null;
   interval_days: number | null;
   grace_period_days: number | null;
+  status: string;
+  renewal_mode: "automatic" | "manual";
+  auto_renew_cancelled_at: string | null;
+  current_period_end: string;
+  initial_payment_required: boolean;
 };
 
 const invoiceNumber = (invoice: BillingInvoice) => `PU-${invoice.id.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
@@ -62,6 +69,46 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
   const [billingSubscription, setBillingSubscription] = useState<BillingSubscriptionSummary | null>(null);
   const [billingInvoices, setBillingInvoices] = useState<BillingInvoice[]>([]);
   const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
+  const [showCancelRenewal, setShowCancelRenewal] = useState(false);
+  const [cancellingRenewal, setCancellingRenewal] = useState(false);
+  const [renewalMessage, setRenewalMessage] = useState("");
+  const [renewalError, setRenewalError] = useState("");
+  const manualRenewal = billingSubscription?.renewal_mode === "manual";
+  const currentPeriodEnd = billingSubscription?.current_period_end || subscriptionStore?.subscriptionEnd;
+  const currentPeriodExpired = Boolean(currentPeriodEnd) && new Date(currentPeriodEnd).getTime() <= Date.now();
+
+  const cancelAutomaticRenewal = async () => {
+    if (!subscriptionStore?.id || cancellingRenewal) return;
+    setCancellingRenewal(true);
+    setRenewalError("");
+    try {
+      const result = await invokeAdminBackend<{
+        cancellation: {
+          cancelledAt: string;
+          currentPeriodEnd: string;
+          renewalMode: "manual";
+        };
+      }>({
+        action: "cancel_subscription_auto_renewal",
+        storeId: subscriptionStore.id,
+      });
+      setBillingEnabled(false);
+      setBillingSubscription((current) => current ? {
+        ...current,
+        automation_enabled: false,
+        renewal_mode: "manual",
+        status: "cancelled",
+        auto_renew_cancelled_at: result.cancellation.cancelledAt,
+        current_period_end: result.cancellation.currentPeriodEnd,
+      } : current);
+      setRenewalMessage("Automatic renewal has been cancelled. Your paid access remains available until the current period ends.");
+      setShowCancelRenewal(false);
+    } catch (error) {
+      setRenewalError(error instanceof Error ? error.message : "Automatic renewal could not be cancelled.");
+    } finally {
+      setCancellingRenewal(false);
+    }
+  };
 
   const downloadInvoice = async (invoice: BillingInvoice) => {
     setDownloadingInvoiceId(invoice.id);
@@ -110,7 +157,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
     let cancelled = false;
     setBillingLoading(true);
     Promise.all([
-      supabase.from("billing_subscriptions").select("automation_enabled,billing_email,plan_id,interval_days,grace_period_days").eq("store_id", subscriptionStore.id).maybeSingle(),
+      supabase.from("billing_subscriptions").select("automation_enabled,billing_email,plan_id,interval_days,grace_period_days,status,renewal_mode,auto_renew_cancelled_at,current_period_end,initial_payment_required").eq("store_id", subscriptionStore.id).maybeSingle(),
       supabase.from("billing_invoices")
         .select("id,status,created_at,due_at,period_start,period_end,amount_centavos,currency,payment_url,paymongo_reference_number,manual_payment_reference,livemode,paid_at,payment_method,paymongo_payment_id,gross_amount_centavos,fee_centavos,net_amount_centavos")
         .eq("store_id", subscriptionStore.id)
@@ -230,7 +277,15 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                       <p className="text-xs text-gray-500">The next dates within your active subscription period.</p>
                     </div>
                   </div>
-                  {dates.length > 0 ? (
+                  {manualRenewal ? (
+                    <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-100">
+                      <RefreshCwOff className="mt-0.5 h-5 w-5 shrink-0" />
+                      <div>
+                        <p className="font-semibold">Automatic renewal is off</p>
+                        <p className="mt-1 leading-6">Your current paid access continues through {formatBillingDate(currentPeriodEnd)}. After it expires, use the payment screen to renew manually.</p>
+                      </div>
+                    </div>
+                  ) : dates.length > 0 ? (
                     <div className="grid gap-2 sm:grid-cols-2">
                       {dates.map((date, index) => (
                         <div key={date.toISOString()} className={`rounded-xl border px-4 py-3 ${index === 0 ? "border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900" : "border-gray-200 bg-gray-50 text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"}`}>
@@ -250,6 +305,40 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
             );
           })()}
 
+          {billingSubscription && (
+            <section className="mt-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className={`rounded-xl p-2.5 ${manualRenewal ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" : "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300"}`}>
+                    <RefreshCwOff className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <h4 className="font-bold text-gray-900 dark:text-white">{manualRenewal ? "Manual renewal" : "Automatic renewal"}</h4>
+                    <p className="mt-1 max-w-xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+                      {manualRenewal
+                        ? `No future billing links or reminders will be sent automatically. Access remains active through ${formatBillingDate(currentPeriodEnd)}, then you can renew from the expired-payment screen whenever you choose.`
+                        : "PerkUp prepares the next PayMongo payment link and sends billing reminders before the next cycle."}
+                    </p>
+                  </div>
+                </div>
+                {!manualRenewal && billingEnabled && billingSubscription.initial_payment_required !== true && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenewalError("");
+                      setShowCancelRenewal(true);
+                    }}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50 dark:border-red-900/70 dark:text-red-300 dark:hover:bg-red-950/30"
+                  >
+                    <RefreshCwOff className="h-4 w-4" /> Cancel automatic renewal
+                  </button>
+                )}
+              </div>
+              {renewalMessage && <p className="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm font-medium text-green-700 dark:bg-green-950/30 dark:text-green-300">{renewalMessage}</p>}
+              {renewalError && <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:bg-red-950/30 dark:text-red-300">{renewalError}</p>}
+            </section>
+          )}
+
           <section className="mt-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-start gap-3">
@@ -262,7 +351,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                 </div>
               </div>
               <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${billingEnabled ? "bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"}`}>
-                {billingEnabled ? "Automatic" : "Not enabled"}
+                {billingEnabled ? "Automatic" : manualRenewal ? "Manual renewal" : "Not enabled"}
               </span>
             </div>
 
@@ -283,7 +372,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                       <p className="mt-1 text-xs text-gray-500">{invoice.paid_at ? `Paid ${formatBillingDate(invoice.paid_at)}` : `Due ${formatBillingDate(invoice.due_at)}`}{(invoice.manual_payment_reference || invoice.paymongo_reference_number) ? ` | Ref ${invoice.manual_payment_reference || invoice.paymongo_reference_number}` : ""}</p>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
-                      {invoice.status !== "paid" && invoice.payment_url && (
+                      {invoice.status !== "paid" && invoice.payment_url && (!manualRenewal || currentPeriodExpired) && (
                         <a href={invoice.payment_url} target="_blank" rel="noopener noreferrer" onClick={() => markSubscriptionPaymentPending(subscriptionStore.id)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black dark:bg-white dark:text-gray-900">
                           Open payment page <ExternalLink className="h-4 w-4" />
                         </a>
@@ -303,12 +392,27 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
               </div>
             ) : (
               <div className="mt-5 rounded-2xl bg-gray-50 p-4 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-                No payment link has been issued yet. When automatic billing is enabled, the link appears here and is also sent by email.
+                {manualRenewal
+                  ? "No manual renewal payment has been prepared. A secure payment option will appear after the current paid period expires."
+                  : "No payment link has been issued yet. When automatic billing is enabled, the link appears here and is also sent by email."}
               </div>
             )}
           </section>
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={showCancelRenewal}
+        title="Cancel automatic renewal?"
+        description={`Your current paid access will stay active through ${formatBillingDate(currentPeriodEnd)}. PerkUp will stop automatic renewal billing and reminder emails. When access expires, you can still renew manually from the payment screen.`}
+        confirmLabel="Cancel automatic renewal"
+        cancelLabel="Keep automatic renewal"
+        isLoading={cancellingRenewal}
+        onConfirm={cancelAutomaticRenewal}
+        onClose={() => {
+          if (!cancellingRenewal) setShowCancelRenewal(false);
+        }}
+      />
     </div>
   );
 }

@@ -227,17 +227,79 @@ Deno.serve(async (req) => {
     if (!isServiceRequest && runtime.mode === "maintenance") {
       return jsonResponse(maintenanceError(runtime), 503);
     }
+    let subscriptionQuery = admin.from("billing_subscriptions")
+      .select("id,store_id,owner_user_id,billing_email,plan_id,amount_centavos,pending_amount_centavos,pending_amount_effective_at,currency,interval_days,current_period_end,renewal_mode,automation_enabled,initial_payment_required")
+      .eq("store_id", storeId);
+    if (ownerUserId) subscriptionQuery = subscriptionQuery.eq("owner_user_id", ownerUserId);
+    const { data: subscription, error: subscriptionError } = await subscriptionQuery.maybeSingle();
+    if (subscriptionError) throw subscriptionError;
+    if (!subscription) return jsonResponse({ paid: false, status: "pending" });
+
+    const invoiceColumns = "id,subscription_id,store_id,owner_user_id,invoice_type,status,due_at,paymongo_link_id,payment_url,amount_centavos,currency,livemode,paid_at,period_end,paymongo_reference_number,subscription:billing_subscriptions(billing_email,plan_id,automation_enabled,renewal_mode)";
     let invoiceQuery = admin.from("billing_invoices")
-      .select("id,subscription_id,store_id,owner_user_id,invoice_type,status,due_at,paymongo_link_id,payment_url,amount_centavos,currency,livemode,paid_at,period_end,paymongo_reference_number,subscription:billing_subscriptions(billing_email,plan_id)")
+      .select(invoiceColumns)
       .eq("store_id", storeId)
       .in("status", ["pending", "failed", "link_created", "paid"])
       .order("created_at", { ascending: false });
     if (ownerUserId) invoiceQuery = invoiceQuery.eq("owner_user_id", ownerUserId);
-    const { data: invoice, error: invoiceError } = await invoiceQuery
+    const { data: latestInvoice, error: invoiceError } = await invoiceQuery
       .limit(1)
       .maybeSingle();
     if (invoiceError) throw invoiceError;
+    let invoice = latestInvoice;
+    const currentPeriodEnd = new Date(subscription.current_period_end);
+    const canPrepareManualRenewal = subscription.renewal_mode === "manual"
+      && subscription.automation_enabled !== true
+      && subscription.initial_payment_required !== true
+      && !Number.isNaN(currentPeriodEnd.getTime())
+      && currentPeriodEnd.getTime() <= Date.now();
+
+    if ((!invoice || invoice.status === "paid") && canPrepareManualRenewal) {
+      const pendingEffectiveAt = subscription.pending_amount_effective_at
+        ? new Date(subscription.pending_amount_effective_at)
+        : null;
+      const usePendingAmount = Number.isInteger(subscription.pending_amount_centavos)
+        && pendingEffectiveAt
+        && !Number.isNaN(pendingEffectiveAt.getTime())
+        && pendingEffectiveAt.getTime() <= currentPeriodEnd.getTime();
+      const amountCentavos = usePendingAmount
+        ? Number(subscription.pending_amount_centavos)
+        : Number(subscription.amount_centavos);
+      const periodEnd = new Date(
+        currentPeriodEnd.getTime() + Number(subscription.interval_days || 30) * 86_400_000,
+      ).toISOString();
+      const insertResult = await admin.from("billing_invoices").insert({
+        subscription_id: subscription.id,
+        store_id: subscription.store_id,
+        owner_user_id: subscription.owner_user_id,
+        invoice_type: "renewal",
+        period_start: currentPeriodEnd.toISOString(),
+        period_end: periodEnd,
+        due_at: currentPeriodEnd.toISOString(),
+        amount_centavos: amountCentavos,
+        currency: subscription.currency,
+        status: "pending",
+        next_attempt_at: new Date().toISOString(),
+      }).select("id").maybeSingle();
+      if (insertResult.error && insertResult.error.code !== "23505") throw insertResult.error;
+
+      let manualInvoiceQuery = admin.from("billing_invoices")
+        .select(invoiceColumns)
+        .eq("subscription_id", subscription.id)
+        .eq("period_start", currentPeriodEnd.toISOString());
+      if (ownerUserId) manualInvoiceQuery = manualInvoiceQuery.eq("owner_user_id", ownerUserId);
+      const { data: manualInvoice, error: manualInvoiceError } = await manualInvoiceQuery.maybeSingle();
+      if (manualInvoiceError) throw manualInvoiceError;
+      invoice = manualInvoice;
+    }
+
     if (!invoice) return jsonResponse({ paid: false, status: "pending" });
+    const invoiceSubscription = invoice.subscription as unknown as {
+      billing_email?: string | null;
+      plan_id?: string | null;
+      automation_enabled?: boolean;
+      renewal_mode?: string | null;
+    } | null;
     if (invoice.status === "paid") {
       return jsonResponse({
         paid: true,
@@ -258,7 +320,7 @@ Deno.serve(async (req) => {
         storeId: invoice.store_id,
         amountCentavos: invoice.amount_centavos,
         currency: invoice.currency,
-        planId: invoice.subscription?.plan_id,
+        planId: invoiceSubscription?.plan_id,
       }, requiredEnv("PAYMONGO_SECRET_KEY"));
       const mode = (Deno.env.get("PAYMONGO_MODE") || "test").toLowerCase();
       if (mode !== "test" && mode !== "live") throw new Error("PAYMONGO_MODE must be test or live.");
@@ -295,10 +357,15 @@ Deno.serve(async (req) => {
       linkId = link.id;
       paymentUrl = link.url;
       referenceNumber = link.referenceNumber;
-      const backgroundEmail = sendPaymentLinkEmail(admin, invoice, link);
-      // Supabase keeps the function alive for this email without delaying the payment link response.
-      if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(backgroundEmail);
-      else await backgroundEmail;
+      if (
+        invoiceSubscription?.automation_enabled === true
+        && invoiceSubscription?.renewal_mode !== "manual"
+      ) {
+        const backgroundEmail = sendPaymentLinkEmail(admin, invoice, link);
+        // Supabase keeps the function alive for this email without delaying the payment link response.
+        if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(backgroundEmail);
+        else await backgroundEmail;
+      }
       return jsonResponse({
         paid: false,
         status: "awaiting_payment",

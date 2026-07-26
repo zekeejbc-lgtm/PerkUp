@@ -2,7 +2,8 @@ var EMAIL_CONFIG = {
   systemName: "PerkUp",
   senderName: "PerkUp",
   websiteLink: "https://www.perktoday.com/",
-  logoUrl: "https://www.perktoday.com/icons/perkup-wordmark-light-transparent.png?v=20260625-brand",
+  // The opaque badge stays readable when Gmail force-converts the email to dark mode.
+  logoUrl: "https://www.perktoday.com/icons/perkup-wordmark-email-safe.png?v=20260726-email-theme",
   contactEmail: "perkup.shop@youthserviceph.org",
   contactPhone: "0962 232 8290",
   contactPhoneLink: "+639622328290",
@@ -554,6 +555,13 @@ function sendTestApplicationReceivedEmail() {
 
 function sendSystemEmail_(emailData) {
   var referenceId = createEmailReferenceId_();
+  var remainingDailyRecipientQuota = MailApp.getRemainingDailyQuota();
+  if (remainingDailyRecipientQuota < 1) {
+    var quotaError = new Error("Google Apps Script email recipient quota is exhausted for the current quota window.");
+    quotaError.code = "EMAIL_QUOTA_EXHAUSTED";
+    quotaError.remainingDailyRecipientQuota = remainingDailyRecipientQuota;
+    throw quotaError;
+  }
   var template = HtmlService.createTemplateFromFile("email");
 
   template.userName = emailData.userName;
@@ -582,11 +590,23 @@ function sendSystemEmail_(emailData) {
   var plainText = emailData.plainText || "Please use an HTML-compatible email client to view this message.";
 
   // UPDATED: Swapped MailApp for GmailApp to bypass external spam filters
-  GmailApp.sendEmail(emailData.recipientEmail, emailData.subject, plainText, {
-    htmlBody: htmlBody,
-    name: EMAIL_CONFIG.senderName,
-    attachments: emailData.attachments || []
-  });
+  try {
+    GmailApp.sendEmail(emailData.recipientEmail, emailData.subject, plainText, {
+      htmlBody: htmlBody,
+      name: EMAIL_CONFIG.senderName,
+      attachments: emailData.attachments || []
+    });
+  } catch (sendError) {
+    if (/quota|daily limit|too many times/i.test(String(sendError))) {
+      sendError.code = "EMAIL_QUOTA_EXHAUSTED";
+      try {
+        sendError.remainingDailyRecipientQuota = MailApp.getRemainingDailyQuota();
+      } catch (quotaReadError) {
+        sendError.remainingDailyRecipientQuota = null;
+      }
+    }
+    throw sendError;
+  }
 
   Logger.log("Email sent to " + emailData.recipientEmail + " with Ref ID: " + referenceId);
 
