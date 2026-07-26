@@ -33,6 +33,7 @@ export type PaymentConfirmation = {
 };
 
 const LINK_REFRESH_SECONDS = 10;
+const PAYMENT_STATUS_FALLBACK_MS = 30_000;
 
 const elapsedLabel = (startedAt: Date | null, now: number) => {
   if (!startedAt) return "a few seconds";
@@ -244,7 +245,7 @@ export function SubscriptionFrozenScreen({
     };
 
     void loadLatestInvoice();
-    const refreshId = window.setInterval(loadLatestInvoice, 3_000);
+    const refreshId = window.setInterval(loadLatestInvoice, PAYMENT_STATUS_FALLBACK_MS);
     window.addEventListener("focus", loadLatestInvoice);
     document.addEventListener("visibilitychange", loadLatestInvoice);
     return () => {
@@ -254,6 +255,45 @@ export function SubscriptionFrozenScreen({
       document.removeEventListener("visibilitychange", loadLatestInvoice);
     };
   }, [onPaymentConfirmed, paymentPageOpened, paymentWatchKey, role, store?.id]);
+
+  useEffect(() => {
+    if (role !== "store_owner" || !store?.id) return;
+
+    const channel = supabase
+      .channel(`billing-invoice-payment:${store.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "billing_invoices",
+          filter: `store_id=eq.${store.id}`,
+        },
+        (payload) => {
+          const invoice = payload.new as {
+            status?: string;
+            amount_centavos?: number;
+            paid_at?: string | null;
+            period_end?: string | null;
+            paymongo_reference_number?: string | null;
+          };
+          if (invoice.status !== "paid") return;
+
+          window.sessionStorage.removeItem(paymentWatchKey);
+          onPaymentConfirmed?.({
+            amountCentavos: Number(invoice.amount_centavos || 0),
+            paidAt: invoice.paid_at || null,
+            periodEnd: invoice.period_end || null,
+            referenceNumber: invoice.paymongo_reference_number || null,
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [onPaymentConfirmed, paymentWatchKey, role, store?.id]);
 
   useEffect(() => {
     if (role !== "store_owner" || !store?.id || paymentLink || !paymentLookupComplete) return;
@@ -338,7 +378,7 @@ export function SubscriptionFrozenScreen({
                 <LoaderCircle className="mt-0.5 h-5 w-5 shrink-0 animate-spin" />
                 <div className="text-sm">
                   <p className="font-bold">Waiting for PayMongo confirmation</p>
-                  <p className="mt-1 text-blue-800 dark:text-blue-200">Keep this PerkUp tab open. It checks automatically every 3 seconds and will open your dashboard after payment is confirmed.</p>
+                  <p className="mt-1 text-blue-800 dark:text-blue-200">Keep this PerkUp tab open. Your dashboard will update automatically as soon as PayMongo confirms the payment.</p>
                 </div>
               </div>
             )}

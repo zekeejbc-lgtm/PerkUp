@@ -38,6 +38,19 @@ const parseSignature = (header: string) => {
   return values;
 };
 
+const errorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    const details = [record.message, record.details, record.hint, record.code]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    if (details.length) return details.join(" | ");
+  }
+  const text = String(error || "").trim();
+  return text && text !== "[object Object]" ? text : fallback;
+};
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
 
@@ -120,9 +133,14 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: true, unmatched: true });
     }
 
+    const paymentWrapper = Array.isArray(linkAttributes?.payments)
+      ? linkAttributes.payments[0]
+      : linkAttributes?.payment || null;
+    const paymentResource = paymentWrapper?.data || paymentWrapper || {};
+    const paymentAttributes = paymentResource?.attributes || paymentResource;
     const paidAtSeconds = Number(
       linkAttributes?.paid_at ||
-      linkAttributes?.payments?.[0]?.attributes?.paid_at ||
+      paymentAttributes?.paid_at ||
       eventAttributes?.created_at ||
       Math.floor(Date.now() / 1000),
     );
@@ -138,10 +156,6 @@ Deno.serve(async (req) => {
     });
     if (fulfillmentError) throw fulfillmentError;
 
-    const paymentResource = Array.isArray(linkAttributes?.payments)
-      ? linkAttributes.payments[0]
-      : linkAttributes?.payment || null;
-    const paymentAttributes = paymentResource?.attributes || paymentResource || {};
     const paymentUpdate: Record<string, unknown> = {
       gross_amount_centavos: amount,
     };
@@ -171,7 +185,7 @@ Deno.serve(async (req) => {
     }).eq("event_id", eventId);
     return jsonResponse({ ok: true, fulfillment });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Webhook processing failed.";
+    const message = errorMessage(error, "Webhook processing failed.");
     console.error("PayMongo webhook processing failed", { error: message });
     try {
       const parsed = JSON.parse(rawBody);

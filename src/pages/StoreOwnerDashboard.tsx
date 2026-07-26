@@ -21,6 +21,8 @@ import { getSubscriptionBranchLimit } from "../lib/subscriptionBilling";
 import { getEffectiveSubscriptionStatus, isAccountSuspended } from "../lib/subscriptionAccess";
 import { AccountSuspendedScreen, PaymentActivationSuccessScreen, PaymentConfirmation, SubscriptionAccessBanner, SubscriptionFrozenScreen } from "../components/SubscriptionAccessGate";
 
+const OWNER_DATA_FALLBACK_MS = 30_000;
+
 const normalizeDataRows = (rows: { id: string; data: Record<string, unknown> | null }[] | null | undefined) =>
   (rows || []).map((row) => ({ id: row.id, ...(row.data || {}) }));
 
@@ -125,8 +127,13 @@ export default function StoreOwnerDashboard() {
 
   useEffect(() => {
     if (!user) return;
-    const refreshId = window.setInterval(() => loadOwnerData(true), 5000);
-    return () => window.clearInterval(refreshId);
+    const refresh = () => loadOwnerData(true);
+    const refreshId = window.setInterval(refresh, OWNER_DATA_FALLBACK_MS);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(refreshId);
+      window.removeEventListener("focus", refresh);
+    };
   }, [loadOwnerData, user]);
 
   useEffect(() => {

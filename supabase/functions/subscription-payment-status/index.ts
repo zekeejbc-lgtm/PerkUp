@@ -9,6 +9,19 @@ const requiredEnv = (name: string) => {
   return value;
 };
 
+const errorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    const details = [record.message, record.details, record.hint, record.code]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    if (details.length) return details.join(" | ");
+  }
+  const text = String(error || "").trim();
+  return text && text !== "[object Object]" ? text : fallback;
+};
+
 const createPaymentLink = async (invoice: any) => {
   const response = await fetch(`${PAYMONGO_API}/payment_links`, {
     method: "POST",
@@ -289,7 +302,8 @@ Deno.serve(async (req) => {
       referenceNumber: paidInvoice.paymongo_reference_number,
     });
   } catch (error) {
-    console.error("Subscription payment status check failed", error);
-    return jsonResponse({ error: error instanceof Error ? error.message : "Payment status could not be checked." }, 500);
+    const message = errorMessage(error, "Payment status could not be checked.");
+    console.error("Subscription payment status check failed", { error: message });
+    return jsonResponse({ error: message }, 500);
   }
 });
