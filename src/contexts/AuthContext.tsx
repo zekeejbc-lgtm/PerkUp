@@ -101,6 +101,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       window.sessionStorage.removeItem(GOOGLE_AUTH_INTENT_KEY);
       const existingUser = userDoc.data() as AppUser;
+      const hasMaintenanceAccess =
+        existingUser.isDemo !== true &&
+        existingUser.accountStatus !== "suspended" &&
+        existingUser.accountStatus !== "banned" &&
+        ["admin", "auditor"].includes(existingUser.role || "");
+      if (runtimeModeRef.current === "maintenance" && !hasMaintenanceAccess) {
+        window.sessionStorage.setItem(
+          AUTH_REDIRECT_MESSAGE_KEY,
+          "Maintenance mode is active. Only Auditor and administrator accounts can sign in.",
+        );
+        setAuthUser(null);
+        setUser(null);
+        await signOut();
+        return;
+      }
       const authProfile = getAuthProfile(sessionUser);
       const profilePatch: Partial<AppUser> = {};
       if (!existingUser.name && authProfile.name) profilePatch.name = authProfile.name;

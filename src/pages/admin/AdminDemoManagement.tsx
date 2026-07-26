@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { CustomDropdown } from "../../components/CustomDropdown";
+import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { Pagination } from "../../components/Pagination";
 import { useToast } from "../../components/ToastProvider";
@@ -133,6 +134,7 @@ export default function AdminDemoManagement() {
   const [credentialTitle, setCredentialTitle] = useState("");
   const [copied, setCopied] = useState("");
   const [workingKey, setWorkingKey] = useState("");
+  const [deactivateTenant, setDeactivateTenant] = useState<DemoTenant | null>(null);
   const [renewTenant, setRenewTenant] = useState<DemoTenant | null>(null);
   const [renewDuration, setRenewDuration] = useState("24");
   const [addStaffTenant, setAddStaffTenant] = useState<DemoTenant | null>(null);
@@ -213,7 +215,6 @@ export default function AdminDemoManagement() {
   };
 
   const deactivate = async (tenant: DemoTenant) => {
-    if (!window.confirm(`Deactivate ${tenant.name}? All of its demo accounts will be blocked immediately.`)) return;
     setWorkingKey(`deactivate:${tenant.id}`);
     try {
       await invokeAdminBackend({ action: "deactivate_demo_tenant", tenantId: tenant.id });
@@ -223,6 +224,7 @@ export default function AdminDemoManagement() {
       toast.error(error instanceof Error ? error.message : "The sandbox could not be deactivated.", { error });
     } finally {
       setWorkingKey("");
+      setDeactivateTenant(null);
     }
   };
 
@@ -446,7 +448,7 @@ export default function AdminDemoManagement() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => void deactivate(tenant)}
+                          onClick={() => setDeactivateTenant(tenant)}
                           disabled={Boolean(workingKey)}
                           className="inline-flex h-10 items-center gap-2 rounded-xl border border-red-200 px-3 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900/60 dark:hover:bg-red-950/30"
                         >
@@ -631,6 +633,16 @@ export default function AdminDemoManagement() {
           </div>
         </Modal>
       )}
+
+      <ConfirmationModal
+        isOpen={deactivateTenant !== null}
+        title={`Deactivate ${deactivateTenant?.name || "demo sandbox"}?`}
+        description="All demo accounts in this sandbox will be blocked immediately. You can reactivate the sandbox later with a new access duration."
+        confirmLabel="Deactivate sandbox"
+        isLoading={deactivateTenant !== null && workingKey === `deactivate:${deactivateTenant.id}`}
+        onConfirm={() => deactivateTenant && deactivate(deactivateTenant)}
+        onClose={() => setDeactivateTenant(null)}
+      />
     </div>
   );
 }

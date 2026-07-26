@@ -7,6 +7,7 @@ import {
   sendPasswordResetEmail
 } from '@/src/lib/supabaseAuthCompat';
 import { getPasswordStrength, sanitizePasswordInput, validateStrongPassword } from '@/src/lib/passwordStrength';
+import { assertPasswordNotCompromised } from '@/src/lib/passwordBreach';
 import { sanitizeUsernameInput } from '@/src/lib/username';
 import { requestEmailOtp, verifyEmailOtp } from '@/src/lib/emailOtp';
 import { redeemStoreReferralCode, updateCustomerProfile, validateStoreReferralCode } from '@/src/lib/secureQr';
@@ -24,6 +25,7 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialMode?: 'signin' | 'signup' | 'forgot';
+  allowedSignInRoles?: readonly string[];
 }
 
 const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
@@ -69,7 +71,7 @@ const DEMO_ROLE_LABELS: Array<{ role: DemoRole; label: string }> = [
   { role: "admin", label: "Admin" },
 ];
 
-export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModalProps) {
+export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSignInRoles }: AuthModalProps) {
   const toast = useToast();
   const { config: runtimeConfig } = useRuntimeMode();
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(initialMode);
@@ -357,17 +359,12 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
           setSignupStep(3);
           return;
         }
-        if (password.length < 8) {
-          showInlineError('Use a password with at least 8 characters.');
-          return;
-        }
-        if (!signupPasswordValidation.requirements.find(
-          (requirement) => requirement.label === 'Does not contain personal information',
-        )?.met) {
-          showInlineError('Your password cannot contain your name, username, phone number, email, or birthday.');
+        if (!signupPasswordValidation.valid) {
+          showInlineError('Use a strong 12+ character password with upper and lowercase letters, a number, a symbol, no spaces, and no personal information.');
           return;
         }
         if (signupStep === 3) {
+          await assertPasswordNotCompromised(password);
           setSignupStep(4);
           return;
         }
@@ -446,6 +443,21 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
         onClose();
       } else if (mode === 'signin') {
         const creds = await signInWithEmailAndPassword(auth, targetEmail, password);
+        if (allowedSignInRoles) {
+          const profile = (await getUserProfile(creds.user.uid) || {}) as TrustedLoginProfile & {
+            role?: string;
+            isDemo?: boolean;
+            accountStatus?: string;
+          };
+          const canSignIn =
+            profile.isDemo !== true &&
+            !['suspended', 'banned'].includes(profile.accountStatus || 'active') &&
+            allowedSignInRoles.includes(profile.role || '');
+          if (!canSignIn) {
+            await auth.client.signOut();
+            throw new Error('Only Auditor and administrator accounts can sign in during maintenance.');
+          }
+        }
         const mfaRequired = await prepareMfaChallengeIfNeeded(creds.user.uid);
         if (mfaRequired) {
           setMessage('Enter the code from your authenticator app to finish signing in.');
@@ -770,6 +782,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                 <input
                   type="email"
                   required
+                  autoComplete="username"
                   value={username}
                   onChange={(e) => {
                     setUsername(e.target.value);
@@ -872,6 +885,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
                   <input
                     type={showPassword ? "text" : "password"}
                     required
+                    autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                     value={password}
                     onChange={(e) => setPassword(sanitizePasswordInput(e.target.value))}
                     className="block w-full pl-10 pr-10 py-3 border-0 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl ring-1 ring-inset ring-gray-200 dark:ring-gray-700 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-[#1b1b1b] sm:text-sm sm:leading-6 transition-colors"

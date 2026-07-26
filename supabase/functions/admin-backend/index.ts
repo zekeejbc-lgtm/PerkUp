@@ -17,6 +17,24 @@ const MANAGED_ROLES = new Set([
   "assistant_admin",
   "auditor",
 ]);
+const AUTO_AUDITED_MUTATIONS = new Set([
+  "update_public_feedback",
+  "update_error_report",
+  "sync_subscription_billing",
+  "retry_billing_invoice",
+  "update_subscription_access",
+  "update_account_restriction",
+  "create_store",
+  "create_branch",
+  "decide_branch_request",
+  "reject_application",
+  "reset_password",
+  "complete_first_login_password_change",
+  "adjust_card_stars",
+  "adjust_card_promotion",
+  "delete_store",
+  "delete_store_group",
+]);
 const ACCOUNT_STATUSES = new Set(["active", "suspended", "banned"]);
 
 const requiredEnv = (name: string) => {
@@ -72,15 +90,24 @@ const getPasswordRequirementChecks = (password: string, normalized: string, pers
   personalTerms.every((term) => !normalized.includes(term)),
 ];
 
-const meetsPasswordRequirementMajority = (password: string, name: string, email: string) => {
-  if (!password) return false;
-  const personalTerms = [
-    ...name.toLowerCase().split(/[^a-z0-9]+/),
-    email.toLowerCase().split("@")[0],
-    name.toLowerCase().replace(/[^a-z0-9]/g, ""),
-  ].map((term) => term.replace(/[^a-z0-9]/g, "")).filter((term) => term.length >= 4);
-  const normalized = password.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return getPasswordRequirementChecks(password, normalized, personalTerms).filter(Boolean).length >= 4;
+const assertPasswordNotCompromised = async (password: string) => {
+  const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(password));
+  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+  const response = await fetch(`https://api.pwnedpasswords.com/range/${hash.slice(0, 5)}`, {
+    headers: { "Add-Padding": "true" },
+  });
+  if (!response.ok) {
+    throw new Error("Password safety could not be verified. Please try again.");
+  }
+  const suffix = hash.slice(5);
+  const compromised = (await response.text()).split(/\r?\n/).some((line) =>
+    line.slice(0, 35).toUpperCase() === suffix
+  );
+  if (compromised) {
+    throw new Error("This password appears in known data breaches. Choose a different password.");
+  }
 };
 
 type UserProfile = {
@@ -102,7 +129,7 @@ type UserProfile = {
   branchLimit?: number;
 };
 
-Deno.serve(async (req) => {
+const handleAdminRequest = async (req: Request) => {
   if (req.method === "OPTIONS") return corsPreflightResponse();
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
 
@@ -914,37 +941,12 @@ Deno.serve(async (req) => {
 
     if (action === "get_audit_overview") {
       if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
-      const [invoices, notificationRows, auditRows] = await Promise.all([
-        readAllRows(admin, "billing_invoices", "id,status,amount_centavos,gross_amount_centavos,fee_centavos,net_amount_centavos,paid_at,created_at"),
-        readAllRows(admin, "billing_notifications", "id,status,notification_type,created_at"),
-        readAllRows(admin, "audit_events", "id,outcome,created_at"),
-      ]);
-      const paidInvoices = invoices.filter((invoice: any) => invoice.status === "paid");
-      const amountTotal = (field: string, fallback?: string) => paidInvoices.reduce(
-        (sum: number, invoice: any) => sum + Number(invoice[field] ?? (fallback ? invoice[fallback] : 0) ?? 0),
-        0,
-      );
-      return jsonResponse({
-        financial: {
-          grossCentavos: amountTotal("gross_amount_centavos", "amount_centavos"),
-          feeCentavos: amountTotal("fee_centavos"),
-          netCentavos: amountTotal("net_amount_centavos", "amount_centavos"),
-          paidTransactions: paidInvoices.length,
-          issuedInvoices: invoices.length,
-          outstandingInvoices: invoices.filter((invoice: any) => ["pending", "link_created"].includes(invoice.status)).length,
-          failedInvoices: invoices.filter((invoice: any) => invoice.status === "failed").length,
-        },
-        receipts: {
-          total: notificationRows.length,
-          sent: notificationRows.filter((row: any) => row.status === "sent").length,
-          failed: notificationRows.filter((row: any) => row.status === "failed").length,
-        },
-        audit: {
-          total: auditRows.length,
-          failures: auditRows.filter((row: any) => row.outcome !== "success").length,
-        },
-        generatedAt: new Date().toISOString(),
-      });
+      const { data, error } = await admin.rpc("get_auditor_audit_overview");
+      if (error) throw error;
+      if (!data || typeof data !== "object") {
+        throw new Error("Audit overview returned an invalid response.");
+      }
+      return jsonResponse(data);
     }
 
     if (action === "list_audit_records") {
@@ -954,89 +956,21 @@ Deno.serve(async (req) => {
       const status = cleanText(body.status, 40).toLowerCase() || "all";
       const page = Math.max(1, Math.trunc(Number(body.page) || 1));
       const pageSize = Math.max(10, Math.min(100, Math.trunc(Number(body.pageSize) || 25)));
-      let records: any[] = [];
-
-      if (section === "financial") {
-        const [invoices, storeRows] = await Promise.all([
-          readAllRows(admin, "billing_invoices", "id,subscription_id,store_id,owner_user_id,invoice_type,status,amount_centavos,currency,paymongo_reference_number,manual_payment_reference,paid_at,payment_method,paymongo_payment_id,gross_amount_centavos,fee_centavos,net_amount_centavos,due_at,created_at,updated_at"),
-          readAllRows(admin, "stores", "id,data,created_at"),
-        ]);
-        const stores = new Map(storeRows.map((row: any) => [String(row.id), row.data || {}]));
-        records = invoices.filter((invoice: any) =>
-          (stores.get(String(invoice.store_id)) as any)?.isDemo !== true
-        ).map((invoice: any) => ({
-          ...invoice,
-          storeName: cleanText((stores.get(String(invoice.store_id)) as any)?.businessName || (stores.get(String(invoice.store_id)) as any)?.name, 160),
-          reference: invoice.manual_payment_reference || invoice.paymongo_reference_number || invoice.paymongo_payment_id || "",
-        }));
-      } else if (section === "receipts") {
-        const [notifications, invoices, storeRows] = await Promise.all([
-          readAllRows(admin, "billing_notifications", "id,invoice_id,channel,notification_type,recipient,status,attempt_count,last_error,sent_at,created_at,updated_at"),
-          readAllRows(admin, "billing_invoices", "id,store_id,status,amount_centavos,currency,paid_at,payment_method"),
-          readAllRows(admin, "stores", "id,data,created_at"),
-        ]);
-        const invoicesById = new Map(invoices.map((row: any) => [String(row.id), row]));
-        const stores = new Map(storeRows.map((row: any) => [String(row.id), row.data || {}]));
-        records = notifications.map((notification: any) => {
-          const invoice = invoicesById.get(String(notification.invoice_id)) as any;
-          const store = stores.get(String(invoice?.store_id)) as any;
-          return {
-            ...notification,
-            invoiceStatus: invoice?.status || "",
-            amountCentavos: Number(invoice?.amount_centavos || 0),
-            currency: invoice?.currency || "PHP",
-            storeId: invoice?.store_id || "",
-            storeName: cleanText(store?.businessName || store?.name, 160),
-          };
-        }).filter((record: any) =>
-          (stores.get(String(record.storeId)) as any)?.isDemo !== true
-        );
-      } else if (section === "loyalty") {
-        const [scanRows, storeRows] = await Promise.all([
-          readAllRows(admin, "promotions_scanned", "id,data,created_at,updated_at"),
-          readAllRows(admin, "stores", "id,data,created_at"),
-        ]);
-        const stores = new Map(storeRows.map((row: any) => [String(row.id), row.data || {}]));
-        records = scanRows.filter((row: any) =>
-          (stores.get(cleanText(row.data?.storeId, 100)) as any)?.isDemo !== true
-        ).map((row: any) => ({
-          id: String(row.id),
-          type: cleanText(row.data?.type || "loyalty_scan", 60),
-          status: cleanText(row.data?.status || "completed", 40),
-          storeId: cleanText(row.data?.storeId, 100),
-          storeName: cleanText((stores.get(cleanText(row.data?.storeId, 100)) as any)?.businessName || (stores.get(cleanText(row.data?.storeId, 100)) as any)?.name, 160),
-          customerId: cleanText(row.data?.customerId, 100),
-          staffId: cleanText(row.data?.staffId, 100),
-          promotionId: cleanText(row.data?.promotionId, 100),
-          amount: Number(row.data?.stars ?? row.data?.points ?? 0),
-          occurredAt: toIsoTimestamp(row.data?.timestamp || row.data?.redeemedAt || row.data?.createdAt) || row.created_at,
-        }));
-      } else if (section === "events") {
-        records = await readAllRows(admin, "audit_events", "id,actor_user_id,actor_email,actor_role,action,entity_type,entity_id,outcome,source,metadata,created_at");
-      } else {
+      if (!["financial", "receipts", "loyalty", "events"].includes(section)) {
         return jsonResponse({ error: "Select a valid audit section." }, 400);
       }
-
-      records = records.filter((record: any) => {
-        const recordStatus = cleanText(record.status || record.outcome || "success", 40).toLowerCase();
-        if (status !== "all" && recordStatus !== status) return false;
-        if (!search) return true;
-        return Object.values(record).some((value) => {
-          if (value && typeof value === "object") return JSON.stringify(value).toLowerCase().includes(search);
-          return String(value || "").toLowerCase().includes(search);
-        });
-      }).sort((left: any, right: any) => {
-        const leftDate = Date.parse(left.created_at || left.occurredAt || left.sent_at || "") || 0;
-        const rightDate = Date.parse(right.created_at || right.occurredAt || right.sent_at || "") || 0;
-        return rightDate - leftDate;
+      const { data, error } = await admin.rpc("list_auditor_audit_records", {
+        p_section: section,
+        p_search: search,
+        p_status: status,
+        p_page: page,
+        p_page_size: pageSize,
       });
-      const from = (page - 1) * pageSize;
-      return jsonResponse({
-        records: records.slice(from, from + pageSize),
-        page,
-        pageSize,
-        total: records.length,
-      });
+      if (error) throw error;
+      if (!data || typeof data !== "object") {
+        throw new Error("Audit records returned an invalid response.");
+      }
+      return jsonResponse(data);
     }
 
     if (action === "get_system_health") {
@@ -1633,6 +1567,7 @@ Deno.serve(async (req) => {
       if (!email || !name || !storeName || !isStrongPassword(password, name, email)) {
         return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, no spaces, and no owner name or email." }, 400);
       }
+      await assertPasswordNotCompromised(password);
       if (!alreadyPaid && !automaticBillingEnabled) {
         return jsonResponse({ error: "Enable the PayMongo standard or mark the initial subscription as already paid before creating the store." }, 400);
       }
@@ -2246,6 +2181,7 @@ Deno.serve(async (req) => {
       if (!email || !name || !isStrongPassword(password, name, email)) {
         return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, no spaces, and no account name or email." }, 400);
       }
+      await assertPasswordNotCompromised(password);
       if (role === "staff") await assertStaffSlotAvailable(admin, storeId);
 
       const { data: created, error: createError } = await admin.auth.admin.createUser({
@@ -2365,8 +2301,12 @@ Deno.serve(async (req) => {
           Boolean(target.storeId) &&
           await ownsStore(admin, String(target.storeId), authData.user.id));
       if (!canReset) return jsonResponse({ error: "You are not allowed to reset this password." }, 403);
-      if (password.length < 8) return jsonResponse({ error: "Password must be at least 8 characters." }, 400);
-      if (/\s/.test(password)) return jsonResponse({ error: "Password cannot contain spaces." }, 400);
+      const targetName = cleanText(target?.name, 120);
+      const targetEmail = cleanText(target?.email, 254).toLowerCase();
+      if (!isStrongPassword(password, targetName, targetEmail)) {
+        return jsonResponse({ error: "Use a strong 12+ character password with upper and lowercase letters, a number, a symbol, no spaces, and no account name or email." }, 400);
+      }
+      await assertPasswordNotCompromised(password);
 
       const { error } = await admin.auth.admin.updateUserById(userId, { password });
       if (error) throw error;
@@ -2384,9 +2324,10 @@ Deno.serve(async (req) => {
       const password = String(body.password || "");
       const accountName = cleanText(actor.name, 80);
       const accountEmail = cleanText(actor.email || authData.user.email, 254).toLowerCase();
-      if (!meetsPasswordRequirementMajority(password, accountName, accountEmail)) {
-        return jsonResponse({ error: "Meet at least 4 of the 6 password requirements." }, 400);
+      if (!isStrongPassword(password, accountName, accountEmail)) {
+        return jsonResponse({ error: "Meet all password security requirements." }, 400);
       }
+      await assertPasswordNotCompromised(password);
       const { error: passwordError } = await admin.auth.admin.updateUserById(authData.user.id, { password });
       if (passwordError) throw passwordError;
       await mergeUserData(admin, authData.user.id, {
@@ -2906,6 +2847,55 @@ Deno.serve(async (req) => {
     console.error("admin-backend failed", error);
     return jsonResponse({ error: error instanceof Error ? error.message : "Backend operation failed." }, 500);
   }
+};
+
+Deno.serve(async (req) => {
+  const auditRequest = req.clone();
+  const response = await handleAdminRequest(req);
+  if (req.method !== "POST" || response.status < 200 || response.status >= 300) return response;
+
+  try {
+    const body = (await auditRequest.json().catch(() => ({}))) as Record<string, unknown>;
+    const action = cleanText(body.action, 60);
+    if (!AUTO_AUDITED_MUTATIONS.has(action)) return response;
+
+    const supabaseUrl = requiredEnv("SUPABASE_URL");
+    const anonKey = requiredEnv("SUPABASE_ANON_KEY");
+    const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const authorization = auditRequest.headers.get("Authorization") || "";
+    const userClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authorization } },
+      auth: { persistSession: false },
+    });
+    const admin = createClient(supabaseUrl, serviceKey, {
+      auth: { persistSession: false },
+    });
+    const { data: authData, error: authError } = await userClient.auth.getUser();
+    if (authError || !authData.user) return response;
+    const { data: actorRow } = await admin
+      .from("users")
+      .select("data")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+    const actor = (actorRow?.data || {}) as UserProfile;
+    const responseBody = await response.clone().json().catch(() => ({})) as Record<string, unknown>;
+    const entityType = mutationEntityType(action);
+    const entityId = mutationEntityId(action, body, responseBody) ||
+      (entityType === "user" ? authData.user.id : "");
+    await writeAuditEvent(admin, {
+      actorUserId: authData.user.id,
+      actorEmail: authData.user.email || actor.email,
+      actorRole: actor.role,
+      action,
+      entityType,
+      entityId,
+      metadata: mutationAuditMetadata(action, body),
+    });
+  } catch (auditError) {
+    console.error("Could not audit successful admin-backend mutation", auditError);
+  }
+
+  return response;
 });
 
 type DemoCredential = {
@@ -3232,6 +3222,70 @@ const assertStaffSlotAvailable = async (
       `This subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.`,
     );
   }
+};
+
+const mutationEntityType = (action: string) => {
+  if (["update_public_feedback"].includes(action)) return "site_feedback";
+  if (["update_error_report"].includes(action)) return "client_error_report";
+  if (["sync_subscription_billing", "update_subscription_access"].includes(action)) return "billing_subscription";
+  if (["retry_billing_invoice"].includes(action)) return "billing_invoice";
+  if (["update_account_restriction", "create_store", "create_branch", "delete_store", "delete_store_group"].includes(action)) {
+    return "store";
+  }
+  if (["decide_branch_request"].includes(action)) return "branch_request";
+  if (["reject_application"].includes(action)) return "application";
+  if (["reset_password", "complete_first_login_password_change"].includes(action)) return "user";
+  if (["adjust_card_stars", "adjust_card_promotion"].includes(action)) return "loyalty_card";
+  return "admin_operation";
+};
+
+const mutationEntityId = (
+  action: string,
+  body: Record<string, unknown>,
+  responseBody: Record<string, unknown>,
+) => {
+  if (action === "update_public_feedback") return cleanText(body.feedbackId, 160);
+  if (action === "update_error_report") return cleanText(body.reportId, 160);
+  if (action === "retry_billing_invoice") return cleanText(body.invoiceId, 160);
+  if (action === "decide_branch_request") return cleanText(body.requestId, 160);
+  if (action === "reject_application") return cleanText(body.applicationId, 160);
+  if (["reset_password", "complete_first_login_password_change"].includes(action)) {
+    return cleanText(body.userId, 160);
+  }
+  if (["adjust_card_stars", "adjust_card_promotion"].includes(action)) return cleanText(body.cardId, 160);
+  const storeId = cleanText(body.storeId, 160);
+  if (storeId) return storeId;
+  const responseStore = responseBody.store && typeof responseBody.store === "object"
+    ? responseBody.store as Record<string, unknown>
+    : {};
+  return cleanText(responseStore.id || responseBody.storeId, 160);
+};
+
+const mutationAuditMetadata = (action: string, body: Record<string, unknown>) => {
+  const metadata: Record<string, unknown> = {};
+  const status = cleanText(body.status, 40);
+  if (status) metadata.status = status;
+  const decision = cleanText(body.decision, 40);
+  if (decision) metadata.decision = decision;
+  if (["adjust_card_stars", "adjust_card_promotion"].includes(action)) {
+    metadata.delta = Math.trunc(Number(body.delta) || 0);
+  }
+  if (action === "adjust_card_promotion") {
+    metadata.promotionId = cleanText(body.promotionId, 160) || null;
+  }
+  if (action === "update_subscription_access") {
+    const access = body.subscriptionAccess && typeof body.subscriptionAccess === "object"
+      ? body.subscriptionAccess as Record<string, unknown>
+      : {};
+    metadata.status = cleanText(access.status, 40) || null;
+  }
+  if (action === "update_account_restriction") {
+    const restriction = body.accountRestriction && typeof body.accountRestriction === "object"
+      ? body.accountRestriction as Record<string, unknown>
+      : {};
+    metadata.status = cleanText(restriction.status, 40) || null;
+  }
+  return metadata;
 };
 
 const writeAuditEvent = async (

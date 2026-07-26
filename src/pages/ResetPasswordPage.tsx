@@ -3,7 +3,8 @@ import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2, Lock, ShieldCheck } fr
 import { useNavigate } from "react-router-dom";
 import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
-import { getPasswordStrength, sanitizePasswordInput } from "../lib/passwordStrength";
+import { getPasswordStrength, sanitizePasswordInput, validateStrongPassword } from "../lib/passwordStrength";
+import { assertPasswordNotCompromised } from "../lib/passwordBreach";
 import { initialRecoveryCallbackDetected, supabase } from "../lib/supabase";
 import { SkeletonBlock } from "../components/LoadingSkeleton";
 
@@ -80,8 +81,8 @@ export default function ResetPasswordPage() {
       setError("Password cannot contain spaces.");
       return;
     }
-    if (password.length < 8) {
-      setError("Use a password with at least 8 characters.");
+    if (!validateStrongPassword(password).valid) {
+      setError("Use a strong 12+ character password with upper and lowercase letters, a number, a symbol, and no spaces.");
       return;
     }
     if (password !== confirmPassword) {
@@ -90,10 +91,12 @@ export default function ResetPasswordPage() {
     }
 
     setSubmitting(true);
-    const { error: updateError } = await supabase.auth.updateUser({ password });
-
-    if (updateError) {
-      setError(updateError.message);
+    try {
+      await assertPasswordNotCompromised(password);
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+      if (updateError) throw updateError;
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Password update failed.");
       setSubmitting(false);
       return;
     }

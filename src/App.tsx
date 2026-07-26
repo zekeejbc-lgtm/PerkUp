@@ -426,7 +426,7 @@ export default function App() {
     user?.isDemo !== true &&
     user?.accountStatus !== "suspended" &&
     user?.accountStatus !== "banned" &&
-    ["admin", "assistant_admin", "auditor"].includes(user?.role || "");
+    ["admin", "auditor"].includes(user?.role || "");
 
   if (loading || (config.mode === "maintenance" && authLoading)) {
     return (

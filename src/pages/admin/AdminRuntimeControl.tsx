@@ -1,16 +1,19 @@
 import { FormEvent, useState } from "react";
 import { AlertTriangle, CheckCircle2, Eye, EyeOff, FlaskConical, Loader2, LockKeyhole, RadioTower, ShieldCheck, Wrench, X } from "lucide-react";
+import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { useToast } from "../../components/ToastProvider";
 import { useRuntimeMode, RuntimeMode } from "../../contexts/RuntimeModeContext";
 import { invokeAdminBackend } from "../../lib/adminBackend";
 
 const INITIATE_PHRASE = "INITIATE MAINTENANCE MODE";
+const END_PHRASE = "END MAINTENANCE MODE";
 const INPUT_CLASSES = "min-h-11 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-950 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:ring-white";
 
 export default function AdminRuntimeControl() {
   const toast = useToast();
   const { config, refreshRuntimeMode } = useRuntimeMode();
   const [workingMode, setWorkingMode] = useState<RuntimeMode | "">("");
+  const [pendingMode, setPendingMode] = useState<"production" | "development" | null>(null);
   const [showMaintenance, setShowMaintenance] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({
@@ -23,7 +26,6 @@ export default function AdminRuntimeControl() {
 
   const setRuntimeMode = async (mode: "production" | "development") => {
     if (mode === config.mode) return;
-    if (!window.confirm(`Switch PerkUp to ${mode === "production" ? "Production" : "Development"} Mode?`)) return;
     setWorkingMode(mode);
     try {
       await invokeAdminBackend({ action: "set_runtime_mode", mode });
@@ -33,6 +35,7 @@ export default function AdminRuntimeControl() {
       toast.error(error instanceof Error ? error.message : "Runtime mode could not be changed.", { error, reportable: false });
     } finally {
       setWorkingMode("");
+      setPendingMode(null);
     }
   };
 
@@ -56,6 +59,36 @@ export default function AdminRuntimeControl() {
       window.location.reload();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Maintenance mode could not be initiated.", { error, reportable: false });
+      setWorkingMode("");
+    }
+  };
+
+  const endMaintenance = async (event: FormEvent) => {
+    event.preventDefault();
+    if (form.confirmation !== END_PHRASE) {
+      toast.error(`Type ${END_PHRASE} exactly.`, { reportable: false });
+      return;
+    }
+    setWorkingMode("maintenance");
+    try {
+      await invokeAdminBackend({
+        action: "end_maintenance_mode",
+        password: form.password,
+        confirmation: form.confirmation,
+      });
+      await refreshRuntimeMode();
+      toast.success("Maintenance ended. Production Mode is active.");
+      setShowMaintenance(false);
+      setForm({
+        title: "Scheduled maintenance",
+        reason: "",
+        details: "",
+        password: "",
+        confirmation: "",
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Maintenance mode could not be ended.", { error, reportable: false });
+    } finally {
       setWorkingMode("");
     }
   };
@@ -112,17 +145,20 @@ export default function AdminRuntimeControl() {
               {card.mode === "maintenance" ? (
                 <button
                   type="button"
-                  onClick={() => setShowMaintenance(true)}
-                  disabled={active}
+                  onClick={() => {
+                    setForm((current) => ({ ...current, password: "", confirmation: "" }));
+                    setShowMaintenance(true);
+                  }}
+                  disabled={Boolean(workingMode)}
                   className="mt-5 min-h-11 w-full rounded-xl bg-amber-500 px-4 text-sm font-bold text-gray-950 transition hover:bg-amber-400 disabled:cursor-default disabled:opacity-50"
                 >
-                  Configure maintenance
+                  {active ? "End maintenance" : "Configure maintenance"}
                 </button>
               ) : (
                 <button
                   type="button"
-                  onClick={() => void setRuntimeMode(card.mode)}
-                  disabled={active || Boolean(workingMode)}
+                  onClick={() => setPendingMode(card.mode)}
+                  disabled={active || config.mode === "maintenance" || Boolean(workingMode)}
                   className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-gray-950 px-4 text-sm font-bold text-white transition hover:bg-black disabled:cursor-default disabled:opacity-50 dark:bg-white dark:text-gray-950"
                 >
                   {workingMode === card.mode && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -142,14 +178,16 @@ export default function AdminRuntimeControl() {
       {showMaintenance && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <form
-            onSubmit={initiateMaintenance}
+            onSubmit={config.mode === "maintenance" ? endMaintenance : initiateMaintenance}
             className="flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl dark:bg-gray-900"
             role="dialog"
             aria-modal="true"
             aria-labelledby="maintenance-modal-title"
           >
             <header className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-200 px-6 py-5 dark:border-gray-800 sm:px-8">
-              <h2 id="maintenance-modal-title" className="text-xl font-bold text-gray-950 dark:text-white">Initiate maintenance mode</h2>
+              <h2 id="maintenance-modal-title" className="text-xl font-bold text-gray-950 dark:text-white">
+                {config.mode === "maintenance" ? "End maintenance mode" : "Initiate maintenance mode"}
+              </h2>
               <button
                 type="button"
                 onClick={() => setShowMaintenance(false)}
@@ -160,8 +198,14 @@ export default function AdminRuntimeControl() {
               </button>
             </header>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-6 sm:px-8">
-              <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">These details will be shown on the public maintenance screen.</p>
+              <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
+                {config.mode === "maintenance"
+                  ? "Authenticate the recovery action to restore normal production access."
+                  : "These details will be shown on the public maintenance screen."}
+              </p>
               <div className="space-y-4">
+              {config.mode !== "maintenance" && (
+                <>
               <label className="block text-xs font-semibold text-gray-800 dark:text-gray-200">
                 Screen title
                 <input required minLength={1} maxLength={120} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} className={`mt-1.5 ${INPUT_CLASSES}`} />
@@ -174,6 +218,8 @@ export default function AdminRuntimeControl() {
                 Additional details
                 <textarea maxLength={4000} rows={3} value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} className={`mt-1.5 ${INPUT_CLASSES}`} placeholder="Expected completion, affected services, or support information" />
               </label>
+                </>
+              )}
               <label className="block text-xs font-semibold text-gray-800 dark:text-gray-200">
                 Your Auditor password
                 <span className="relative mt-1.5 block">
@@ -185,20 +231,42 @@ export default function AdminRuntimeControl() {
                 </span>
               </label>
               <label className="block text-xs font-semibold text-gray-800 dark:text-gray-200">
-                Type <span className="font-mono">{INITIATE_PHRASE}</span>
+                Type <span className="font-mono">{config.mode === "maintenance" ? END_PHRASE : INITIATE_PHRASE}</span>
                 <input required autoComplete="off" value={form.confirmation} onChange={(event) => setForm({ ...form, confirmation: event.target.value })} className={`mt-1.5 font-mono ${INPUT_CLASSES}`} />
               </label>
               </div>
             </div>
             <footer className="flex shrink-0 flex-col-reverse gap-3 border-t border-gray-200 px-6 py-5 dark:border-gray-800 sm:flex-row sm:justify-end sm:px-8">
-              <button type="submit" disabled={workingMode === "maintenance" || form.confirmation !== INITIATE_PHRASE} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 text-sm font-bold text-gray-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto">
+              <button
+                type="submit"
+                disabled={
+                  workingMode === "maintenance" ||
+                  form.confirmation !== (config.mode === "maintenance" ? END_PHRASE : INITIATE_PHRASE)
+                }
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 text-sm font-bold text-gray-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+              >
                 {workingMode === "maintenance" && <Loader2 className="h-4 w-4 animate-spin" />}
-                Initiate maintenance mode
+                {config.mode === "maintenance" ? "End maintenance mode" : "Initiate maintenance mode"}
               </button>
             </footer>
           </form>
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={pendingMode !== null}
+        title={`Switch to ${pendingMode === "production" ? "Production" : "Development"} Mode?`}
+        description={
+          pendingMode === "production"
+            ? "Demo launch controls will be hidden and production data isolation rules will take effect."
+            : "One-click demo role controls will be enabled while production records remain isolated."
+        }
+        confirmLabel={`Switch to ${pendingMode === "production" ? "Production" : "Development"}`}
+        isLoading={pendingMode !== null && workingMode === pendingMode}
+        tone="default"
+        onConfirm={() => pendingMode && setRuntimeMode(pendingMode)}
+        onClose={() => setPendingMode(null)}
+      />
     </div>
   );
 }

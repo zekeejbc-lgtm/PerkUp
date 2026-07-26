@@ -7,6 +7,7 @@ import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, 
 import { isSecureCustomerQr, normalizeCustomerUsername, parseCustomerQr, redeemCustomerScan } from "@/src/lib/secureQr";
 import { getBirthdayStatus } from "@/src/lib/birthday";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
+import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { supabase } from "@/src/lib/supabase";
 import { formatPhilippineDate } from "@/src/lib/dateTime";
 import { formatCustomerCode } from "@/src/lib/customerId";
@@ -177,6 +178,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   const [manualError, setManualError] = useState("");
   const [rewardCode, setRewardCode] = useState("");
   const [rewardCodeError, setRewardCodeError] = useState("");
+  const [rewardRedemptionMethod, setRewardRedemptionMethod] = useState<"code" | "manual" | null>(null);
 
   // Batch & Feedback state
   const [isBatchMode, setIsBatchMode] = useState(false);
@@ -489,7 +491,13 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     const lookup = rewardCode.trim();
     if (!lookup || !store?.id || isProcessing) return;
     if (!navigator.onLine) return setRewardCodeError("Reward redemption requires an internet connection.");
-    if (!window.confirm(method === "manual" ? "Manually mark this claim as redeemed? This cannot be undone." : "Redeem this one-time reward code?")) return;
+    setRewardRedemptionMethod(method);
+  };
+
+  const confirmRewardRedemption = async () => {
+    const method = rewardRedemptionMethod;
+    const lookup = rewardCode.trim();
+    if (!method || !lookup || !store?.id || isProcessing) return;
     setIsProcessing(true);
     setRewardCodeError("");
     try {
@@ -500,6 +508,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       setRewardCodeError(error instanceof Error ? error.message : "Could not redeem this claim.");
     } finally {
       setIsProcessing(false);
+      setRewardRedemptionMethod(null);
     }
   };
 
@@ -1023,6 +1032,20 @@ export default function StaffPromotionScan({ store }: { store: any }) {
           </div>
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={rewardRedemptionMethod !== null}
+        title={rewardRedemptionMethod === "manual" ? "Manually redeem this claim?" : "Redeem this reward code?"}
+        description={
+          rewardRedemptionMethod === "manual"
+            ? "This will permanently mark the one-time claim as redeemed by your staff account. This action cannot be undone."
+            : "This one-time reward code will be marked as used and cannot be redeemed again."
+        }
+        confirmLabel="Redeem reward"
+        isLoading={isProcessing}
+        onConfirm={confirmRewardRedemption}
+        onClose={() => setRewardRedemptionMethod(null)}
+      />
 
       {/* Box Confirm Modal - Batch Mode */}
       {showBatchModal && (

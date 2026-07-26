@@ -8,7 +8,8 @@
     "build": "vite build && node scripts/generate-seo.mjs && node scripts/generate-service-worker.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:auditor": "node scripts/check-auditor-role.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

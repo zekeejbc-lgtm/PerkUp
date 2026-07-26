@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, CalendarClock, CheckCircle2, KeyRound, Loader2, Lock, Mail, QrCode, ShieldCheck, Smartphone, Trash2, X } from "lucide-react";
 import { auth, db } from "@/src/lib/backend";
 import { supabase } from "@/src/lib/supabase";
-import { getPasswordStrength, sanitizePasswordInput } from "@/src/lib/passwordStrength";
+import { getPasswordStrength, sanitizePasswordInput, validateStrongPassword } from "@/src/lib/passwordStrength";
+import { assertPasswordNotCompromised } from "@/src/lib/passwordBreach";
 import { sanitizeUsernameInput } from "@/src/lib/username";
 import { requestEmailOtp, verifyEmailOtp } from "@/src/lib/emailOtp";
 import { SkeletonBlock } from "@/src/components/LoadingSkeleton";
@@ -306,8 +307,11 @@ export default function AccountSecurity() {
       return;
     }
 
-    if (newPassword.length < 6) {
-      setMessage({ text: "New password must be at least 6 characters.", type: "error" });
+    if (!validateStrongPassword(newPassword, { name: user?.name, email: user?.email }).valid) {
+      setMessage({
+        text: "Use a strong 12+ character password with upper and lowercase letters, a number, a symbol, no spaces, and no personal information.",
+        type: "error",
+      });
       return;
     }
 
@@ -318,6 +322,7 @@ export default function AccountSecurity() {
 
     setIsChangingPassword(true);
     try {
+      await assertPasswordNotCompromised(newPassword);
       const factorsResponse = await supabase.auth.mfa.listFactors();
       if (factorsResponse.error) throw factorsResponse.error;
       setFactors(factorsResponse.data.totp ?? []);
