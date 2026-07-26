@@ -1,8 +1,9 @@
-import React, { lazy, Suspense, useEffect, useState } from "react";
-import { Store, FileText, Layout, CreditCard, Menu, UserCircle, Scale, Inbox, ReceiptText, Users, ShieldCheck, ServerCog, FlaskConical, RadioTower, MoreHorizontal, X } from "lucide-react";
+import React, { lazy, Suspense, useState } from "react";
+import { Store, FileText, Layout, CreditCard, Menu, UserCircle, Scale, Inbox, ReceiptText, Users, ShieldCheck, ServerCog, FlaskConical, RadioTower } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { PageSkeleton } from "../components/LoadingSkeleton";
 import { useAuth } from "../contexts/AuthContext";
+import { MobileDashboardNavigation } from "../components/MobileDashboardNavigation";
 
 const AdminStores = lazy(() => import("./admin/AdminStores"));
 const AdminApplications = lazy(() => import("./admin/AdminApplications"));
@@ -23,7 +24,6 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const isAccountPage = location.pathname === '/admin/account';
   const requestedTab = new URLSearchParams(location.search).get('tab');
@@ -47,7 +47,6 @@ export default function AdminDashboard() {
       : 'stores';
 
   const handleNavClick = (item: typeof navigation[number]) => {
-    setIsMobileMenuOpen(false);
     if (item.id === 'account') {
       navigate('/admin/account');
       return;
@@ -81,25 +80,10 @@ export default function AdminDashboard() {
         { id: 'account' as const, label: 'Account', icon: UserCircle },
       ]
     : standardNavigation;
-  const isAuditor = user?.role === 'auditor';
-  const auditorMobileNavigation = navigation.filter((item) =>
-    ['stores', 'audit', 'demos', 'health'].includes(item.id)
-  );
-
   const isActive = (item: typeof navigation[number]) => {
     if (item.id === 'account') return isAccountPage;
     return !isAccountPage && activeTab === item.id;
   };
-  const isAuditorMoreActive = isAuditor && !auditorMobileNavigation.some(isActive);
-
-  useEffect(() => {
-    if (!isMobileMenuOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsMobileMenuOpen(false);
-    };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [isMobileMenuOpen]);
 
   const fallbackVariant =
     isAccountPage ? 'form' :
@@ -149,111 +133,29 @@ export default function AdminDashboard() {
         </nav>
       </aside>
 
-      <nav
-        className={`md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-[#1b1b1b]/90 backdrop-blur-xl border-t border-gray-200 dark:border-gray-800 items-center pb-[env(safe-area-inset-bottom)] px-2 py-2 shadow-[0_-10px_40px_-20px_rgba(0,0,0,0.1)] ${
-          isAuditor
-            ? 'grid grid-cols-5 gap-1'
-            : 'flex justify-start sm:justify-center overflow-x-auto gap-2 sm:gap-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]'
-        }`}
-        aria-label="Dashboard navigation"
-      >
-        {(isAuditor ? auditorMobileNavigation : navigation).map((item) => {
-          const active = isActive(item);
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => handleNavClick(item)}
-              className={`flex min-w-0 flex-col items-center gap-1 rounded-xl py-1.5 transition-all ${
-                isAuditor ? 'px-1' : 'min-w-[4rem] shrink-0 px-3'
-              } ${
-                active
-                  ? 'text-[#1b1b1b] dark:text-white bg-gray-100 dark:bg-white/10'
-                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white'
-              }`}
-            >
-              <item.icon className={`w-5 h-5 mb-0.5 ${active ? 'fill-[#1b1b1b]/20' : ''}`} />
-              <span className="w-full truncate text-center text-[10px] font-bold tracking-tight">
-                {isAuditor && item.id === 'stores' ? 'Stores' :
-                  isAuditor && item.id === 'audit' ? 'Audit' :
-                  isAuditor && item.id === 'demos' ? 'Demos' :
-                  isAuditor && item.id === 'health' ? 'Health' :
-                  item.label}
-              </span>
-            </button>
-          );
-        })}
-        {isAuditor && (
-          <button
-            type="button"
-            onClick={() => setIsMobileMenuOpen(true)}
-            aria-expanded={isMobileMenuOpen}
-            aria-controls="auditor-mobile-menu"
-            className={`flex min-w-0 flex-col items-center gap-1 rounded-xl px-1 py-1.5 transition-all ${
-              isAuditorMoreActive || isMobileMenuOpen
-                ? 'bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white'
-                : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white'
-            }`}
-          >
-            <MoreHorizontal className="mb-0.5 h-5 w-5" />
-            <span className="w-full truncate text-center text-[10px] font-bold tracking-tight">More</span>
-          </button>
-        )}
-      </nav>
-
-      {isAuditor && isMobileMenuOpen && (
-        <div className="fixed inset-0 z-[60] md:hidden">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/45 backdrop-blur-[2px]"
-            onClick={() => setIsMobileMenuOpen(false)}
-            aria-label="Close dashboard menu"
-          />
-          <section
-            id="auditor-mobile-menu"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="auditor-mobile-menu-title"
-            className="absolute inset-x-0 bottom-0 max-h-[82dvh] overflow-y-auto rounded-t-3xl border-t border-gray-200 bg-white px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 shadow-2xl dark:border-gray-800 dark:bg-[#1b1b1b]"
-          >
-            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-gray-300 dark:bg-gray-700" />
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-500">Auditor access</p>
-                <h2 id="auditor-mobile-menu-title" className="text-lg font-bold text-gray-900 dark:text-white">All dashboard sections</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
-                aria-label="Close dashboard menu"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {navigation.map((item) => {
-                const active = isActive(item);
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => handleNavClick(item)}
-                    className={`flex min-w-0 items-center gap-3 rounded-2xl p-3 text-left text-sm font-semibold transition-colors ${
-                      active
-                        ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-                        : 'bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800'
-                    }`}
-                  >
-                    <item.icon className="h-5 w-5 shrink-0" />
-                    <span className="min-w-0 leading-tight">{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        </div>
-      )}
+      <MobileDashboardNavigation
+        accessLabel={
+          user?.role === "auditor" ? "Auditor access" :
+          user?.role === "assistant_admin" ? "Assistant admin access" :
+          "Admin access"
+        }
+        primaryItemIds={user?.role === "auditor" ? ["stores", "audit", "demos", "health"] : undefined}
+        items={navigation.map((item) => ({
+          id: item.id,
+          label: item.label,
+          shortLabel:
+            item.id === "stores" ? "Stores" :
+            item.id === "applications" ? "Apps" :
+            item.id === "homepage" ? "Homepage" :
+            item.id === "audit" ? "Audit" :
+            item.id === "demos" ? "Demos" :
+            item.id === "health" ? "Health" :
+            item.label,
+          icon: item.icon,
+          active: isActive(item),
+          onSelect: () => handleNavClick(item),
+        }))}
+      />
 
       <div className="flex-1 min-w-0 bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-4 sm:p-6 md:p-8 shadow-sm transition-colors">
         {isDemoAdmin && !isAccountPage && (
