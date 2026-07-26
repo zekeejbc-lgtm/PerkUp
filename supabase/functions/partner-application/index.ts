@@ -128,14 +128,23 @@ Deno.serve(async (req) => {
 
       let { data: applicationRow, error: applicationError } = await admin
         .from("applications")
-        .select("id,data")
-        .eq("id", trackingNumber)
+        .select("id,public_id,data")
+        .eq("public_id", trackingNumber.toUpperCase())
         .maybeSingle();
       if (applicationError) throw applicationError;
       if (!applicationRow) {
         const result = await admin
           .from("applications")
-          .select("id,data")
+          .select("id,public_id,data")
+          .eq("id", trackingNumber)
+          .maybeSingle();
+        if (result.error) throw result.error;
+        applicationRow = result.data;
+      }
+      if (!applicationRow) {
+        const result = await admin
+          .from("applications")
+          .select("id,public_id,data")
           .eq("data->>trackingCode", trackingNumber.toUpperCase())
           .maybeSingle();
         if (result.error) throw result.error;
@@ -146,7 +155,7 @@ Deno.serve(async (req) => {
         if (parsedCode) {
           const result = await admin
             .from("applications")
-            .select("id,data")
+            .select("id,public_id,data")
             .ilike("id", `${parsedCode.firstGroup}%${parsedCode.lastGroup}`)
             .limit(10);
           if (result.error) throw result.error;
@@ -167,7 +176,8 @@ Deno.serve(async (req) => {
       return jsonResponse({
         found: true,
         application: {
-          trackingNumber: trackingCode,
+          trackingNumber: applicationRow.public_id || trackingCode,
+          legacyTrackingNumber: trackingCode,
           applicationId: applicationRow.id,
           businessName,
           subscriptionLevel: cleanText(applicationData.subscriptionLevel, 80),
@@ -271,11 +281,13 @@ Deno.serve(async (req) => {
       createdAt: timestamp(),
       updatedAt: timestamp(),
     };
-    const { error: insertError } = await admin.from("applications").insert({
+    const { data: insertedApplication, error: insertError } = await admin.from("applications").insert({
       id: applicationId,
       data: applicationData,
-    });
+    }).select("public_id").single();
     if (insertError) throw insertError;
+    const publicApplicationId = cleanText(insertedApplication?.public_id, 20);
+    if (!publicApplicationId) throw new Error("Application public ID was not assigned.");
     if (uploadedFileId) {
       const { error: fileError } = await admin.from("application_files").insert({
         file_id: uploadedFileId,
@@ -294,7 +306,7 @@ Deno.serve(async (req) => {
         recipientEmail: email,
         userName: applicantName,
         application: {
-          trackingNumber: trackingCode,
+          trackingNumber: publicApplicationId,
           businessName,
           subscriptionLevel,
         },
@@ -304,7 +316,14 @@ Deno.serve(async (req) => {
       emailNotification.error = emailError instanceof Error ? emailError.message : "Application email could not be sent.";
       console.error("Application tracking email failed", { applicationId, error: emailNotification.error });
     }
-    return jsonResponse({ applicationId, trackingNumber: trackingCode, submitted: true, notification: emailNotification });
+    return jsonResponse({
+      applicationId,
+      publicId: publicApplicationId,
+      trackingNumber: publicApplicationId,
+      legacyTrackingNumber: trackingCode,
+      submitted: true,
+      notification: emailNotification,
+    });
   } catch (error) {
     if (uploadedFileId) {
       const secret = Deno.env.get("DRIVE_CRUD_SECRET");

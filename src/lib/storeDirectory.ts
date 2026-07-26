@@ -1,5 +1,6 @@
 export interface DirectoryStore {
   id: string;
+  publicId?: string;
   name: string;
   lat?: number;
   lng?: number;
@@ -151,7 +152,7 @@ export const storeMatchesCategorySearch = (
 ) => {
   const { selectedCategories, textSearchTerms } = getCategorySearchTerms(searchQuery, categories);
   const storeCategories = new Set(splitStoreCategories(store.category).map(normalizeStoreCategory));
-  const searchableText = [store.name, store.description, store.category, ...additionalSearchValues]
+  const searchableText = [store.publicId, store.name, store.description, store.category, ...additionalSearchValues]
     .filter(Boolean)
     .join(" ")
     .toLocaleLowerCase();

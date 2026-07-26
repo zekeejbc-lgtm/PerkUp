@@ -56,6 +56,20 @@ const tableNames = new Set([
   "users",
 ]);
 
+const publicIdTableNames = new Set([
+  "applications",
+  "branch_requests",
+  "cards",
+  "customers",
+  "feedback",
+  "products",
+  "promotions",
+  "promotions_scanned",
+  "store_reviews",
+  "stores",
+  "users",
+]);
+
 const READ_CACHE_TTL_MS = 45_000;
 const readCache = new Map<string, { expiresAt: number; value: unknown }>();
 
@@ -172,11 +186,24 @@ const isStaleAuthError = (error: unknown) => {
     || message.includes("invalid jwt");
 };
 
-const selectDocument = (ref: DocumentRef) =>
-  dataApi(ref.collectionName)
-    .select("id,data")
+const selectFields = (collectionName: string) =>
+  publicIdTableNames.has(collectionName) ? "id,data,public_id" : "id,data";
+
+const withPublicId = (
+  data: Record<string, unknown> | null | undefined,
+  publicId?: string | null,
+) => publicId ? { ...(data || {}), publicId } : (data || {});
+
+const selectDocument = async (ref: DocumentRef) => {
+  const result = await dataApi(ref.collectionName)
+    .select(selectFields(ref.collectionName))
     .eq("id", ref.id)
     .maybeSingle();
+  return result as unknown as {
+    data: { id: string; data: Record<string, unknown>; public_id?: string | null } | null;
+    error: { code?: string; status?: number; message?: string } | null;
+  };
+};
 
 const getCachedValue = <T>(key: string): T | null => {
   const cached = readCache.get(key);
@@ -230,7 +257,7 @@ const fetchDoc = async (ref: DocumentRef, useCache: boolean) => {
   }
 
   if (error) throw error;
-  const value = data?.data ?? null;
+  const value = data ? withPublicId(data.data, data.public_id) : null;
   setCachedValue(cacheKey, value);
   return docSnapshot(ref.id, value);
 };
@@ -248,9 +275,9 @@ async function fetchDocs(ref: CollectionRef | QueryRef, useCache: boolean) {
   const filters = ref.type === "query" ? ref.filters : [];
   const cacheKey = `${collectionName}:query:${JSON.stringify(filters)}`;
   if (useCache) {
-    const cached = getCachedValue<{ id: string; data: Record<string, unknown> }[]>(cacheKey);
+    const cached = getCachedValue<{ id: string; data: Record<string, unknown>; public_id?: string | null }[]>(cacheKey);
     if (cached) {
-      const docs = cached.map((row) => docSnapshot(row.id, row.data));
+      const docs = cached.map((row) => docSnapshot(row.id, withPublicId(row.data, row.public_id)));
       return {
         docs,
         empty: docs.length === 0,
@@ -259,14 +286,14 @@ async function fetchDocs(ref: CollectionRef | QueryRef, useCache: boolean) {
     }
   }
 
-  const { data, error } = await applyFilters(dataApi(collectionName).select("id,data"), filters);
+  const { data, error } = await applyFilters(dataApi(collectionName).select(selectFields(collectionName)), filters);
 
   if (error) throw error;
 
-  const rows = (data ?? []) as { id: string; data: Record<string, unknown> }[];
+  const rows = (data ?? []) as { id: string; data: Record<string, unknown>; public_id?: string | null }[];
   setCachedValue(cacheKey, rows);
 
-  const docs = rows.map((row) => docSnapshot(row.id, row.data));
+  const docs = rows.map((row) => docSnapshot(row.id, withPublicId(row.data, row.public_id)));
 
   return {
     docs,

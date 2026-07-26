@@ -24,8 +24,8 @@ import { MobileDashboardNavigation } from "../components/MobileDashboardNavigati
 
 const OWNER_DATA_FALLBACK_MS = 30_000;
 
-const normalizeDataRows = (rows: { id: string; data: Record<string, unknown> | null }[] | null | undefined) =>
-  (rows || []).map((row) => ({ id: row.id, ...(row.data || {}) }));
+const normalizeDataRows = (rows: { id: string; public_id?: string | null; data: Record<string, unknown> | null }[] | null | undefined) =>
+  (rows || []).map((row) => ({ id: row.id, publicId: row.public_id || undefined, ...(row.data || {}) }));
 
 const requestTimestamp = (request: any) => {
   const value = request.updatedAt || request.reviewedAt || request.createdAt;
@@ -93,12 +93,12 @@ export default function StoreOwnerDashboard() {
       const [storesResult, requestsResult] = await Promise.allSettled([
         supabase
           .from("stores")
-          .select("id,data")
+          .select("id,public_id,data")
           .eq("data->>ownerId", user.id)
           .order("created_at", { ascending: true }),
         supabase
           .from("branch_requests")
-          .select("id,data,updated_at")
+          .select("id,public_id,data,updated_at")
           .eq("data->>ownerId", user.id)
           .order("updated_at", { ascending: false }),
       ]);
@@ -362,6 +362,7 @@ export default function StoreOwnerDashboard() {
                     <div key={request.id} className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-950/40 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-bold text-gray-900 dark:text-white">{request.branchName || "Branch request"}</p>
+                        {request.publicId && <p className="mt-1 font-mono text-[11px] font-semibold text-gray-400">{request.publicId}</p>}
                         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{request.address || "No address provided"}</p>
                         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{status.message}</p>
                       </div>

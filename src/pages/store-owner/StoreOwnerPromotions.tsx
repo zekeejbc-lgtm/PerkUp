@@ -60,6 +60,7 @@ const getPromotionCreatedAtMillis = (promotion: any) =>
 const matchesPromotionSearch = (promotion: any, normalizedQuery: string) => {
   if (!normalizedQuery) return true;
   return [
+    promotion?.publicId,
     promotion?.title,
     promotion?.description,
     promotion?.redemptionInstructions,
@@ -506,6 +507,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
               </div>
               <div className="min-w-0">
                 <h3 className="truncate text-sm font-bold text-gray-700 dark:text-gray-200">{promo.title}</h3>
+                {promo.publicId && <p className="font-mono text-[10px] font-semibold text-gray-400">{promo.publicId}</p>}
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:bg-gray-700 dark:text-gray-300">
                     {expired ? "Expired" : "Inactive"}
@@ -1027,6 +1029,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
                     </div>
                     <div>
                       <h3 className="font-bold text-gray-900 dark:text-white">{promo.title}</h3>
+                      {promo.publicId && <p className="font-mono text-[10px] font-semibold text-gray-400">{promo.publicId}</p>}
                       <div className="flex flex-wrap items-center gap-2 mt-1">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${(promo.active ?? true) ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
                           {(promo.active ?? true) ? "Active" : "Inactive"}

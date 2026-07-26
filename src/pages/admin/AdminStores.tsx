@@ -104,6 +104,8 @@ export default function AdminStores() {
         store.location,
         store.status,
         store.subscriptionLevel,
+        store.publicId,
+        store.id,
       ]);
     }).sort((left, right) => {
       const leftBusiness = String(left.businessName || left.name || "");
@@ -412,7 +414,7 @@ export default function AdminStores() {
                 onChange={setSearchQuery}
                 categories={categories}
                 resultsId="admin-store-search-results"
-                placeholder="Search stores or categories (separate categories with commas)..."
+                placeholder="Search store ID, name, location, or category..."
                 className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-12 text-sm text-gray-900 outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
             />
           </div>
@@ -465,6 +467,7 @@ export default function AdminStores() {
                           </span>
                         )}
                       </div>
+                      {primaryStore.publicId && <p className="mt-2 font-mono text-[11px] font-semibold text-gray-400">{primaryStore.publicId}</p>}
                       <div className="mt-3 grid gap-1.5 text-sm text-gray-500 dark:text-gray-400 sm:text-xs">
                         <p className="flex min-w-0 items-center gap-2">
                           <UserRound className="h-3.5 w-3.5 shrink-0" />

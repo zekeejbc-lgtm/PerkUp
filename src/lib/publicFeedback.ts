@@ -4,6 +4,7 @@ export type PublicFeedbackStatus = "received" | "reviewing" | "planned" | "in_pr
 
 export type TrackedFeedback = {
   referenceNumber: string;
+  legacyReferenceNumber?: string;
   category: string;
   message: string;
   status: PublicFeedbackStatus;

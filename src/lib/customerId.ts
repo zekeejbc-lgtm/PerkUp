@@ -1,6 +1,13 @@
+import { normalizePublicId } from "./publicId";
+
 const CUSTOMER_CODE_PREFIX = "PKUP";
 
-export function formatCustomerCode(customerId?: string | null) {
+export function formatCustomerCode(customerId?: string | null, publicId?: string | null) {
+  const normalizedPublicId = normalizePublicId(publicId);
+  if (normalizedPublicId.startsWith("CUS-")) {
+    return normalizedPublicId;
+  }
+
   const compactId = String(customerId || "")
     .trim()
     .replace(/[^a-z0-9]/gi, "")

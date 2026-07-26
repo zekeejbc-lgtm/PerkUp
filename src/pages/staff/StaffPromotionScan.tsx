@@ -449,6 +449,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
       setScannedCustomer({
         id: result.customer.id,
+        publicId: result.customer.publicId,
         redemptionInput,
         username: result.customer.username,
         maskedName: result.customer.maskedName,
@@ -540,6 +541,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
       setScannedCustomer({
         id: result.customer.id,
+        publicId: result.customer.publicId,
         redemptionInput: { manualUsername: username },
         username: result.customer.username,
         maskedName: result.customer.maskedName,

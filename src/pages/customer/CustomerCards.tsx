@@ -141,7 +141,7 @@ export default function CustomerCards() {
 
   const groupedCards = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const filtered = promoCards.filter((promo) => !term || [promo.title, promo.description, promo.card?.storeName, promo.linkedProductName]
+    const filtered = promoCards.filter((promo) => !term || [promo.publicId, promo.card?.publicId, promo.title, promo.description, promo.card?.storeName, promo.linkedProductName]
       .some((value) => String(value || "").toLowerCase().includes(term)));
     return groupOrder.map((status) => ({
       status,
@@ -231,6 +231,7 @@ function RewardCard({ promo, stampStyle, compact, claiming, onOpen, onClaim }: a
         {promo.bannerImageUrl ? <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className={`${compact ? "w-36 sm:w-48" : "h-28 w-full"} shrink-0 object-cover`} /> : <div className={`${compact ? "w-32" : "h-24 w-full"} flex shrink-0 items-center justify-center bg-gray-100 dark:bg-white/10`}><ImageIcon className="h-6 w-6 text-gray-400" /></div>}
         <div className="min-w-0 p-4">
           <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h4 className="truncate text-sm font-bold text-gray-900 dark:text-white">{promo.title || "Special Promotion"}</h4>{promo.linkedProductName && <p className="mt-1 truncate text-xs text-gray-500">{promo.linkedProductName}</p>}</div><span className="shrink-0 rounded-full bg-gray-100 px-2 py-1 text-[10px] font-bold dark:bg-white/10">{progress}/{required}</span></div>
+          {(promo.card?.publicId || promo.publicId) && <p className="mt-1 font-mono text-[10px] font-semibold text-gray-400">{promo.card?.publicId || promo.publicId}</p>}
           <p className="mt-2 line-clamp-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{promo.description || `Collect ${required} stamps to claim this reward.`}</p>
           {!compact && <div className="mt-3 flex flex-wrap gap-1.5">{Array.from({ length: Math.min(required, 10) }, (_, index) => <StoreStamp key={index} style={stampStyle} filled={index < Math.min(progress, required)} size="sm" />)}</div>}
         </div>
@@ -252,7 +253,7 @@ function PromoCardDetailsModal({ promo, stampStyle, claiming, onClaim, onClose }
       <div className="max-h-[calc(92vh-73px)] overflow-y-auto">
         {promo.bannerImageUrl && <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className="h-44 w-full object-cover sm:h-52" />}
         <div className="space-y-5 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3"><p className="flex items-center gap-2 text-sm font-semibold text-gray-500"><Store className="h-4 w-4" />{promo.card?.storeName || "Participating store"}</p>{promo.linkedProductName && <p className="flex items-center gap-2 text-sm text-gray-500"><Tag className="h-4 w-4" />{promo.linkedProductName}</p>}</div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="flex items-center gap-2 text-sm font-semibold text-gray-500"><Store className="h-4 w-4" />{promo.card?.storeName || "Participating store"}</p>{promo.card?.publicId && <p className="mt-1 font-mono text-[11px] font-semibold text-gray-400">{promo.card.publicId}</p>}</div>{promo.linkedProductName && <p className="flex items-center gap-2 text-sm text-gray-500"><Tag className="h-4 w-4" />{promo.linkedProductName}</p>}</div>
           {activeClaim ? <ClaimPanel claim={claim!} redemptionInstructions={promo.redemptionInstructions} /> : <>
             <div><h3 className="text-xs font-bold uppercase tracking-wide text-gray-400">Mechanics</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-600 dark:text-gray-300">{promo.description || `Collect ${required} ${normalizeStampStyle(stampStyle).stampLabel.toLowerCase()}s to claim this promotion.`}</p></div>
             <div className="rounded-xl border border-gray-100 p-4 dark:border-gray-800"><div className="flex justify-between text-sm font-bold"><span>Progress</span><span>{progress}/{required}</span></div><div className="mt-4 flex flex-wrap gap-2">{Array.from({ length: required }, (_, index) => <StoreStamp key={index} style={stampStyle} filled={index < Math.min(progress, required)} />)}</div></div>
@@ -273,7 +274,7 @@ function ClaimPanel({ claim, redemptionInstructions }: { claim: PromotionClaim; 
 
   return <div className="space-y-4">
     <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-100"><p className="font-bold">How to redeem</p><p className="mt-1 whitespace-pre-wrap leading-6">{instructions}</p></div>
-    <div className="grid gap-4 sm:grid-cols-[220px_1fr] sm:items-center"><div className="mx-auto rounded-2xl border bg-white p-4"><QRCodeSVG value={claim.qrToken} size={180} level="M" /></div><div className="space-y-3"><div><p className="text-xs font-bold uppercase tracking-wide text-gray-400">Redeem code</p><p className="mt-1 select-all font-mono text-3xl font-black tracking-[0.18em] text-gray-900 dark:text-white">{claim.redeemCode}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-gray-400">Reserved until</p><p className="mt-1 text-sm font-semibold dark:text-white">{formatPhilippineDateTime(claim.expiresAt)}</p></div><p className="text-xs leading-5 text-gray-500">This QR and code can be used once only and only at the issuing store.</p></div></div>
+    <div className="grid gap-4 sm:grid-cols-[220px_1fr] sm:items-center"><div className="mx-auto rounded-2xl border bg-white p-4"><QRCodeSVG value={claim.qrToken} size={180} level="M" /></div><div className="space-y-3">{claim.publicId && <div><p className="text-xs font-bold uppercase tracking-wide text-gray-400">Claim ID</p><p className="mt-1 select-all font-mono text-sm font-bold text-gray-700 dark:text-gray-200">{claim.publicId}</p></div>}<div><p className="text-xs font-bold uppercase tracking-wide text-gray-400">Redeem code</p><p className="mt-1 select-all font-mono text-3xl font-black tracking-[0.18em] text-gray-900 dark:text-white">{claim.redeemCode}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-gray-400">Reserved until</p><p className="mt-1 text-sm font-semibold dark:text-white">{formatPhilippineDateTime(claim.expiresAt)}</p></div><p className="text-xs leading-5 text-gray-500">This QR and code can be used once only and only at the issuing store.</p></div></div>
   </div>;
 }
 

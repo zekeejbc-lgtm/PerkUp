@@ -39,6 +39,7 @@ type DemoAccount = {
 
 type DemoTenant = {
   id: string;
+  publicId: string;
   name: string;
   slug: string;
   status: DemoStatus;
@@ -415,7 +416,7 @@ export default function AdminDemoManagement() {
                     </div>
                     <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-500">
                       <Store className="h-4 w-4" />
-                      <span className="truncate">{tenant.storeId}</span>
+                      <span className="truncate font-mono text-xs">{tenant.publicId || tenant.storeId}</span>
                     </p>
                     <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-500">
                       <Clock3 className="h-4 w-4" />

@@ -38,6 +38,7 @@ type AccountStatus = "active" | "suspended" | "banned";
 
 type ManagedAccount = {
   id: string;
+  publicId: string;
   email: string;
   name: string;
   phone: string;
@@ -364,7 +365,7 @@ export default function AdminAccounts() {
               type="search"
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Search name, email, phone, role, or store"
+              placeholder="Search public ID, name, email, phone, role, or store"
               className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             />
           </label>
@@ -412,6 +413,7 @@ export default function AdminAccounts() {
                       )}
                     </div>
                     <p className="truncate text-sm text-gray-500">{account.email}</p>
+                    {account.publicId && <p className="font-mono text-[11px] font-semibold text-gray-400">{account.publicId}</p>}
                     <p className="truncate text-xs text-gray-400">{account.phone || "No number provided"}</p>
                   </div>
                 </div>

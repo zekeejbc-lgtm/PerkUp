@@ -19,6 +19,7 @@ export type IssuedCustomerQr = {
 export type RedeemedCustomerScan = {
   customer: {
     id: string;
+    publicId?: string | null;
     username: string;
     maskedName: string;
     birthday: string | null;
@@ -34,6 +35,7 @@ export type RedeemedCustomerScan = {
 export type ScanTicket = {
   id: string;
   ticketNumber: string;
+  legacyTicketNumber?: string;
   cryptographicId?: string;
   status: "issued";
   staffId: string;

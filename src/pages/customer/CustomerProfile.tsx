@@ -210,6 +210,7 @@ export default function CustomerProfile() {
               <div className="min-w-0">
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">{formData.name || "Customer"}</h3>
                 <p className="break-words text-sm text-gray-500 dark:text-gray-400">{user?.email}</p>
+                {user?.publicId && <p className="mt-1 font-mono text-xs font-semibold text-gray-400">{user.publicId}</p>}
                 {pendingAvatarFile && <p className="mt-1 text-xs text-[#1b1b1b] dark:text-white">New profile picture ready to save.</p>}
               </div>
             </div>

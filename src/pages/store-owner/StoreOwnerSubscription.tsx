@@ -20,6 +20,7 @@ import { ConfirmationModal } from "../../components/ConfirmationModal";
 
 type BillingInvoice = {
   id: string;
+  public_id: string;
   status: string;
   created_at: string;
   due_at: string;
@@ -40,6 +41,7 @@ type BillingInvoice = {
 };
 
 type BillingSubscriptionSummary = {
+  public_id: string;
   automation_enabled: boolean;
   billing_email: string | null;
   plan_id: string | null;
@@ -52,7 +54,7 @@ type BillingSubscriptionSummary = {
   initial_payment_required: boolean;
 };
 
-const invoiceNumber = (invoice: BillingInvoice) => `PU-${invoice.id.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
+const invoiceNumber = (invoice: BillingInvoice) => invoice.public_id || `PU-${invoice.id.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
 const isManualPayment = (invoice: BillingInvoice) =>
   String(invoice.payment_method || "").startsWith("manual_") || invoice.payment_method === "admin_confirmed";
 
@@ -116,6 +118,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
       await downloadSubscriptionInvoicePdf({
         invoice: {
           id: invoice.id,
+          publicId: invoice.public_id,
           status: invoice.status,
           createdAt: invoice.created_at,
           dueAt: invoice.due_at,
@@ -157,9 +160,9 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
     let cancelled = false;
     setBillingLoading(true);
     Promise.all([
-      supabase.from("billing_subscriptions").select("automation_enabled,billing_email,plan_id,interval_days,grace_period_days,status,renewal_mode,auto_renew_cancelled_at,current_period_end,initial_payment_required").eq("store_id", subscriptionStore.id).maybeSingle(),
+      supabase.from("billing_subscriptions").select("public_id,automation_enabled,billing_email,plan_id,interval_days,grace_period_days,status,renewal_mode,auto_renew_cancelled_at,current_period_end,initial_payment_required").eq("store_id", subscriptionStore.id).maybeSingle(),
       supabase.from("billing_invoices")
-        .select("id,status,created_at,due_at,period_start,period_end,amount_centavos,currency,payment_url,paymongo_reference_number,manual_payment_reference,livemode,paid_at,payment_method,paymongo_payment_id,gross_amount_centavos,fee_centavos,net_amount_centavos")
+        .select("id,public_id,status,created_at,due_at,period_start,period_end,amount_centavos,currency,payment_url,paymongo_reference_number,manual_payment_reference,livemode,paid_at,payment_method,paymongo_payment_id,gross_amount_centavos,fee_centavos,net_amount_centavos")
         .eq("store_id", subscriptionStore.id)
         .order("created_at", { ascending: false })
         .limit(6),
@@ -314,6 +317,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                   </span>
                   <div>
                     <h4 className="font-bold text-gray-900 dark:text-white">{manualRenewal ? "Manual renewal" : "Automatic renewal"}</h4>
+                    <p className="mt-1 font-mono text-xs font-semibold text-gray-400">{billingSubscription.public_id}</p>
                     <p className="mt-1 max-w-xl text-sm leading-6 text-gray-500 dark:text-gray-400">
                       {manualRenewal
                         ? `No future billing links or reminders will be sent automatically. Access remains active through ${formatBillingDate(currentPeriodEnd)}, then you can renew from the expired-payment screen whenever you choose.`

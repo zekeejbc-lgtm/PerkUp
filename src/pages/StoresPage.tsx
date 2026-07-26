@@ -251,6 +251,7 @@ export default function StoresPage() {
                         </div>
                         <div className="min-w-0">
                           <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">{store.category || "Partner store"}</p>
+                          {store.publicId && <p className="mt-1 font-mono text-[10px] font-semibold text-gray-400">{store.publicId}</p>}
                           <h2 className="mt-1 truncate text-xl font-bold">{store.name}</h2>
                           <div className={`mt-1 flex items-center gap-1.5 text-xs font-medium ${openNow ? "text-emerald-600 dark:text-emerald-400" : "text-gray-500"}`}>
                             <span className={`h-2 w-2 rounded-full ${openNow ? "bg-emerald-500" : "bg-gray-400"}`} />

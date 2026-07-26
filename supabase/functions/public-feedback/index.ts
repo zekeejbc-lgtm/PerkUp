@@ -72,9 +72,11 @@ Deno.serve(async (req) => {
           category,
           message,
           reference_number: referenceNumber,
-        }).select("created_at").single();
+        }).select("public_id,created_at").single();
         if (!error) {
-          createdAt = data.created_at;
+          referenceNumber = cleanText(data?.public_id, 20);
+          createdAt = cleanText(data?.created_at, 80);
+          if (!referenceNumber || !createdAt) throw new Error("Feedback reference was not assigned.");
           break;
         }
         if (error.code !== "23505" || attempt === 2) throw error;
@@ -99,21 +101,23 @@ Deno.serve(async (req) => {
 
     if (action === "lookup") {
       const referenceNumber = cleanText(body.referenceNumber, 50).toUpperCase();
-      if (!/^FB-[A-Z0-9-]{12,45}$/.test(referenceNumber)) {
+      if (!/^(?:FDB-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}|FB-[A-Z0-9-]{12,45})$/.test(referenceNumber)) {
         return jsonResponse({ error: "Enter a valid feedback reference number." }, 400);
       }
 
+      const lookupColumn = referenceNumber.startsWith("FDB-") ? "public_id" : "reference_number";
       const { data, error } = await admin
         .from("site_feedback_submissions")
-        .select("reference_number,category,message,status,public_response,created_at,status_updated_at")
-        .eq("reference_number", referenceNumber)
+        .select("public_id,reference_number,category,message,status,public_response,created_at,status_updated_at")
+        .eq(lookupColumn, referenceNumber)
         .maybeSingle();
       if (error) throw error;
       if (!data) return jsonResponse({ error: "No feedback was found for that reference number." }, 404);
 
       return jsonResponse({
         feedback: {
-          referenceNumber: data.reference_number,
+          referenceNumber: data.public_id,
+          legacyReferenceNumber: data.reference_number,
           category: data.category,
           message: data.message,
           status: data.status,

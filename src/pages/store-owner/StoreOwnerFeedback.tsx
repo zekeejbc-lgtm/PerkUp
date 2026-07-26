@@ -162,6 +162,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
       const rating = Number(item.rating || 0);
       const responseStatus = item.ownerReply ? "responded" : "unanswered";
       const searchable = [
+        item.publicId,
         item.anonymous ? "anonymous" : item.customerName,
         item.comment,
         item.ownerReply,
@@ -366,6 +367,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
                     </div>
                     <div>
                       <p className="font-bold text-gray-900 dark:text-white">{item.customerName || "Customer"}</p>
+                      {item.publicId && <p className="font-mono text-[10px] font-semibold text-gray-400">{item.publicId}</p>}
                       <p className="text-xs text-gray-500 dark:text-gray-400">{createdAt ? createdAt.toLocaleDateString() : "Date unavailable"}</p>
                     </div>
                   </div>

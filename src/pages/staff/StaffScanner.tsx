@@ -62,6 +62,7 @@ type Promotion = {
 
 type ScannedCustomer = {
   id: string;
+  publicId?: string | null;
   username: string;
   maskedName: string;
   profilePic: string | null;
@@ -309,6 +310,7 @@ export default function StaffScanner({ store }: { store: any }) {
     await writeCustomerScanCache(customerCacheScope, redemptionInput, result);
     setScannedCustomer({
       id: result.customer.id,
+      publicId: result.customer.publicId,
       username: result.customer.username,
       maskedName: result.customer.maskedName,
       profilePic: result.customer.profilePic,
@@ -901,7 +903,7 @@ export default function StaffScanner({ store }: { store: any }) {
                     <h3 className="truncate text-lg font-bold text-gray-900 dark:text-white">{scannedCustomer.maskedName}</h3>
                     <p className="mt-0.5 truncate font-mono text-sm text-[#1b1b1b] dark:text-white">@{scannedCustomer.username}</p>
                     <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400" title={scannedCustomer.id}>
-                      Customer ID: {formatCustomerCode(scannedCustomer.id)}
+                      Customer ID: {formatCustomerCode(scannedCustomer.id, scannedCustomer.publicId)}
                     </p>
                   </div>
                 </div>

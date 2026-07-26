@@ -19,6 +19,7 @@ type InvoiceFilter = "all" | "outstanding" | "paid" | "failed" | "closed";
 
 type AdminBillingInvoice = {
   id: string;
+  public_id: string;
   subscription_id: string;
   store_id: string;
   owner_user_id: string;
@@ -70,7 +71,7 @@ type InvoiceResponse = {
 const PAGE_SIZE = 25;
 
 const invoiceNumber = (invoice: AdminBillingInvoice) =>
-  `PU-${invoice.id.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
+  invoice.public_id || `PU-${invoice.id.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
 
 const formatDate = (value: string | null) => {
   if (!value) return "Not available";
@@ -155,6 +156,7 @@ export default function AdminInvoices() {
       await downloadSubscriptionInvoicePdf({
         invoice: {
           id: invoice.id,
+          publicId: invoice.public_id,
           status: invoice.status,
           createdAt: invoice.created_at,
           dueAt: invoice.due_at,

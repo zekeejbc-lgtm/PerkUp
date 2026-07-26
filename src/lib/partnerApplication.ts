@@ -32,7 +32,7 @@ export async function submitPartnerApplication(
         base64: await fileToDataUrl(logoFile),
       }
     : null;
-  const { data, error } = await supabase.functions.invoke<{ submitted?: boolean; applicationId?: string; trackingNumber?: string; error?: string }>(
+  const { data, error } = await supabase.functions.invoke<{ submitted?: boolean; applicationId?: string; publicId?: string; trackingNumber?: string; legacyTrackingNumber?: string; error?: string }>(
     "partner-application",
     { body: { ...application, logo } },
   );
@@ -43,6 +43,7 @@ export async function submitPartnerApplication(
 
 export interface PartnerApplicationStatus {
   trackingNumber: string;
+  legacyTrackingNumber?: string;
   applicationId?: string;
   businessName: string;
   subscriptionLevel: string;

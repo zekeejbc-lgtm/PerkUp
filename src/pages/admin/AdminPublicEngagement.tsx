@@ -9,11 +9,11 @@ import { invokeAdminBackend } from "../../lib/adminBackend";
 type FeedbackStatus = "received" | "reviewing" | "planned" | "in_progress" | "resolved" | "closed";
 type ErrorStatus = "open" | "in_progress" | "fixed";
 type FeedbackItem = {
-  id: string; name: string; email: string; category: string; message: string; referenceNumber: string;
+  id: string; publicId: string; name: string; email: string; category: string; message: string; referenceNumber: string; legacyReferenceNumber: string;
   status: FeedbackStatus; publicResponse: string; internalNotes: string; createdAt: string; statusUpdatedAt: string; updatedAt: string;
 };
 type ErrorReport = {
-  id: string; errorCode: string; status: ErrorStatus; message: string; stack: string; pageUrl: string; route: string;
+  id: string; publicId: string; errorCode: string; status: ErrorStatus; message: string; stack: string; pageUrl: string; route: string;
   userAgent: string; appVersion: string; context: Record<string, unknown>; reporterUserId: string; reporterRole: string;
   internalNotes: string; createdAt: string; statusUpdatedAt: string; updatedAt: string; resolvedAt: string;
 };
@@ -87,12 +87,12 @@ export default function AdminPublicEngagement() {
   const filteredFeedback = useMemo(() => {
     const query = search.trim().toLowerCase();
     return feedback.filter((item) => (statusFilter === "all" || item.status === statusFilter) &&
-      (!query || [item.referenceNumber, item.name, item.email, item.category, item.message].some((value) => value.toLowerCase().includes(query))));
+      (!query || [item.publicId, item.referenceNumber, item.legacyReferenceNumber, item.name, item.email, item.category, item.message].some((value) => value.toLowerCase().includes(query))));
   }, [feedback, search, statusFilter]);
   const filteredErrors = useMemo(() => {
     const query = search.trim().toLowerCase();
     return errorReports.filter((item) => (statusFilter === "all" || item.status === statusFilter) &&
-      (!query || [item.errorCode, item.message, item.route, item.reporterRole].some((value) => value.toLowerCase().includes(query))));
+      (!query || [item.publicId, item.errorCode, item.message, item.route, item.reporterRole].some((value) => value.toLowerCase().includes(query))));
   }, [errorReports, search, statusFilter]);
   const filteredSubscribers = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -188,13 +188,13 @@ export default function AdminPublicEngagement() {
       </div>
 
       {loading ? <div className="flex min-h-64 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-gray-400" /></div>
-        : tab === "errors" ? filteredErrors.length ? <div className="divide-y divide-gray-100 dark:divide-gray-800">{(paginatedItems as ErrorReport[]).map((item) => <button key={item.id} onClick={() => openError(item)} className="grid w-full gap-3 p-5 text-left transition hover:bg-gray-50 dark:hover:bg-gray-800/50 sm:grid-cols-[minmax(0,1fr)_9rem_10rem] sm:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs font-bold text-red-600 dark:text-red-400">{item.errorCode}</span>{item.reporterRole && <span className="rounded-lg bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 dark:bg-gray-800 dark:text-gray-300">{item.reporterRole.replaceAll("_", " ")}</span>}</div><p className="mt-2 truncate font-semibold text-gray-900 dark:text-white">{item.message}</p><p className="mt-1 truncate text-sm text-gray-500">{item.route || "Unknown page"}</p></div><span className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${statusClass(item.status)}`}>{ERROR_STATUS_LABELS[item.status]}</span><span className="text-xs text-gray-500 sm:text-right">{formatDate(item.createdAt)}</span></button>)}</div> : <EmptyState icon={AlertTriangle} title="No error reports found" description="One-click reports from failed toasts will appear here." />
+        : tab === "errors" ? filteredErrors.length ? <div className="divide-y divide-gray-100 dark:divide-gray-800">{(paginatedItems as ErrorReport[]).map((item) => <button key={item.id} onClick={() => openError(item)} className="grid w-full gap-3 p-5 text-left transition hover:bg-gray-50 dark:hover:bg-gray-800/50 sm:grid-cols-[minmax(0,1fr)_9rem_10rem] sm:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs font-bold text-red-600 dark:text-red-400">{item.publicId || item.errorCode}</span>{item.reporterRole && <span className="rounded-lg bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 dark:bg-gray-800 dark:text-gray-300">{item.reporterRole.replaceAll("_", " ")}</span>}</div><p className="mt-2 truncate font-semibold text-gray-900 dark:text-white">{item.message}</p><p className="mt-1 truncate text-sm text-gray-500">{item.route || "Unknown page"}</p></div><span className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${statusClass(item.status)}`}>{ERROR_STATUS_LABELS[item.status]}</span><span className="text-xs text-gray-500 sm:text-right">{formatDate(item.createdAt)}</span></button>)}</div> : <EmptyState icon={AlertTriangle} title="No error reports found" description="One-click reports from failed toasts will appear here." />
         : tab === "feedback" ? filteredFeedback.length ? <div className="divide-y divide-gray-100 dark:divide-gray-800">{(paginatedItems as FeedbackItem[]).map((item) => <button key={item.id} onClick={() => openFeedback(item)} className="grid w-full gap-3 p-5 text-left transition hover:bg-gray-50 dark:hover:bg-gray-800/50 sm:grid-cols-[minmax(0,1fr)_9rem_10rem] sm:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs font-bold text-gray-500">{item.referenceNumber}</span><span className="rounded-lg bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 dark:bg-gray-800 dark:text-gray-300">{item.category}</span></div><p className="mt-2 truncate font-semibold text-gray-900 dark:text-white">{item.message}</p><p className="mt-1 truncate text-sm text-gray-500">{item.name || "Anonymous"}{item.email ? ` · ${item.email}` : " · No email"}</p></div><span className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${statusClass(item.status)}`}>{FEEDBACK_STATUS_LABELS[item.status]}</span><span className="text-xs text-gray-500 sm:text-right">{formatDate(item.createdAt)}</span></button>)}</div> : <EmptyState icon={MessageSquareText} title="No feedback found" description="New public feedback and matching search results will appear here." />
         : filteredSubscribers.length ? <div className="divide-y divide-gray-100 dark:divide-gray-800">{(paginatedItems as Subscriber[]).map((subscriber) => <div key={subscriber.id} className="flex flex-col gap-2 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><span className="rounded-xl bg-gray-100 p-2 dark:bg-gray-800"><Mail className="h-4 w-4 text-gray-500" /></span><a href={`mailto:${subscriber.email}`} className="font-semibold text-gray-900 hover:underline dark:text-white">{subscriber.email}</a></div><span className="text-xs text-gray-500">Subscribed {formatDate(subscriber.created_at)}</span></div>)}</div> : <EmptyState icon={Mail} title="No subscribers found" description="Newsletter signups and matching search results will appear here." />}
 
       {!loading && <Pagination page={page} pageSize={PAGE_SIZE} totalItems={activeItems.length} onPageChange={setPage} itemLabel={tab === "errors" ? "error reports" : tab === "feedback" ? "feedback submissions" : "subscribers"} />}
 
-      {selectedError && <Modal onClose={() => setSelectedError(null)} title="Error report" eyebrow={selectedError.errorCode}>
+      {selectedError && <Modal onClose={() => setSelectedError(null)} title="Error report" eyebrow={selectedError.publicId || selectedError.errorCode}>
         <dl className="grid gap-4 rounded-2xl bg-gray-50 p-4 text-sm dark:bg-gray-800/60 sm:grid-cols-2">
           <Detail label="Reported" value={formatDate(selectedError.createdAt)} /><Detail label="Reporter" value={selectedError.reporterRole ? selectedError.reporterRole.replaceAll("_", " ") : "Anonymous visitor"} />
           <Detail label="Route" value={selectedError.route || "Unknown"} /><Detail label="App version" value={selectedError.appVersion || "Unknown"} />

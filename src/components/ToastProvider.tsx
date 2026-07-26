@@ -149,13 +149,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     if (!toast.errorCode || toast.reportState === "sending" || toast.reportState === "sent") return;
     setToasts((current) => current.map((item) => item.id === toast.id ? { ...item, reportState: "sending" } : item));
     try {
-      await submitErrorReport({
+      const report = await submitErrorReport({
         errorCode: toast.errorCode,
         message: toast.message,
         error: toast.error,
         context: toast.context,
       });
-      setToasts((current) => current.map((item) => item.id === toast.id ? { ...item, reportState: "sent" } : item));
+      setToasts((current) => current.map((item) => item.id === toast.id
+        ? { ...item, errorCode: report.public_id || item.errorCode, reportState: "sent" }
+        : item));
     } catch (error) {
       console.error("Could not send client error report", error);
       setToasts((current) => current.map((item) => item.id === toast.id ? { ...item, reportState: "failed" } : item));

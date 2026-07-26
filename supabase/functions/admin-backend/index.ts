@@ -303,7 +303,7 @@ const handleAdminRequest = async (req: Request) => {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
 
       const [profileRows, authUsers, storeRows] = await Promise.all([
-        readAllRows(admin, "users", "id,data,created_at,updated_at"),
+        readAllRows(admin, "users", "id,public_id,data,created_at,updated_at"),
         listAllAuthUsers(admin),
         readAllRows(admin, "stores", "id,data,created_at"),
       ]);
@@ -329,6 +329,7 @@ const handleAdminRequest = async (req: Request) => {
         const store = storesById.get(storeId) as any;
         return {
           id: String(row.id),
+          publicId: cleanText(row.public_id, 20),
           email,
           name: cleanText(profile.name, 120) || "Unnamed account",
           phone: cleanText(profile.phone || profile.number, 40),
@@ -355,6 +356,8 @@ const handleAdminRequest = async (req: Request) => {
           account.role,
           account.accountStatus,
           account.storeName,
+          account.publicId,
+          account.storeId,
         ].some((value) => String(value || "").toLowerCase().includes(search));
       }).sort((left: any, right: any) => {
         const leftTime = Date.parse(left.lastAccessedAt || left.createdAt || "") || 0;
@@ -404,7 +407,7 @@ const handleAdminRequest = async (req: Request) => {
       await reconcileExpiredDemoTenants(admin);
 
       const [tenantRows, accountRows, authUsers] = await Promise.all([
-        readAllRows(admin, "demo_tenants", "id,name,slug,status,store_id,owner_user_id,expires_at,created_by,deactivated_at,deactivated_by,created_at,updated_at"),
+        readAllRows(admin, "demo_tenants", "id,public_id,name,slug,status,store_id,owner_user_id,expires_at,created_by,deactivated_at,deactivated_by,created_at,updated_at"),
         readAllRows(admin, "demo_accounts", "auth_user_id,tenant_id,role,email,name,status,created_at,updated_at"),
         listAllAuthUsers(admin),
       ]);
@@ -437,6 +440,7 @@ const handleAdminRequest = async (req: Request) => {
           .sort((left, right) => left.role.localeCompare(right.role) || left.name.localeCompare(right.name));
         return {
           id: String(row.id),
+          publicId: cleanText(row.public_id, 20),
           name: cleanText(row.name, 120),
           slug: cleanText(row.slug, 60),
           status: cleanText(row.status, 30),
@@ -459,6 +463,7 @@ const handleAdminRequest = async (req: Request) => {
           tenant.name,
           tenant.slug,
           tenant.storeId,
+          tenant.publicId,
           ...tenant.accounts.flatMap((account: any) => [account.name, account.email, account.role]),
         ].some((value) => String(value || "").toLowerCase().includes(search));
       }).sort((left: any, right: any) => {
@@ -960,9 +965,25 @@ const handleAdminRequest = async (req: Request) => {
       if (!["financial", "receipts", "loyalty", "events"].includes(section)) {
         return jsonResponse({ error: "Select a valid audit section." }, 400);
       }
+      const auditTableBySection: Record<string, string> = {
+        financial: "billing_invoices",
+        receipts: "billing_notifications",
+        loyalty: "promotions_scanned",
+        events: "audit_events",
+      };
+      let resolvedSearch = search;
+      if (/^[A-Z]{3}-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/.test(search.toUpperCase())) {
+        const { data: matchedReference, error: referenceError } = await admin
+          .from(auditTableBySection[section])
+          .select("id")
+          .eq("public_id", search.toUpperCase())
+          .maybeSingle();
+        if (referenceError) throw referenceError;
+        if (matchedReference?.id) resolvedSearch = String(matchedReference.id).toLowerCase();
+      }
       const { data, error } = await admin.rpc("list_auditor_audit_records", {
         p_section: section,
-        p_search: search,
+        p_search: resolvedSearch,
         p_status: status,
         p_page: page,
         p_page_size: pageSize,
@@ -971,7 +992,23 @@ const handleAdminRequest = async (req: Request) => {
       if (!data || typeof data !== "object") {
         throw new Error("Audit records returned an invalid response.");
       }
-      return jsonResponse(data);
+      const response = data as { records?: Array<Record<string, unknown>> };
+      const records = Array.isArray(response.records) ? response.records : [];
+      const recordIds = records.map((record) => String(record.id || "")).filter(Boolean);
+      if (!recordIds.length) return jsonResponse(data);
+      const { data: references, error: referencesError } = await admin
+        .from(auditTableBySection[section])
+        .select("id,public_id")
+        .in("id", recordIds);
+      if (referencesError) throw referencesError;
+      const publicIds = new Map((references || []).map((row) => [String(row.id), String(row.public_id || "")]));
+      return jsonResponse({
+        ...response,
+        records: records.map((record) => ({
+          ...record,
+          public_id: publicIds.get(String(record.id || "")) || null,
+        })),
+      });
     }
 
     if (action === "get_system_health") {
@@ -1115,7 +1152,7 @@ const handleAdminRequest = async (req: Request) => {
       const [feedbackResult, newsletterResult, errorReportsResult] = await Promise.all([
         admin
           .from("site_feedback_submissions")
-          .select("id,name,email,category,message,reference_number,status,public_response,internal_notes,created_at,status_updated_at,updated_at")
+          .select("id,public_id,name,email,category,message,reference_number,status,public_response,internal_notes,created_at,status_updated_at,updated_at")
           .order("created_at", { ascending: false })
           .limit(1000),
         admin
@@ -1125,7 +1162,7 @@ const handleAdminRequest = async (req: Request) => {
           .limit(1000),
         admin
           .from("client_error_reports")
-          .select("id,error_code,status,message,stack_trace,page_url,route,user_agent,app_version,context,reporter_user_id,reporter_role,internal_notes,created_at,status_updated_at,updated_at,resolved_at")
+          .select("id,public_id,error_code,status,message,stack_trace,page_url,route,user_agent,app_version,context,reporter_user_id,reporter_role,internal_notes,created_at,status_updated_at,updated_at,resolved_at")
           .order("created_at", { ascending: false })
           .limit(1000),
       ]);
@@ -1136,11 +1173,13 @@ const handleAdminRequest = async (req: Request) => {
       return jsonResponse({
         feedback: (feedbackResult.data || []).map((row) => ({
           id: row.id,
+          publicId: row.public_id,
           name: row.name || "",
           email: row.email || "",
           category: row.category,
           message: row.message,
-          referenceNumber: row.reference_number,
+          referenceNumber: row.public_id,
+          legacyReferenceNumber: row.reference_number,
           status: row.status,
           publicResponse: row.public_response || "",
           internalNotes: row.internal_notes || "",
@@ -1151,6 +1190,7 @@ const handleAdminRequest = async (req: Request) => {
         subscribers: newsletterResult.data || [],
         errorReports: (errorReportsResult.data || []).map((row) => ({
           id: row.id,
+          publicId: row.public_id,
           errorCode: row.error_code,
           status: row.status,
           message: row.message,
@@ -1265,6 +1305,7 @@ const handleAdminRequest = async (req: Request) => {
 
       const invoiceColumns = [
         "id",
+        "public_id",
         "subscription_id",
         "store_id",
         "owner_user_id",

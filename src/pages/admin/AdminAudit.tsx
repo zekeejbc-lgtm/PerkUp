@@ -380,7 +380,7 @@ function FinancialRow({ record, formatCurrency }: { record: any; formatCurrency:
           <span className="text-xs font-semibold text-gray-500">{titleCase(record.invoice_type || "invoice")}</span>
         </div>
         <p className="mt-2 truncate font-bold text-gray-900 dark:text-white">{record.storeName || record.store_id}</p>
-        <p className="mt-1 truncate font-mono text-xs text-gray-500">{record.id}</p>
+        <p className="mt-1 truncate font-mono text-xs text-gray-500">{record.public_id || record.id}</p>
       </div>
       <div>
         <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(Number(record.amount_centavos || 0) / 100)}</p>
@@ -408,6 +408,7 @@ function ReceiptRow({ record, formatCurrency }: { record: any; formatCurrency: (
           <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.status)}`}>{titleCase(record.status, "Unknown")}</span>
         </div>
         <p className="mt-2 truncate text-sm text-gray-500">{record.recipient}</p>
+        {record.public_id && <p className="mt-1 font-mono text-xs text-gray-400">{record.public_id}</p>}
       </div>
       <div>
         <p className="font-semibold text-gray-900 dark:text-white">{record.storeName || record.storeId || "Unknown store"}</p>
@@ -432,6 +433,7 @@ function LoyaltyRow({ record }: { record: any }) {
           <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.status)}`}>{titleCase(record.status, "Unknown")}</span>
         </div>
         <p className="mt-2 text-sm text-gray-500">{record.storeName || record.storeId || "Unknown store"}</p>
+        {record.public_id && <p className="mt-1 font-mono text-xs text-gray-400">{record.public_id}</p>}
       </div>
       <div className="text-xs text-gray-500">
         <p>Customer <span className="font-mono text-gray-700 dark:text-gray-300">{record.customerId || "Not recorded"}</span></p>
@@ -454,7 +456,7 @@ function EventRow({ record }: { record: any }) {
           <p className="font-bold text-gray-900 dark:text-white">{titleCase(record.action, "Recorded event")}</p>
           <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.outcome)}`}>{titleCase(record.outcome, "Unknown")}</span>
         </div>
-        <p className="mt-2 text-sm text-gray-500">{titleCase(record.entity_type, "Unknown entity")} · <span className="font-mono">{record.entity_id || "No ID"}</span></p>
+        <p className="mt-2 text-sm text-gray-500">{titleCase(record.entity_type, "Unknown entity")} · <span className="font-mono">{record.public_id || record.entity_id || "No ID"}</span></p>
       </div>
       <div>
         <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{record.actor_email || "System process"}</p>

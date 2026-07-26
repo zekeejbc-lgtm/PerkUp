@@ -26,6 +26,7 @@ type SortOrder = "oldest" | "newest";
 
 type CustomerTicket = {
   id: string;
+  publicId?: string;
   ticketNumber: string;
   status: string;
   storeName: string;
@@ -134,7 +135,7 @@ export default function CustomerTickets() {
       while (true) {
         const { data, error: queryError } = await supabase
           .from("promotions_scanned")
-          .select("id,data,created_at")
+          .select("id,public_id,data,created_at")
           .eq("data->>customerId", user.id)
           .order("created_at", { ascending: true })
           .range(offset, offset + QUERY_PAGE_SIZE - 1);
@@ -148,7 +149,8 @@ export default function CustomerTickets() {
 
       const next = rows.map((row: any) => ({
         id: row.id,
-        ticketNumber: row.data.ticketNumber || `LEGACY-${String(row.id).slice(0, 8).toUpperCase()}`,
+        publicId: row.public_id || "",
+        ticketNumber: row.public_id || row.data.ticketNumber || `LEGACY-${String(row.id).slice(0, 8).toUpperCase()}`,
         status: row.data.status || "issued",
         storeName: row.data.storeName || "PerkUp Store",
         staffName: row.data.staffName || "Store staff",

@@ -22,6 +22,7 @@ import { isStorePubliclyVisible } from "../lib/storeDirectory";
 
 interface StoreContent {
   id: string;
+  publicId?: string;
   name: string;
   description?: string;
   contact?: string;
@@ -637,6 +638,7 @@ export default function StorePage() {
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">Shop name</p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-900 transition-colors dark:text-white sm:text-5xl">{store.name}</h1>
+              {store.publicId && <p className="mt-2 font-mono text-xs font-semibold text-gray-400">{store.publicId}</p>}
             </div>
             <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">Description</p>

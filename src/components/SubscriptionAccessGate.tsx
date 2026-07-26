@@ -18,6 +18,7 @@ import { supabase } from "../lib/supabase";
 type PortalRole = "store_owner" | "staff";
 
 type FrozenInvoice = {
+  publicId?: string | null;
   amountCentavos: number;
   paymentUrl: string;
   referenceNumber: string | null;
@@ -70,7 +71,7 @@ export function SubscriptionAccessBanner({ store, role = "store_owner" }: { stor
     const loadLatestInvoice = async () => {
       const { data, error } = await supabase
         .from("billing_invoices")
-        .select("amount_centavos,payment_url,paymongo_reference_number")
+        .select("public_id,amount_centavos,payment_url,paymongo_reference_number")
         .eq("store_id", store.id)
         .in("status", ["link_created", "failed"])
         .not("payment_url", "is", null)
@@ -80,6 +81,7 @@ export function SubscriptionAccessBanner({ store, role = "store_owner" }: { stor
       if (cancelled || error) return;
       const paymentUrl = safePaymentLink(data?.payment_url);
       setLatestInvoice(data && paymentUrl ? {
+        publicId: data.public_id || null,
         amountCentavos: Number(data.amount_centavos || 0),
         paymentUrl,
         referenceNumber: data.paymongo_reference_number || null,
@@ -196,7 +198,7 @@ export function SubscriptionFrozenScreen({
     const loadLatestInvoice = async () => {
       const { data, error } = await supabase
         .from("billing_invoices")
-        .select("amount_centavos,payment_url,paymongo_reference_number,status,created_at,next_attempt_at,paid_at,period_end")
+        .select("public_id,amount_centavos,payment_url,paymongo_reference_number,status,created_at,next_attempt_at,paid_at,period_end")
         .eq("store_id", store.id)
         .in("status", ["pending", "link_created", "failed", "paid"])
         .order("created_at", { ascending: false })
@@ -214,6 +216,7 @@ export function SubscriptionFrozenScreen({
       if (verifiedUrl) setLinkPreparationError("");
       if (data) {
         const invoice = {
+          publicId: data.public_id || null,
           amountCentavos: Number(data.amount_centavos || 0),
           paymentUrl: verifiedUrl || "",
           referenceNumber: data.paymongo_reference_number || null,
@@ -284,6 +287,7 @@ export function SubscriptionFrozenScreen({
             paid_at?: string | null;
             period_end?: string | null;
             paymongo_reference_number?: string | null;
+            public_id?: string | null;
           };
           if (invoice.status === "link_created") {
             const verifiedUrl = safePaymentLink(invoice.payment_url);
@@ -291,6 +295,7 @@ export function SubscriptionFrozenScreen({
             setLinkPreparationError("");
             setLatestInvoice((current) => ({
               amountCentavos: Number(invoice.amount_centavos || current?.amountCentavos || 0),
+              publicId: invoice.public_id || current?.publicId || null,
               paymentUrl: verifiedUrl,
               referenceNumber: invoice.paymongo_reference_number || current?.referenceNumber || null,
               status: "link_created",
@@ -392,6 +397,7 @@ export function SubscriptionFrozenScreen({
           {role === "store_owner" && <div className="grid gap-3 sm:grid-cols-2">
             <Info label="Subscription" value={store?.subscriptionLevel || "Not specified"} />
             <Info label="Exact amount due" value={formatPhp(amountDue)} />
+            {latestInvoice?.publicId && <Info label="Invoice ID" value={latestInvoice.publicId} />}
             {latestInvoice?.referenceNumber && <Info label="PayMongo reference" value={latestInvoice.referenceNumber} />}
             {initialPaymentRequired ? <>
               <Info label="Access period" value={`${Number(store?.billingIntervalDays || 30)} days after payment`} />

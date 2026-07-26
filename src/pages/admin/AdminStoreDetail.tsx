@@ -410,7 +410,7 @@ export default function AdminStoreDetail({
     setBillingInvoicesLoading(true);
     try {
       const { data, error } = await supabase.from("billing_invoices")
-        .select("id,status,due_at,period_start,period_end,amount_centavos,currency,paymongo_reference_number,manual_payment_reference,payment_method,manual_recorded_at,payment_url,livemode,paid_at,attempt_count,last_error,created_at")
+        .select("id,public_id,status,due_at,period_start,period_end,amount_centavos,currency,paymongo_reference_number,manual_payment_reference,payment_method,manual_recorded_at,payment_url,livemode,paid_at,attempt_count,last_error,created_at")
         .eq("store_id", subscriptionStore.id)
         .order("created_at", { ascending: false })
         .limit(12);
@@ -892,7 +892,7 @@ export default function AdminStoreDetail({
             <button onClick={isStorePhase ? onBack : returnToStoreDashboard} className="shrink-0 p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-colors sm:p-2">
               <ArrowLeft className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </button>
-            <div className="min-w-0"><h3 className="truncate text-base font-bold leading-tight text-gray-900 dark:text-white sm:text-xl">{store.businessName || store.name} Dashboard</h3>{!isStorePhase && <p className="mt-0.5 text-xs text-gray-500">Branch: {store.branchName || store.name}</p>}</div>
+            <div className="min-w-0"><h3 className="truncate text-base font-bold leading-tight text-gray-900 dark:text-white sm:text-xl">{store.businessName || store.name} Dashboard</h3>{!isStorePhase && <p className="mt-0.5 text-xs text-gray-500">Branch: {store.branchName || store.name}</p>}{store.publicId && <p className="mt-1 font-mono text-[11px] font-semibold text-gray-400">{store.publicId}</p>}</div>
           </div>
         </div>
         <div className="flex max-w-full gap-4 overflow-x-auto overscroll-x-contain" role="tablist" aria-label="Store dashboard sections">
@@ -964,7 +964,10 @@ export default function AdminStoreDetail({
                   {isEditing ? (
                     <input type="text" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-lg text-sm" />
                   ) : (
-                    <p className="text-gray-900 dark:text-white font-medium">{store.name}</p>
+                    <>
+                      <p className="text-gray-900 dark:text-white font-medium">{store.name}</p>
+                      {store.publicId && <p className="mt-1 font-mono text-xs font-semibold text-gray-400">{store.publicId}</p>}
+                    </>
                   )}
                 </div>
                 
@@ -1385,7 +1388,7 @@ export default function AdminStoreDetail({
                             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">{invoice.status}</span>
                           </div>
                           <p className="mt-1 text-xs text-gray-500">Period {formatBillingDate(invoice.period_start)} - {formatBillingDate(invoice.period_end)}</p>
-                          <p className="mt-1 text-xs text-gray-500">{invoice.paid_at ? `Paid ${formatBillingDate(invoice.paid_at)}` : `Due ${formatBillingDate(invoice.due_at)}`} · Ref {invoice.manual_payment_reference || invoice.paymongo_reference_number || "pending"} · Attempts {invoice.attempt_count || 0}</p>
+                          <p className="mt-1 text-xs text-gray-500">{invoice.public_id} · {invoice.paid_at ? `Paid ${formatBillingDate(invoice.paid_at)}` : `Due ${formatBillingDate(invoice.due_at)}`} · Ref {invoice.manual_payment_reference || invoice.paymongo_reference_number || "pending"} · Attempts {invoice.attempt_count || 0}</p>
                         </div>
                         {invoice.status !== "paid" && (
                           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1521,6 +1524,7 @@ export default function AdminStoreDetail({
                   >
                     <span className="flex items-center justify-between gap-2">
                       <span className="font-medium text-gray-900 dark:text-white">{branch.branchName || branch.name}</span>
+                      {branch.publicId && <span className="font-mono text-[10px] font-semibold text-gray-400">{branch.publicId}</span>}
                       <span className={`text-[10px] font-bold uppercase tracking-wider ${branch.status === "suspended" ? "text-red-500" : "text-green-600"}`}>{branch.status || "active"}</span>
                     </span>
                     {branch.businessName && <p className="mt-1 truncate text-xs text-gray-600 dark:text-gray-300">{branch.businessName}</p>}
@@ -1552,6 +1556,7 @@ export default function AdminStoreDetail({
                     <div key={request.id} className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/60 dark:bg-amber-950/20 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="font-semibold text-gray-900 dark:text-white">{request.branchName}</p>
+                        {request.publicId && <p className="mt-1 font-mono text-[11px] font-semibold text-gray-400">{request.publicId}</p>}
                         <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{request.address}</p>
                         <p className="mt-1 text-xs text-gray-500">Requested by {request.ownerName || owner?.name || "store owner"}</p>
                       </div>

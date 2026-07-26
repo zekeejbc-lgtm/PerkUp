@@ -39,6 +39,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
     return products.filter((product) => {
       const isAvailable = product.available ?? true;
       const searchable = [
+        product.publicId,
         product.name,
         product.ingredients,
         Number.isFinite(Number(product.price)) ? formatCurrency(Number(product.price)) : "",
@@ -250,6 +251,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
               <div className="p-4 flex flex-col flex-1">
                 <div className="flex justify-between items-start gap-2 mb-2">
                   <h3 className="font-bold text-gray-900 dark:text-white line-clamp-1">{product.name}</h3>
+                  {product.publicId && <p className="font-mono text-[10px] font-semibold text-gray-400">{product.publicId}</p>}
                   <span className="shrink-0 font-black text-gray-900 dark:text-white">{formatCurrency(Number(product.price))}</span>
                 </div>
                 {product.ingredients && (

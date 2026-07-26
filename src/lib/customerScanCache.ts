@@ -8,6 +8,7 @@ export type CustomerScanCacheScope = {
 type CachedCustomerScan = {
   customer: {
     id: string;
+    publicId?: string | null;
     username: string;
     maskedName: string;
     profilePic: string | null;
@@ -196,6 +197,7 @@ export const writeCustomerScanCache = async (
 
   const customer = {
     id: result.customer.id,
+    publicId: result.customer.publicId,
     username: result.customer.username,
     maskedName: result.customer.maskedName,
     profilePic: result.customer.profilePic,

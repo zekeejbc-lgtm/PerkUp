@@ -49,6 +49,7 @@ export type UniversalBillingDocumentData = {
 export type SubscriptionInvoicePdfData = {
   invoice: {
     id: string;
+    publicId?: string | null;
     status: string;
     createdAt: string;
     dueAt: string;
@@ -368,7 +369,7 @@ export async function downloadSubscriptionInvoicePdf(data: SubscriptionInvoicePd
   const isPaid = invoice.status === "paid";
   const isManualPayment = String(invoice.paymentMethod || "").startsWith("manual_") ||
     invoice.paymentMethod === "admin_confirmed";
-  const documentNumber = invoiceNumber(invoice.id);
+  const documentNumber = invoice.publicId || invoiceNumber(invoice.id);
   const planName = subscription.planId
     ? `${titleCase(subscription.planId)} subscription`
     : "PerkUp subscription";

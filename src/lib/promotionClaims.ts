@@ -4,6 +4,7 @@ export const PROMOTION_REDEEM_QR_PREFIX = "perkup:redeem:v1:";
 
 export type PromotionClaim = {
   id: string;
+  publicId?: string;
   promotionId: string;
   storeId: string;
   redeemCode: string;

@@ -391,7 +391,7 @@ Deno.serve(async (req) => {
     }
     const { data: customerRow, error: customerError } = await admin
       .from("users")
-      .select("data")
+      .select("public_id,data")
       .eq("id", customerId)
       .maybeSingle();
     if (customerError) throw customerError;
@@ -656,11 +656,12 @@ Deno.serve(async (req) => {
           nanoseconds: 0,
         },
       };
-      const { error: logError } = await admin.from("promotions_scanned").insert({
+      const { data: insertedScan, error: logError } = await admin.from("promotions_scanned").insert({
         id: ticketId,
         data: scanLog,
-      });
+      }).select("public_id").single();
       if (logError) throw logError;
+      const publicTicketNumber = String(insertedScan?.public_id || ticketNumber);
 
       if (isLegacyToken) {
         const { error: consumeError } = await admin
@@ -673,6 +674,7 @@ Deno.serve(async (req) => {
       return jsonResponse({
         customer: {
           id: customerId,
+          publicId: customerRow?.public_id || null,
           username: customerUsername,
           maskedName: maskName(customer?.name || customerUsername || "Customer"),
           birthday: customer?.birthday || null,
@@ -684,7 +686,8 @@ Deno.serve(async (req) => {
         points,
         ticket: {
           id: ticketId,
-          ticketNumber,
+          ticketNumber: publicTicketNumber,
+          legacyTicketNumber: ticketNumber,
           cryptographicId,
           status: "issued",
           staffId: authData.user.id,
@@ -702,6 +705,7 @@ Deno.serve(async (req) => {
     return jsonResponse({
       customer: {
         id: customerId,
+        publicId: customerRow?.public_id || null,
         username: customerUsername,
         maskedName: maskName(customer?.name || customerUsername || "Customer"),
         birthday: customer?.birthday || null,

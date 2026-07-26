@@ -93,12 +93,12 @@ Deno.serve(async (req) => {
       reporter_user_id: reporterUserId,
       reporter_role: reporterRole,
       reporter_key: reporterKey,
-    }).select("id,error_code,created_at").single();
+    }).select("id,public_id,error_code,created_at").single();
 
     if (error?.code === "23505") {
       const { data: existing, error: existingError } = await admin
         .from("client_error_reports")
-        .select("id,error_code,created_at")
+        .select("id,public_id,error_code,created_at")
         .eq("error_code", errorCode)
         .maybeSingle();
       if (existingError) throw existingError;

@@ -17,6 +17,7 @@ export type Role = "customer" | "staff" | "store_owner" | "admin" | "assistant_a
 
 export interface AppUser {
   id: string;
+  publicId?: string;
   email: string;
   name: string;
   role: Role;

@@ -39,5 +39,5 @@ export async function submitErrorReport(details: ErrorReportDetails) {
   });
   if (error) throw error;
   if (!data?.report) throw new Error(data?.error || "Error report could not be sent.");
-  return data.report as { id: string; error_code: string; created_at: string };
+  return data.report as { id: string; public_id: string; error_code: string; created_at: string };
 }

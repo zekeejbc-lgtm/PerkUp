@@ -148,6 +148,9 @@ export default function AdminApplications() {
           app.phoneNumber,
           app.address,
           app.description,
+          app.publicId,
+          app.trackingCode,
+          app.id,
           approvedStore?.name,
           approvedStore?.businessName,
           approvedStore?.location,
@@ -599,7 +602,7 @@ export default function AdminApplications() {
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       <div className="flex gap-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
                         <Hash className="mt-0.5 h-5 w-5 shrink-0 text-gray-400" />
-                        <div className="min-w-0"><p className="text-xs text-gray-500 dark:text-gray-400">Tracking code</p><p className="mt-1 break-all font-mono text-xs font-semibold text-gray-900 dark:text-white">{detailApplication.trackingCode || detailApplication.id}</p></div>
+                        <div className="min-w-0"><p className="text-xs text-gray-500 dark:text-gray-400">Application ID</p><p className="mt-1 break-all font-mono text-xs font-semibold text-gray-900 dark:text-white">{detailApplication.publicId || detailApplication.trackingCode || detailApplication.id}</p></div>
                       </div>
                       <div className="flex gap-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
                         <CalendarDays className="mt-0.5 h-5 w-5 shrink-0 text-gray-400" />

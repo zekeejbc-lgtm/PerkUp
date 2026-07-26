@@ -13,6 +13,7 @@ const clean = (value: unknown, max = 500) => String(value || "").trim().slice(0,
 
 const claimResponse = (row: Record<string, unknown>) => ({
   id: row.id,
+  publicId: row.public_id,
   promotionId: row.promotion_id,
   storeId: row.store_id,
   redeemCode: row.redeem_code,
@@ -101,7 +102,8 @@ Deno.serve(async (req) => {
       }
       if (!authorized) return jsonResponse({ error: "You are not authorized to redeem claims for this store." }, 403);
 
-      let claim: { customer_id?: string } | null = null;
+      let claim: { id?: string; customer_id?: string } | null = null;
+      let resolvedLookup = lookup;
       const tokenResult = await admin.from("promotion_claims").select("customer_id")
         .eq("store_id", storeId).eq("status", "claimed").eq("redemption_token", lookup).maybeSingle();
       if (tokenResult.error) throw tokenResult.error;
@@ -112,12 +114,19 @@ Deno.serve(async (req) => {
         if (idResult.error) throw idResult.error;
         claim = idResult.data;
       }
+      if (!claim && /^CLM-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/.test(lookup.toUpperCase())) {
+        const publicIdResult = await admin.from("promotion_claims").select("id,customer_id")
+          .eq("store_id", storeId).eq("status", "claimed").eq("public_id", lookup.toUpperCase()).maybeSingle();
+        if (publicIdResult.error) throw publicIdResult.error;
+        claim = publicIdResult.data;
+        if (claim?.id) resolvedLookup = claim.id;
+      }
       await assertDemoBoundary(admin, profile, storeId, clean(claim?.customer_id, 100) || undefined);
 
       const { data, error } = await admin.rpc("redeem_promotion_reward", {
         p_store_id: storeId,
         p_staff_id: authData.user.id,
-        p_lookup: lookup,
+        p_lookup: resolvedLookup,
         p_method: method,
       });
       if (error) return jsonResponse({ error: error.message }, 409);
