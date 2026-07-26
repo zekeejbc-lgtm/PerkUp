@@ -97,6 +97,23 @@ export function validateStrongPassword(
   };
 }
 
+export const MAJORITY_PASSWORD_REQUIREMENT_COUNT = 4;
+
+export function validateMajorityPassword(
+  password: string,
+  identity: { name?: string; email?: string; username?: string; phone?: string; birthday?: string } = {},
+) {
+  const validation = validateStrongPassword(password, identity);
+  const metCount = validation.requirements.filter((requirement) => requirement.met).length;
+
+  return {
+    ...validation,
+    valid: Boolean(password) && metCount >= MAJORITY_PASSWORD_REQUIREMENT_COUNT,
+    metCount,
+    requiredCount: MAJORITY_PASSWORD_REQUIREMENT_COUNT,
+  };
+}
+
 const MONTH_NAMES = [
   ["january", "jan"], ["february", "feb"], ["march", "mar"], ["april", "apr"],
   ["may", "may"], ["june", "jun"], ["july", "jul"], ["august", "aug"],

@@ -60,13 +60,27 @@ const isStrongPassword = (password: string, name: string, email: string) => {
     ...name.toLowerCase().split(/[^a-z0-9]+/),
     email.toLowerCase().split("@")[0],
   ].filter((term) => term.length >= 3);
-  return password.length >= 12 &&
-    !/\s/.test(password) &&
-    /[a-z]/.test(password) &&
-    /[A-Z]/.test(password) &&
-    /\d/.test(password) &&
-    /[^A-Za-z0-9\s]/.test(password) &&
-    personalTerms.every((term) => !normalized.includes(term));
+  return getPasswordRequirementChecks(password, normalized, personalTerms).every(Boolean);
+};
+
+const getPasswordRequirementChecks = (password: string, normalized: string, personalTerms: string[]) => [
+  password.length >= 12,
+  /[a-z]/.test(password) && /[A-Z]/.test(password),
+  /\d/.test(password),
+  /[^A-Za-z0-9\s]/.test(password),
+  !/\s/.test(password),
+  personalTerms.every((term) => !normalized.includes(term)),
+];
+
+const meetsPasswordRequirementMajority = (password: string, name: string, email: string) => {
+  if (!password) return false;
+  const personalTerms = [
+    ...name.toLowerCase().split(/[^a-z0-9]+/),
+    email.toLowerCase().split("@")[0],
+    name.toLowerCase().replace(/[^a-z0-9]/g, ""),
+  ].map((term) => term.replace(/[^a-z0-9]/g, "")).filter((term) => term.length >= 4);
+  const normalized = password.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return getPasswordRequirementChecks(password, normalized, personalTerms).filter(Boolean).length >= 4;
 };
 
 type UserProfile = {
@@ -2369,8 +2383,8 @@ Deno.serve(async (req) => {
       const password = String(body.password || "");
       const accountName = cleanText(actor.name, 80);
       const accountEmail = cleanText(actor.email || authData.user.email, 254).toLowerCase();
-      if (!isStrongPassword(password, accountName, accountEmail)) {
-        return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, no spaces, and no account name or email." }, 400);
+      if (!meetsPasswordRequirementMajority(password, accountName, accountEmail)) {
+        return jsonResponse({ error: "Meet at least 4 of the 6 password requirements." }, 400);
       }
       const { error: passwordError } = await admin.auth.admin.updateUserById(authData.user.id, { password });
       if (passwordError) throw passwordError;

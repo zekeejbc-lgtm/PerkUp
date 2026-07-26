@@ -2,7 +2,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { AlertTriangle, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { sanitizePasswordInput, validateStrongPassword } from "../lib/passwordStrength";
+import { sanitizePasswordInput, validateMajorityPassword } from "../lib/passwordStrength";
 import { invokeAdminBackend } from "../lib/adminBackend";
 
 export function FirstLoginPasswordChange() {
@@ -15,14 +15,16 @@ export function FirstLoginPasswordChange() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const validation = useMemo(
-    () => validateStrongPassword(password, { name: user?.name, email: user?.email }),
+    () => validateMajorityPassword(password, { name: user?.name, email: user?.email }),
     [password, user?.name, user?.email],
   );
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
-    if (!validation.valid) return setError("Your new password must meet every requirement.");
+    if (!validation.valid) {
+      return setError(`Your new password must meet at least ${validation.requiredCount} of ${validation.requirements.length} requirements.`);
+    }
     if (password !== confirmation) return setError("The passwords do not match.");
     setSubmitting(true);
     try {
@@ -74,6 +76,9 @@ export function FirstLoginPasswordChange() {
             </span>
           ))}
         </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Meet at least {validation.requiredCount} of {validation.requirements.length} requirements ({validation.metCount} currently met).
+        </p>
         <div className="space-y-2">
           <label htmlFor="first-login-password-confirmation" className="text-sm font-semibold text-gray-900 dark:text-white">Confirm new password</label>
           <div className="relative">
