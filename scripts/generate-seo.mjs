@@ -8,8 +8,6 @@ const distDirectory = path.join(root, "dist");
 const baseHtml = await readFile(path.join(distDirectory, "index.html"), "utf8");
 const siteUrl = "https://www.perktoday.com";
 const defaultImage = `${siteUrl}/icons/perkup-logo-source.png`;
-const heroPreload = `    <link rel="preconnect" href="https://images.unsplash.com" />
-    <link rel="preload" as="image" href="https://images.unsplash.com/photo-1554118811-1e0d58224f24?q=35&amp;w=1280&amp;auto=format&amp;fit=crop" imagesrcset="https://images.unsplash.com/photo-1554118811-1e0d58224f24?q=35&amp;w=640&amp;auto=format&amp;fit=crop 640w, https://images.unsplash.com/photo-1554118811-1e0d58224f24?q=35&amp;w=768&amp;auto=format&amp;fit=crop 768w, https://images.unsplash.com/photo-1554118811-1e0d58224f24?q=35&amp;w=960&amp;auto=format&amp;fit=crop 960w, https://images.unsplash.com/photo-1554118811-1e0d58224f24?q=35&amp;w=1280&amp;auto=format&amp;fit=crop 1280w, https://images.unsplash.com/photo-1554118811-1e0d58224f24?q=35&amp;w=1600&amp;auto=format&amp;fit=crop 1600w" imagesizes="100vw" fetchpriority="high" />\n`;
 
 const escapeHtml = (value = "") => String(value)
   .replaceAll("&", "&amp;")
@@ -128,8 +126,6 @@ const renderPage = (page, { image = defaultImage, jsonLd, extra = "" } = {}) => 
     .replace(/<title>[^<]*<\/title>/i, `<title>${escapeHtml(page.title)}</title>`)
     .replace(/<link\s+rel=["']canonical["'][^>]*>/i, `<link rel="canonical" href="${escapeHtml(canonical)}" />`)
     .replace('<div id="root"></div>', `<div id="root">${createFallback(page, extra)}</div>`);
-
-  if (page.path === "/") html = html.replace("</head>", `${heroPreload}  </head>`);
 
   html = replaceMeta(html, "name", "description", page.description);
   html = replaceMeta(html, "name", "robots", "index, follow");

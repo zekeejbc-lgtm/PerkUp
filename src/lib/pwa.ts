@@ -1,32 +1,14 @@
 /// <reference types="vite/client" />
 
 const UPDATE_EVENT = "perkup:pwa-update-ready";
-const INSTALL_EVENT = "perkup:pwa-install-ready";
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
-}
 
 let waitingWorker: ServiceWorker | null = null;
-let installPrompt: BeforeInstallPromptEvent | null = null;
 let applyingUpdate = false;
 
 const announce = (eventName: string) => window.dispatchEvent(new Event(eventName));
 
 export function registerServiceWorker() {
   if (!("serviceWorker" in navigator) || !import.meta.env.PROD) return;
-
-  window.addEventListener("beforeinstallprompt", (event) => {
-    event.preventDefault();
-    installPrompt = event as BeforeInstallPromptEvent;
-    announce(INSTALL_EVENT);
-  });
-
-  window.addEventListener("appinstalled", () => {
-    installPrompt = null;
-    announce(INSTALL_EVENT);
-  });
 
   window.addEventListener("load", () => {
     // Precache installation is intentionally delayed so it cannot compete
@@ -63,23 +45,12 @@ export function registerServiceWorker() {
   });
 }
 
-export const pwaEvents = { update: UPDATE_EVENT, install: INSTALL_EVENT } as const;
+export const pwaEvents = { update: UPDATE_EVENT } as const;
 
 export const hasPwaUpdate = () => Boolean(waitingWorker);
-export const canInstallPwa = () => Boolean(installPrompt);
 
 export function applyPwaUpdate() {
   if (!waitingWorker) return;
   applyingUpdate = true;
   waitingWorker.postMessage({ type: "SKIP_WAITING" });
-}
-
-export async function showPwaInstallPrompt() {
-  if (!installPrompt) return "unavailable" as const;
-  const prompt = installPrompt;
-  await prompt.prompt();
-  const { outcome } = await prompt.userChoice;
-  installPrompt = null;
-  announce(INSTALL_EVENT);
-  return outcome;
 }
