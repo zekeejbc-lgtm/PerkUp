@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { createPayMongoPaymentLink } from "../_shared/paymongo.ts";
+import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
 const PAYMONGO_API = "https://api.paymongo.com/v1";
 
@@ -222,6 +223,10 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false },
     });
+    const runtime = await readRuntimeConfig(admin);
+    if (!isServiceRequest && runtime.mode === "maintenance") {
+      return jsonResponse(maintenanceError(runtime), 503);
+    }
     let invoiceQuery = admin.from("billing_invoices")
       .select("id,subscription_id,store_id,owner_user_id,invoice_type,status,due_at,paymongo_link_id,payment_url,amount_centavos,currency,livemode,paid_at,period_end,paymongo_reference_number,subscription:billing_subscriptions(billing_email,plan_id)")
       .eq("store_id", storeId)

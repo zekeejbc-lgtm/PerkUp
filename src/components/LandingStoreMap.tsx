@@ -24,6 +24,7 @@ const createCustomPin = (store: DirectoryStore) => {
             position: "absolute",
             inset: 0,
             borderRadius: "50%",
+            backgroundColor: "#ffffff",
             backgroundImage: `url(${JSON.stringify(getDisplayImageUrl(store.logoUrl))})`,
             backgroundPosition: "center",
             backgroundRepeat: "no-repeat",

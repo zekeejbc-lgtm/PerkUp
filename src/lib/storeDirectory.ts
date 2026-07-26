@@ -11,7 +11,7 @@ export interface DirectoryStore {
 }
 
 export const isStorePubliclyVisible = (store: Record<string, unknown> | null | undefined) => {
-  if (!store || store.status !== "active") return false;
+  if (!store || store.status !== "active" || store.isDemo === true) return false;
   return store.initialPaymentRequired !== true && store.initialPaymentStatus !== "pending";
 };
 

@@ -14,6 +14,8 @@ import { PublicSiteFooter } from "./components/PublicPageShell";
 import { GlobalImageViewer } from "./components/GlobalImageViewer";
 import { RouteSeo } from "./components/Seo";
 import { PwaPrompts } from "./components/PwaPrompts";
+import { useRuntimeMode } from "./contexts/RuntimeModeContext";
+import { MaintenanceScreen } from "./components/MaintenanceScreen";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
@@ -196,6 +198,39 @@ function MfaChallenge({ onVerified, profile }: { onVerified: () => void; profile
   );
 }
 
+function RestrictedAccountScreen({ status, reason }: { status: "suspended" | "banned"; reason?: string }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 dark:bg-[#1b1b1b]">
+      <div className="w-full max-w-lg rounded-[2rem] border border-red-200 bg-white p-7 text-center shadow-sm dark:border-red-900/60 dark:bg-gray-900 sm:p-9">
+        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300">
+          <AlertTriangle className="h-7 w-7" />
+        </span>
+        <p className="mt-5 text-xs font-bold uppercase tracking-[0.2em] text-red-600 dark:text-red-400">
+          Account {status}
+        </p>
+        <h1 className="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
+          Your PerkUp access is unavailable
+        </h1>
+        <p className="mt-3 leading-7 text-gray-600 dark:text-gray-300">
+          {reason || (status === "banned"
+            ? "This account has been banned by a PerkUp administrator."
+            : "This account is temporarily suspended while it is under administrative review.")}
+        </p>
+        <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+          Contact PerkUp Support if you believe this restriction was applied in error.
+        </p>
+        <button
+          type="button"
+          onClick={logOut}
+          className="mt-7 inline-flex min-w-40 items-center justify-center rounded-xl bg-gray-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-black dark:bg-white dark:text-gray-900"
+        >
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ProtectedRoute({ children, allowedRoles }: { children: ReactNode, allowedRoles?: Role[] }) {
   const { user, loading } = useAuth();
   const location = useLocation();
@@ -253,6 +288,10 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode, allow
         }}
       />
     );
+  }
+
+  if (user.accountStatus === "suspended" || user.accountStatus === "banned") {
+    return <RestrictedAccountScreen status={user.accountStatus} reason={user.accountStatusReason} />;
   }
 
   if (user.forcePasswordReset) {
@@ -380,6 +419,21 @@ function Layout({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
+  const { config, loading } = useRuntimeMode();
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-white dark:bg-[#151515]">
+        <div className="flex flex-col items-center gap-5" role="status" aria-label="Checking system status">
+          <BrandMark />
+          <Loader2 className="h-6 w-6 animate-spin text-gray-500" />
+        </div>
+      </div>
+    );
+  }
+
+  if (config.mode === "maintenance") return <MaintenanceScreen />;
+
   return (
     <>
       <ScrollPositionManager />

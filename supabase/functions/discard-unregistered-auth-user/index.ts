@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { sessionNeedsMfa } from "../_shared/auth.ts";
+import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
 const requiredEnv = (name: string) => {
   const value = Deno.env.get(name);
@@ -22,6 +23,8 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
       auth: { persistSession: false },
     });
+    const runtime = await readRuntimeConfig(admin);
+    if (runtime.mode === "maintenance") return jsonResponse(maintenanceError(runtime), 503);
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) {

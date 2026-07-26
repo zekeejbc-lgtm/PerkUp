@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
+import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
@@ -92,6 +93,8 @@ Deno.serve(async (req) => {
     const admin = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
       auth: { persistSession: false },
     });
+    const runtime = await readRuntimeConfig(admin);
+    if (runtime.mode === "maintenance") return jsonResponse(maintenanceError(runtime), 503);
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const action = cleanText(body.action, 40).toLowerCase();
 

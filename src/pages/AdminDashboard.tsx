@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState } from "react";
-import { Store, FileText, Layout, CreditCard, Menu, UserCircle, Scale, Inbox } from "lucide-react";
+import { Store, FileText, Layout, CreditCard, Menu, UserCircle, Scale, Inbox, ReceiptText, Users, ShieldCheck, ServerCog, FlaskConical, RadioTower } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { PageSkeleton } from "../components/LoadingSkeleton";
 import { useAuth } from "../contexts/AuthContext";
@@ -9,6 +9,12 @@ const AdminApplications = lazy(() => import("./admin/AdminApplications"));
 const AdminAccount = lazy(() => import("./admin/AdminAccount"));
 const AdminHomepage = lazy(() => import("./admin/AdminHomepage"));
 const AdminSubscriptions = lazy(() => import("./admin/AdminSubscriptions"));
+const AdminInvoices = lazy(() => import("./admin/AdminInvoices"));
+const AdminAccounts = lazy(() => import("./admin/AdminAccounts"));
+const AdminAudit = lazy(() => import("./admin/AdminAudit"));
+const AdminSystemHealth = lazy(() => import("./admin/AdminSystemHealth"));
+const AdminDemoManagement = lazy(() => import("./admin/AdminDemoManagement"));
+const AdminRuntimeControl = lazy(() => import("./admin/AdminRuntimeControl"));
 const AdminLegalPages = lazy(() => import("./admin/AdminLegalPages"));
 const AdminPublicEngagement = lazy(() => import("./admin/AdminPublicEngagement"));
 
@@ -20,13 +26,22 @@ export default function AdminDashboard() {
 
   const isAccountPage = location.pathname === '/admin/account';
   const requestedTab = new URLSearchParams(location.search).get('tab');
+  const isDemoAdmin = user?.role === "admin" && user?.isDemo === true;
   
   const activeTab =
-    requestedTab === 'applications' ||
+    isDemoAdmin
+      ? requestedTab === 'accounts' ? 'accounts' : 'stores'
+      : requestedTab === 'applications' ||
     requestedTab === 'homepage' ||
     requestedTab === 'subscriptions' ||
+    requestedTab === 'invoices' ||
+    requestedTab === 'accounts' ||
     requestedTab === 'inbox' ||
-    (requestedTab === 'legal' && (user?.role === 'admin' || user?.role === 'assistant_admin'))
+    requestedTab === 'legal' ||
+    (requestedTab === 'demos' && user?.role === 'auditor') ||
+    (requestedTab === 'health' && user?.role === 'auditor') ||
+    (requestedTab === 'runtime' && user?.role === 'auditor') ||
+    (requestedTab === 'audit' && user?.role === 'auditor')
       ? requestedTab
       : 'stores';
 
@@ -38,17 +53,32 @@ export default function AdminDashboard() {
     navigate(`/admin?tab=${item.id}`);
   };
 
-  const navigation = [
+  const standardNavigation = [
     { id: 'stores', label: 'Partner Stores', icon: Store },
     { id: 'applications', label: 'Applications', icon: FileText },
     { id: 'inbox', label: 'Admin Inbox', icon: Inbox },
     { id: 'homepage', label: 'Edit Homepage', icon: Layout },
-    ...((user?.role === "admin" || user?.role === "assistant_admin")
-      ? [{ id: 'legal' as const, label: 'Edit Legal Pages', icon: Scale }]
-      : []),
+    { id: 'legal', label: 'Edit Legal Pages', icon: Scale },
     { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
+    { id: 'invoices', label: 'Issued Invoices', icon: ReceiptText },
+    { id: 'accounts', label: 'Account Management', icon: Users },
+    ...(user?.role === "auditor"
+      ? [
+          { id: 'audit' as const, label: 'Audit Center', icon: ShieldCheck },
+          { id: 'demos' as const, label: 'Demo Management', icon: FlaskConical },
+          { id: 'runtime' as const, label: 'Runtime Modes', icon: RadioTower },
+          { id: 'health' as const, label: 'System Diagnosis', icon: ServerCog },
+        ]
+      : []),
     { id: 'account', label: 'Account', icon: UserCircle },
   ] as const;
+  const navigation = isDemoAdmin
+    ? [
+        { id: 'stores' as const, label: 'Partner Stores', icon: Store },
+        { id: 'accounts' as const, label: 'Account Management', icon: Users },
+        { id: 'account' as const, label: 'Account', icon: UserCircle },
+      ]
+    : standardNavigation;
 
   const isActive = (item: typeof navigation[number]) => {
     if (item.id === 'account') return isAccountPage;
@@ -61,6 +91,12 @@ export default function AdminDashboard() {
     activeTab === 'inbox' ? 'table' :
     activeTab === 'homepage' ? 'homepage' :
     activeTab === 'subscriptions' ? 'subscriptions' :
+    activeTab === 'invoices' ? 'table' :
+    activeTab === 'accounts' ? 'table' :
+    activeTab === 'audit' ? 'table' :
+    activeTab === 'demos' ? 'table' :
+    activeTab === 'health' ? 'table' :
+    activeTab === 'runtime' ? 'form' :
     activeTab === 'legal' ? 'form' :
     'table';
 
@@ -119,6 +155,11 @@ export default function AdminDashboard() {
       </nav>
 
       <div className="flex-1 min-w-0 bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-4 sm:p-6 md:p-8 shadow-sm transition-colors">
+        {isDemoAdmin && !isAccountPage && (
+          <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-medium text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+            Demo administrator sandbox preview. Data is limited to this demo tenant and management actions are read-only.
+          </div>
+        )}
         <Suspense fallback={<PageSkeleton variant={fallbackVariant} />}>
           {isAccountPage ? (
             <AdminAccount />
@@ -130,6 +171,12 @@ export default function AdminDashboard() {
               {activeTab === 'homepage' && <AdminHomepage />}
               {activeTab === 'legal' && <AdminLegalPages />}
               {activeTab === 'subscriptions' && <AdminSubscriptions />}
+              {activeTab === 'invoices' && <AdminInvoices />}
+              {activeTab === 'accounts' && <AdminAccounts />}
+              {activeTab === 'audit' && <AdminAudit />}
+              {activeTab === 'demos' && <AdminDemoManagement />}
+              {activeTab === 'health' && <AdminSystemHealth />}
+              {activeTab === 'runtime' && <AdminRuntimeControl />}
             </>
           )}
         </Suspense>

@@ -33,6 +33,11 @@ export interface AppUser {
   skipMfaOnTrustedDevice?: boolean;
   trustedLoginDevices?: TrustedLoginDevice[];
   forcePasswordReset?: boolean;
+  accountStatus?: "active" | "suspended" | "banned";
+  accountStatusReason?: string;
+  isDemo?: boolean;
+  demoTenantId?: string;
+  demoExpiresAt?: string;
 }
 
 interface AuthContextType {
@@ -97,10 +102,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (Object.keys(profilePatch).length > 0) {
         await setDoc(userDocRef, { ...profilePatch, updatedAt: serverTimestamp() }, { merge: true });
       }
+      const demoHasExpired =
+        existingUser.isDemo === true &&
+        (!existingUser.demoExpiresAt || Date.parse(existingUser.demoExpiresAt) <= Date.now());
       setUser({
         id: sessionUser.uid,
         ...existingUser,
         ...profilePatch,
+        ...(demoHasExpired
+          ? {
+              accountStatus: "suspended",
+              accountStatusReason: "This demo sandbox has expired. Ask an auditor to reactivate it.",
+            }
+          : {}),
       } as AppUser);
       return;
     }

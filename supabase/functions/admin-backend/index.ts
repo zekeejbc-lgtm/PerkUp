@@ -2,10 +2,22 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { sessionNeedsMfa } from "../_shared/auth.ts";
 import { createPayMongoPaymentLink } from "../_shared/paymongo.ts";
+import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
 const DEFAULT_APP_URL = "https://www.perktoday.com";
+const PERMANENT_AUDITOR_EMAIL = "ezequieljohncrisostomo20@gmail.com";
+const PRIVILEGED_ROLES = new Set(["admin", "assistant_admin", "auditor"]);
+const MANAGED_ROLES = new Set([
+  "customer",
+  "staff",
+  "store_owner",
+  "admin",
+  "assistant_admin",
+  "auditor",
+]);
+const ACCOUNT_STATUSES = new Set(["active", "suspended", "banned"]);
 
 const requiredEnv = (name: string) => {
   const value = Deno.env.get(name);
@@ -60,9 +72,18 @@ const isStrongPassword = (password: string, name: string, email: string) => {
 type UserProfile = {
   role?: string;
   storeId?: string;
+  isDemo?: boolean;
+  demoTenantId?: string;
+  demoExpiresAt?: string;
   email?: string;
   name?: string;
   username?: string;
+  phone?: string;
+  number?: string;
+  avatarUrl?: string;
+  photoURL?: string;
+  accountStatus?: string;
+  accountStatusReason?: string;
   forcePasswordReset?: boolean;
   branchLimit?: number;
 };
@@ -84,10 +105,12 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false },
     });
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const action = cleanText(body.action, 60);
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) return jsonResponse({ error: "Authentication required." }, 401);
-    if (await sessionNeedsMfa(userClient, authorization)) {
+    if (action !== "end_maintenance_mode" && await sessionNeedsMfa(userClient, authorization)) {
       return jsonResponse({ error: "Complete multi-factor authentication to continue.", code: "mfa_required" }, 403);
     }
 
@@ -99,10 +122,1009 @@ Deno.serve(async (req) => {
     if (actorError) throw actorError;
 
     const actor = (actorRow?.data || {}) as UserProfile;
-    const actorIsAdmin = actor.role === "admin" || actor.role === "assistant_admin";
-    const actorCanReview = actorIsAdmin || actor.role === "auditor";
-    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    const action = cleanText(body.action, 40);
+    const actorStatus = cleanText(actor.accountStatus || "active", 20).toLowerCase();
+    if (actorStatus === "suspended" || actorStatus === "banned") {
+      return jsonResponse({ error: `This account is ${actorStatus}. Contact a PerkUp administrator.` }, 403);
+    }
+    const actorIsAdmin = PRIVILEGED_ROLES.has(cleanText(actor.role, 30));
+    const actorCanReview = actorIsAdmin;
+    const runtimeConfig = await readRuntimeConfig(admin);
+
+    if (action === "get_runtime_config") {
+      if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
+      return jsonResponse({ config: runtimeConfig });
+    }
+
+    if (action === "set_runtime_mode") {
+      if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
+      const mode = cleanText(body.mode, 30).toLowerCase();
+      if (!["production", "development"].includes(mode)) {
+        return jsonResponse({ error: "Select production or development mode." }, 400);
+      }
+      if (runtimeConfig.mode === "maintenance") {
+        return jsonResponse({ error: "End maintenance through the authenticated maintenance recovery flow first." }, 409);
+      }
+      const now = new Date().toISOString();
+      const { error } = await admin.from("system_runtime_config").update({
+        mode,
+        mode_before_maintenance: mode,
+        mode_changed_at: now,
+        mode_changed_by: authData.user.id,
+      }).eq("id", "global");
+      if (error) throw error;
+      await writeAuditEvent(admin, {
+        actorUserId: authData.user.id,
+        actorEmail: authData.user.email || actor.email,
+        actorRole: actor.role,
+        action: "set_runtime_mode",
+        entityType: "system_runtime",
+        entityId: "global",
+        metadata: { previousMode: runtimeConfig.mode, mode },
+      });
+      return jsonResponse({ config: { ...runtimeConfig, mode, mode_before_maintenance: mode, mode_changed_at: now } });
+    }
+
+    if (action === "initiate_maintenance_mode") {
+      if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
+      if (runtimeConfig.mode === "maintenance") {
+        return jsonResponse({ error: "Maintenance mode is already active." }, 409);
+      }
+      const password = String(body.password || "");
+      const confirmation = cleanText(body.confirmation, 80);
+      const title = cleanText(body.title, 120) || "Scheduled maintenance";
+      const reason = cleanText(body.reason, 2000);
+      const details = cleanText(body.details, 4000);
+      if (confirmation !== "INITIATE MAINTENANCE MODE") {
+        return jsonResponse({ error: 'Type "INITIATE MAINTENANCE MODE" exactly to continue.' }, 400);
+      }
+      if (!reason) return jsonResponse({ error: "Enter the maintenance reason shown to visitors." }, 400);
+      if (!password || !authData.user.email || !await verifyActorPassword(supabaseUrl, anonKey, authData.user.email, password)) {
+        return jsonResponse({ error: "The auditor password is incorrect." }, 403);
+      }
+      const now = new Date().toISOString();
+      const { error } = await admin.from("system_runtime_config").update({
+        mode: "maintenance",
+        mode_before_maintenance: runtimeConfig.mode === "development" ? "development" : "production",
+        maintenance_title: title,
+        maintenance_reason: reason,
+        maintenance_details: details,
+        maintenance_started_at: now,
+        maintenance_started_by: authData.user.id,
+        mode_changed_at: now,
+        mode_changed_by: authData.user.id,
+      }).eq("id", "global");
+      if (error) throw error;
+      await writeAuditEvent(admin, {
+        actorUserId: authData.user.id,
+        actorEmail: authData.user.email || actor.email,
+        actorRole: actor.role,
+        action: "initiate_maintenance_mode",
+        entityType: "system_runtime",
+        entityId: "global",
+        metadata: { previousMode: runtimeConfig.mode, title, reason, details },
+      });
+      return jsonResponse({
+        config: {
+          mode: "maintenance",
+          mode_before_maintenance: runtimeConfig.mode,
+          maintenance_title: title,
+          maintenance_reason: reason,
+          maintenance_details: details,
+          maintenance_started_at: now,
+        },
+      });
+    }
+
+    if (action === "end_maintenance_mode") {
+      if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
+      const password = String(body.password || "");
+      const confirmation = cleanText(body.confirmation, 80);
+      if (confirmation !== "END MAINTENANCE MODE") {
+        return jsonResponse({ error: 'Type "END MAINTENANCE MODE" exactly to continue.' }, 400);
+      }
+      if (!password || !authData.user.email || !await verifyActorPassword(supabaseUrl, anonKey, authData.user.email, password)) {
+        return jsonResponse({ error: "The auditor password is incorrect." }, 403);
+      }
+      const nextMode = "production";
+      const now = new Date().toISOString();
+      const { error } = await admin.from("system_runtime_config").update({
+        mode: nextMode,
+        mode_before_maintenance: nextMode,
+        maintenance_started_at: null,
+        maintenance_started_by: null,
+        mode_changed_at: now,
+        mode_changed_by: authData.user.id,
+      }).eq("id", "global");
+      if (error) throw error;
+      await writeAuditEvent(admin, {
+        actorUserId: authData.user.id,
+        actorEmail: authData.user.email || actor.email,
+        actorRole: actor.role,
+        action: "end_maintenance_mode",
+        entityType: "system_runtime",
+        entityId: "global",
+        metadata: { previousMode: runtimeConfig.mode, mode: nextMode },
+      });
+      return jsonResponse({ config: { ...runtimeConfig, mode: nextMode, mode_before_maintenance: nextMode, mode_changed_at: now } });
+    }
+
+    if (runtimeConfig.mode === "maintenance") {
+      return jsonResponse(maintenanceError(runtimeConfig), 503);
+    }
+
+    if (actor.isDemo && actor.role === "admin" && !["list_accounts", "list_account_stores"].includes(action)) {
+      return jsonResponse({ error: "Demo administrator access is a read-only sandbox preview." }, 403);
+    }
+
+    if (action === "list_accounts") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+
+      const [profileRows, authUsers, storeRows] = await Promise.all([
+        readAllRows(admin, "users", "id,data,created_at,updated_at"),
+        listAllAuthUsers(admin),
+        readAllRows(admin, "stores", "id,data,created_at"),
+      ]);
+      const authById = new Map(authUsers.map((authUser: any) => [String(authUser.id), authUser]));
+      const storesById = new Map(storeRows.map((row: any) => [String(row.id), row.data || {}]));
+      const search = cleanText(body.search, 160).toLowerCase();
+      const roleFilter = cleanText(body.role, 30).toLowerCase() || "all";
+      const statusFilter = cleanText(body.status, 30).toLowerCase() || "all";
+      const storeFilter = cleanText(body.storeId, 100) || "all";
+      const page = Math.max(1, Math.trunc(Number(body.page) || 1));
+      const pageSize = Math.max(10, Math.min(100, Math.trunc(Number(body.pageSize) || 25)));
+      const productionProfileRows = actor.isDemo && actor.demoTenantId
+        ? profileRows.filter((row: any) =>
+          row.data?.isDemo === true && row.data?.demoTenantId === actor.demoTenantId
+        )
+        : profileRows.filter((row: any) => row.data?.isDemo !== true);
+
+      const accounts = productionProfileRows.map((row: any) => {
+        const profile = (row.data || {}) as UserProfile;
+        const authUser = authById.get(String(row.id)) as any;
+        const email = cleanText(authUser?.email || profile.email, 254).toLowerCase();
+        const storeId = cleanText(profile.storeId, 100);
+        const store = storesById.get(storeId) as any;
+        return {
+          id: String(row.id),
+          email,
+          name: cleanText(profile.name, 120) || "Unnamed account",
+          phone: cleanText(profile.phone || profile.number, 40),
+          avatarUrl: cleanText(profile.avatarUrl || profile.photoURL, 2000),
+          role: cleanText(profile.role || "customer", 30),
+          accountStatus: cleanText(profile.accountStatus || (authUser?.banned_until ? "banned" : "active"), 20),
+          accountStatusReason: cleanText(profile.accountStatusReason, 500),
+          storeId,
+          storeName: cleanText(store?.businessName || store?.name, 160),
+          lastAccessedAt: cleanText(authUser?.last_sign_in_at, 100) || null,
+          createdAt: cleanText(authUser?.created_at || row.created_at, 100) || null,
+          updatedAt: cleanText(row.updated_at, 100) || null,
+          isPermanentAuditor: email === PERMANENT_AUDITOR_EMAIL,
+        };
+      }).filter((account: any) => {
+        if (roleFilter !== "all" && account.role !== roleFilter) return false;
+        if (statusFilter !== "all" && account.accountStatus !== statusFilter) return false;
+        if (storeFilter !== "all" && account.storeId !== storeFilter) return false;
+        if (!search) return true;
+        return [
+          account.name,
+          account.email,
+          account.phone,
+          account.role,
+          account.accountStatus,
+          account.storeName,
+        ].some((value) => String(value || "").toLowerCase().includes(search));
+      }).sort((left: any, right: any) => {
+        const leftTime = Date.parse(left.lastAccessedAt || left.createdAt || "") || 0;
+        const rightTime = Date.parse(right.lastAccessedAt || right.createdAt || "") || 0;
+        return rightTime - leftTime || left.name.localeCompare(right.name);
+      });
+
+      const from = (page - 1) * pageSize;
+      const summary = productionProfileRows.reduce((result: Record<string, number>, row: any) => {
+        const profile = (row.data || {}) as UserProfile;
+        const status = cleanText(profile.accountStatus || "active", 20);
+        result.total += 1;
+        result[cleanText(profile.role || "customer", 30)] = (result[cleanText(profile.role || "customer", 30)] || 0) + 1;
+        result[status] = (result[status] || 0) + 1;
+        return result;
+      }, { total: 0, active: 0, suspended: 0, banned: 0 });
+
+      return jsonResponse({
+        accounts: accounts.slice(from, from + pageSize),
+        page,
+        pageSize,
+        total: accounts.length,
+        summary,
+      });
+    }
+
+    if (action === "list_account_stores") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const storeRows = await readAllRows(admin, "stores", "id,data,created_at");
+      const stores = storeRows.filter((row: any) =>
+        actor.isDemo && actor.demoTenantId
+          ? row.data?.isDemo === true && row.data?.demoTenantId === actor.demoTenantId
+          : row.data?.isDemo !== true
+      ).map((row: any) => ({
+        id: String(row.id),
+        name: cleanText(row.data?.businessName || row.data?.name, 160) || "Unnamed store",
+        ownerId: cleanText(row.data?.ownerId, 100),
+        status: cleanText(row.data?.status || "active", 30),
+        isPrimaryBranch: row.data?.isPrimaryBranch === true,
+        parentStoreId: cleanText(row.data?.parentStoreId, 100),
+      })).sort((left, right) => left.name.localeCompare(right.name));
+      return jsonResponse({ stores });
+    }
+
+    if (action === "list_demo_tenants") {
+      if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
+      await reconcileExpiredDemoTenants(admin);
+
+      const [tenantRows, accountRows, authUsers] = await Promise.all([
+        readAllRows(admin, "demo_tenants", "id,name,slug,status,store_id,owner_user_id,expires_at,created_by,deactivated_at,deactivated_by,created_at,updated_at"),
+        readAllRows(admin, "demo_accounts", "auth_user_id,tenant_id,role,email,name,status,created_at,updated_at"),
+        listAllAuthUsers(admin),
+      ]);
+      const authById = new Map(authUsers.map((authUser: any) => [String(authUser.id), authUser]));
+      const accountsByTenant = new Map<string, any[]>();
+      for (const account of accountRows) {
+        const tenantId = String(account.tenant_id);
+        const tenantAccounts = accountsByTenant.get(tenantId) || [];
+        const authUser = authById.get(String(account.auth_user_id)) as any;
+        tenantAccounts.push({
+          id: String(account.auth_user_id),
+          role: cleanText(account.role, 30),
+          email: cleanText(account.email, 254),
+          name: cleanText(account.name, 120),
+          status: cleanText(account.status, 30),
+          lastAccessedAt: cleanText(authUser?.last_sign_in_at, 100) || null,
+          createdAt: account.created_at,
+        });
+        accountsByTenant.set(tenantId, tenantAccounts);
+      }
+
+      const search = cleanText(body.search, 160).toLowerCase();
+      const statusFilter = cleanText(body.status, 30).toLowerCase() || "all";
+      const expiryFilter = cleanText(body.expiry, 30).toLowerCase() || "all";
+      const page = Math.max(1, Math.trunc(Number(body.page) || 1));
+      const pageSize = Math.max(5, Math.min(100, Math.trunc(Number(body.pageSize) || 10)));
+      const now = Date.now();
+      const tenants = tenantRows.map((row: any) => {
+        const accounts = (accountsByTenant.get(String(row.id)) || [])
+          .sort((left, right) => left.role.localeCompare(right.role) || left.name.localeCompare(right.name));
+        return {
+          id: String(row.id),
+          name: cleanText(row.name, 120),
+          slug: cleanText(row.slug, 60),
+          status: cleanText(row.status, 30),
+          storeId: cleanText(row.store_id, 100),
+          ownerUserId: cleanText(row.owner_user_id, 100),
+          expiresAt: row.expires_at,
+          createdBy: cleanText(row.created_by, 100),
+          deactivatedAt: row.deactivated_at,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          accounts,
+        };
+      }).filter((tenant: any) => {
+        if (statusFilter !== "all" && tenant.status !== statusFilter) return false;
+        const remaining = Date.parse(tenant.expiresAt) - now;
+        if (expiryFilter === "24h" && (remaining <= 0 || remaining > 86_400_000)) return false;
+        if (expiryFilter === "7d" && (remaining <= 0 || remaining > 7 * 86_400_000)) return false;
+        if (!search) return true;
+        return [
+          tenant.name,
+          tenant.slug,
+          tenant.storeId,
+          ...tenant.accounts.flatMap((account: any) => [account.name, account.email, account.role]),
+        ].some((value) => String(value || "").toLowerCase().includes(search));
+      }).sort((left: any, right: any) => {
+        if (left.status === "active" && right.status !== "active") return -1;
+        if (right.status === "active" && left.status !== "active") return 1;
+        return Date.parse(right.createdAt) - Date.parse(left.createdAt);
+      });
+
+      const from = (page - 1) * pageSize;
+      return jsonResponse({
+        tenants: tenants.slice(from, from + pageSize),
+        page,
+        pageSize,
+        total: tenants.length,
+        summary: {
+          total: tenantRows.length,
+          active: tenantRows.filter((row: any) => row.status === "active").length,
+          deactivated: tenantRows.filter((row: any) => row.status === "deactivated").length,
+          expired: tenantRows.filter((row: any) => row.status === "expired").length,
+          accounts: accountRows.length,
+        },
+      });
+    }
+
+    if (action === "create_demo_tenant") {
+      if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
+      const name = cleanText(body.name, 120);
+      const durationHours = Math.trunc(Number(body.durationHours));
+      const staffCount = Math.trunc(Number(body.staffCount ?? 1));
+      const includeCustomer = body.includeCustomer !== false;
+      const includeAdmin = body.includeAdmin !== false;
+      if (name.length < 2) return jsonResponse({ error: "Enter a demo sandbox name." }, 400);
+      if (!Number.isInteger(durationHours) || durationHours < 1 || durationHours > 2_160) {
+        return jsonResponse({ error: "Demo access must last between 1 hour and 90 days." }, 400);
+      }
+      if (!Number.isInteger(staffCount) || staffCount < 1 || staffCount > 10) {
+        return jsonResponse({ error: "Create between 1 and 10 staff accounts at a time." }, 400);
+      }
+
+      const tenantId = crypto.randomUUID();
+      const storeId = `demo-${tenantId}`;
+      const slug = `${slugify(name).slice(0, 36) || "sandbox"}-${randomToken(6).toLowerCase()}`;
+      const expiresAt = new Date(Date.now() + durationHours * 3_600_000).toISOString();
+      const createdUserIds: string[] = [];
+      let storeCreated = false;
+
+      try {
+        const credentials: DemoCredential[] = [];
+        const ownerCredential = await createDemoAccount(admin, {
+          tenantId,
+          storeId,
+          expiresAt,
+          role: "store_owner",
+          email: demoEmail(slug, "owner"),
+          name: `${name} Owner`,
+        });
+        createdUserIds.push(ownerCredential.userId);
+        credentials.push(ownerCredential);
+
+        for (let index = 1; index <= staffCount; index += 1) {
+          const staffCredential = await createDemoAccount(admin, {
+            tenantId,
+            storeId,
+            expiresAt,
+            role: "staff",
+            email: demoEmail(slug, `staff${index}`),
+            name: `${name} Staff ${index}`,
+          });
+          createdUserIds.push(staffCredential.userId);
+          credentials.push(staffCredential);
+        }
+
+        if (includeCustomer) {
+          const customerCredential = await createDemoAccount(admin, {
+            tenantId,
+            storeId,
+            expiresAt,
+            role: "customer",
+            email: demoEmail(slug, "customer"),
+            name: `${name} Customer`,
+            username: `demo.${randomToken(10).toLowerCase()}`,
+          });
+          createdUserIds.push(customerCredential.userId);
+          credentials.push(customerCredential);
+        }
+
+        if (includeAdmin) {
+          const adminCredential = await createDemoAccount(admin, {
+            tenantId,
+            storeId,
+            expiresAt,
+            role: "admin",
+            email: demoEmail(slug, "admin"),
+            name: `${name} Admin`,
+          });
+          createdUserIds.push(adminCredential.userId);
+          credentials.push(adminCredential);
+        }
+
+        const now = timestamp();
+        const { error: storeError } = await admin.from("stores").insert({
+          id: storeId,
+          data: {
+            name: `${name} Demo Store`,
+            businessName: `${name} Demo Store`,
+            branchName: "Sandbox",
+            isPrimaryBranch: true,
+            ownerId: ownerCredential.userId,
+            isDemo: true,
+            demoTenantId: tenantId,
+            demoExpiresAt: expiresAt,
+            status: "active",
+            category: "Demo",
+            location: "Private demo sandbox",
+            address: "Private demo sandbox",
+            lat: 14.5995,
+            lng: 120.9842,
+            subscriptionLevel: "Demo Sandbox",
+            subscriptionStart: new Date().toISOString(),
+            subscriptionEnd: expiresAt,
+            subscriptionDependencies: {
+              staffLimit: Math.max(10, staffCount),
+              branchLimit: 1,
+              promotionLimit: 100,
+              productLimit: 100,
+              galleryPhotoLimit: 10,
+            },
+            subscriptionAccess: {
+              status: "active",
+              automationEnabled: false,
+              warningLeadDays: 0,
+              gracePeriodDays: 0,
+            },
+            initialPaymentRequired: false,
+            initialPaymentStatus: "not_required",
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+        if (storeError) throw storeError;
+        storeCreated = true;
+
+        const { error: tenantError } = await admin.from("demo_tenants").insert({
+          id: tenantId,
+          name,
+          slug,
+          status: "active",
+          store_id: storeId,
+          owner_user_id: ownerCredential.userId,
+          expires_at: expiresAt,
+          created_by: authData.user.id,
+        });
+        if (tenantError) throw tenantError;
+
+        const { error: accountsError } = await admin.from("demo_accounts").insert(
+          credentials.map((credential) => ({
+            auth_user_id: credential.userId,
+            tenant_id: tenantId,
+            role: credential.role,
+            email: credential.email,
+            name: credential.name,
+            status: "active",
+          })),
+        );
+        if (accountsError) throw accountsError;
+
+        await writeAuditEvent(admin, {
+          actorUserId: authData.user.id,
+          actorEmail: authData.user.email || actor.email,
+          actorRole: actor.role,
+          action: "create_demo_tenant",
+          entityType: "demo_tenant",
+          entityId: tenantId,
+          metadata: { name, storeId, expiresAt, staffCount, includeCustomer, includeAdmin, isDemo: true },
+        });
+
+        return jsonResponse({
+          tenant: { id: tenantId, name, slug, status: "active", storeId, expiresAt },
+          credentials,
+        });
+      } catch (error) {
+        await admin.from("demo_accounts").delete().eq("tenant_id", tenantId);
+        await admin.from("demo_tenants").delete().eq("id", tenantId);
+        if (createdUserIds.length) {
+          await admin.from("customers").delete().in("id", createdUserIds);
+          await admin.from("users").delete().in("id", createdUserIds);
+        }
+        for (const userId of createdUserIds) {
+          await admin.auth.admin.deleteUser(userId).catch(() => undefined);
+        }
+        if (storeCreated) await admin.from("stores").delete().eq("id", storeId);
+        throw error;
+      }
+    }
+
+    if (action === "add_demo_staff") {
+      if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
+      const tenantId = cleanText(body.tenantId, 100);
+      const count = Math.trunc(Number(body.count ?? 1));
+      if (!tenantId || !Number.isInteger(count) || count < 1 || count > 10) {
+        return jsonResponse({ error: "Select a sandbox and add between 1 and 10 staff accounts." }, 400);
+      }
+      const tenant = await getActiveDemoTenant(admin, tenantId);
+      const { count: existingStaffCount, error: countError } = await admin.from("demo_accounts")
+        .select("auth_user_id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
+        .eq("role", "staff");
+      if (countError) throw countError;
+      if ((existingStaffCount || 0) + count > 25) {
+        return jsonResponse({ error: "A demo sandbox can contain at most 25 staff accounts." }, 409);
+      }
+
+      const credentials: DemoCredential[] = [];
+      try {
+        for (let index = 1; index <= count; index += 1) {
+          const number = (existingStaffCount || 0) + index;
+          const credential = await createDemoAccount(admin, {
+            tenantId,
+            storeId: tenant.store_id,
+            expiresAt: tenant.expires_at,
+            role: "staff",
+            email: demoEmail(tenant.slug, `staff${number}-${randomToken(4).toLowerCase()}`),
+            name: `${tenant.name} Staff ${number}`,
+          });
+          credentials.push(credential);
+          const { error } = await admin.from("demo_accounts").insert({
+            auth_user_id: credential.userId,
+            tenant_id: tenantId,
+            role: "staff",
+            email: credential.email,
+            name: credential.name,
+            status: "active",
+          });
+          if (error) throw error;
+        }
+      } catch (error) {
+        for (const credential of credentials) {
+          await admin.from("users").delete().eq("id", credential.userId);
+          await admin.auth.admin.deleteUser(credential.userId).catch(() => undefined);
+        }
+        throw error;
+      }
+
+      await writeAuditEvent(admin, {
+        actorUserId: authData.user.id,
+        actorEmail: authData.user.email || actor.email,
+        actorRole: actor.role,
+        action: "add_demo_staff",
+        entityType: "demo_tenant",
+        entityId: tenantId,
+        metadata: { count, isDemo: true },
+      });
+      return jsonResponse({ credentials });
+    }
+
+    if (action === "deactivate_demo_tenant" || action === "reactivate_demo_tenant") {
+      if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
+      const tenantId = cleanText(body.tenantId, 100);
+      if (!tenantId) return jsonResponse({ error: "Demo sandbox is required." }, 400);
+      const isReactivate = action === "reactivate_demo_tenant";
+      const durationHours = Math.trunc(Number(body.durationHours ?? 24));
+      if (isReactivate && (!Number.isInteger(durationHours) || durationHours < 1 || durationHours > 2_160)) {
+        return jsonResponse({ error: "Renewed demo access must last between 1 hour and 90 days." }, 400);
+      }
+      const tenant = await getDemoTenant(admin, tenantId);
+      const expiresAt = isReactivate
+        ? new Date(Date.now() + durationHours * 3_600_000).toISOString()
+        : tenant.expires_at;
+      await setDemoTenantState(admin, tenant, isReactivate ? "active" : "deactivated", {
+        expiresAt,
+        actorId: authData.user.id,
+      });
+      await writeAuditEvent(admin, {
+        actorUserId: authData.user.id,
+        actorEmail: authData.user.email || actor.email,
+        actorRole: actor.role,
+        action,
+        entityType: "demo_tenant",
+        entityId: tenantId,
+        metadata: { expiresAt, isDemo: true },
+      });
+      return jsonResponse({ updated: true, status: isReactivate ? "active" : "deactivated", expiresAt });
+    }
+
+    if (action === "reset_demo_password") {
+      if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
+      const userId = cleanText(body.userId, 100);
+      const { data: account, error: accountError } = await admin.from("demo_accounts")
+        .select("auth_user_id,tenant_id,role,email,name,status")
+        .eq("auth_user_id", userId)
+        .maybeSingle();
+      if (accountError) throw accountError;
+      if (!account) return jsonResponse({ error: "Demo account was not found." }, 404);
+      await getActiveDemoTenant(admin, String(account.tenant_id));
+      const password = generateDemoPassword();
+      const { error: passwordError } = await admin.auth.admin.updateUserById(userId, {
+        password,
+        ban_duration: "none",
+      });
+      if (passwordError) throw passwordError;
+      await writeAuditEvent(admin, {
+        actorUserId: authData.user.id,
+        actorEmail: authData.user.email || actor.email,
+        actorRole: actor.role,
+        action: "reset_demo_password",
+        entityType: "demo_account",
+        entityId: userId,
+        metadata: { tenantId: account.tenant_id, role: account.role, isDemo: true },
+      });
+      return jsonResponse({
+        credentials: [{
+          userId,
+          role: account.role,
+          name: account.name,
+          email: account.email,
+          password,
+        }],
+      });
+    }
+
+    if (action === "update_account") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const userId = cleanText(body.userId, 100);
+      const target = await getUserProfile(admin, userId);
+      if (!target) return jsonResponse({ error: "Account was not found." }, 404);
+      if (target.isDemo) {
+        return jsonResponse({ error: "Manage demo accounts from the auditor Demo Management page." }, 403);
+      }
+
+      const { data: targetAuthResult, error: targetAuthError } =
+        await admin.auth.admin.getUserById(userId);
+      if (targetAuthError || !targetAuthResult.user) {
+        return jsonResponse({ error: targetAuthError?.message || "Authentication account was not found." }, 404);
+      }
+      const currentEmail = cleanText(targetAuthResult.user.email || target.email, 254).toLowerCase();
+      const email = cleanText(body.email || currentEmail, 254).toLowerCase();
+      const name = cleanText(body.name || target.name, 120);
+      const phone = cleanText(body.phone ?? target.phone ?? target.number, 40);
+      const role = cleanText(body.role || target.role, 30).toLowerCase();
+      const accountStatus = cleanText(body.accountStatus || target.accountStatus || "active", 20).toLowerCase();
+      const accountStatusReason = cleanText(body.accountStatusReason, 500);
+      const storeId = cleanText(body.storeId, 100);
+      const isPermanentAuditor = currentEmail === PERMANENT_AUDITOR_EMAIL;
+
+      if (!email || !email.includes("@") || !name) {
+        return jsonResponse({ error: "A valid name and email are required." }, 400);
+      }
+      if (!MANAGED_ROLES.has(role) || !ACCOUNT_STATUSES.has(accountStatus)) {
+        return jsonResponse({ error: "Select a valid role and account status." }, 400);
+      }
+      if (["staff", "store_owner"].includes(role) && !storeId) {
+        return jsonResponse({ error: "Select the store assigned to this staff member or store owner." }, 400);
+      }
+      if (userId === authData.user.id && (role !== target.role || accountStatus !== "active")) {
+        return jsonResponse({ error: "You cannot change your own role or restrict your own account." }, 400);
+      }
+      if (
+        isPermanentAuditor &&
+        (email !== PERMANENT_AUDITOR_EMAIL || role !== "auditor" || accountStatus !== "active")
+      ) {
+        return jsonResponse({ error: "The permanent auditor cannot be renamed by email, demoted, suspended, or banned." }, 403);
+      }
+
+      let selectedStore: any = null;
+      if (storeId) {
+        const { data, error } = await admin.from("stores").select("id,data").eq("id", storeId).maybeSingle();
+        if (error) throw error;
+        if (!data) return jsonResponse({ error: "The selected store was not found." }, 404);
+        selectedStore = data;
+      }
+      if (role === "staff") {
+        await assertStaffSlotAvailable(admin, storeId, userId);
+      }
+
+      const authPatch: Record<string, unknown> = {
+        ban_duration: accountStatus === "banned" ? "876000h" : "none",
+        user_metadata: {
+          ...(targetAuthResult.user.user_metadata || {}),
+          full_name: name,
+          name,
+        },
+      };
+      if (email !== currentEmail) {
+        authPatch.email = email;
+        authPatch.email_confirm = true;
+      }
+      const { error: authUpdateError } = await admin.auth.admin.updateUserById(userId, authPatch);
+      if (authUpdateError) throw authUpdateError;
+
+      const previousRole = cleanText(target.role, 30);
+      const previousStoreId = cleanText(target.storeId, 100);
+      const nextProfile: Record<string, unknown> = {
+        ...target,
+        email,
+        name,
+        phone,
+        number: phone,
+        role,
+        accountStatus,
+        accountStatusReason: accountStatus === "active" ? "" : accountStatusReason,
+        accountStatusUpdatedAt: timestamp(),
+        accountStatusUpdatedBy: authData.user.id,
+        updatedAt: timestamp(),
+      };
+      if (role === "staff" || role === "store_owner") nextProfile.storeId = storeId;
+      else delete nextProfile.storeId;
+
+      const { error: profileUpdateError } = await admin.from("users")
+        .update({ data: nextProfile }).eq("id", userId);
+      if (profileUpdateError) throw profileUpdateError;
+
+      if (previousRole === "store_owner" && (role !== "store_owner" || previousStoreId !== storeId)) {
+        const { data: ownedStores, error: ownedStoresError } = await admin
+          .from("stores").select("id,data").eq("data->>ownerId", userId);
+        if (ownedStoresError) throw ownedStoresError;
+        for (const ownedStore of ownedStores || []) {
+          if (role === "store_owner" && String(ownedStore.id) === storeId) continue;
+          const { error } = await admin.from("stores").update({
+            data: { ...ownedStore.data, ownerId: "", updatedAt: timestamp() },
+          }).eq("id", ownedStore.id);
+          if (error) throw error;
+        }
+      }
+      if (role === "store_owner" && selectedStore) {
+        const { error: ownerAssignError } = await admin.from("stores").update({
+          data: { ...selectedStore.data, ownerId: userId, updatedAt: timestamp() },
+        }).eq("id", storeId);
+        if (ownerAssignError) throw ownerAssignError;
+      }
+
+      if (role === "customer") {
+        const { error: customerError } = await admin.from("customers").upsert({
+          id: userId,
+          data: {
+            email,
+            name,
+            phone,
+            number: phone,
+            avatarUrl: cleanText(target.avatarUrl || target.photoURL, 2000),
+            updatedAt: timestamp(),
+          },
+        });
+        if (customerError) throw customerError;
+      } else if (previousRole === "customer") {
+        const { error: customerDeleteError } = await admin.from("customers").delete().eq("id", userId);
+        if (customerDeleteError) throw customerDeleteError;
+      }
+
+      await writeAuditEvent(admin, {
+        actorUserId: authData.user.id,
+        actorEmail: authData.user.email || actor.email,
+        actorRole: actor.role,
+        action: "update_account",
+        entityType: "user",
+        entityId: userId,
+        metadata: {
+          previousRole,
+          role,
+          previousStoreId,
+          storeId: role === "staff" || role === "store_owner" ? storeId : null,
+          accountStatus,
+        },
+      });
+
+      return jsonResponse({
+        account: {
+          id: userId,
+          email,
+          name,
+          phone,
+          role,
+          accountStatus,
+          accountStatusReason: accountStatus === "active" ? "" : accountStatusReason,
+          storeId: role === "staff" || role === "store_owner" ? storeId : "",
+          storeName: cleanText(selectedStore?.data?.businessName || selectedStore?.data?.name, 160),
+          lastAccessedAt: targetAuthResult.user.last_sign_in_at || null,
+          isPermanentAuditor,
+        },
+      });
+    }
+
+    if (action === "get_audit_overview") {
+      if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
+      const [invoices, notificationRows, auditRows] = await Promise.all([
+        readAllRows(admin, "billing_invoices", "id,status,amount_centavos,gross_amount_centavos,fee_centavos,net_amount_centavos,paid_at,created_at"),
+        readAllRows(admin, "billing_notifications", "id,status,notification_type,created_at"),
+        readAllRows(admin, "audit_events", "id,outcome,created_at"),
+      ]);
+      const paidInvoices = invoices.filter((invoice: any) => invoice.status === "paid");
+      const amountTotal = (field: string, fallback?: string) => paidInvoices.reduce(
+        (sum: number, invoice: any) => sum + Number(invoice[field] ?? (fallback ? invoice[fallback] : 0) ?? 0),
+        0,
+      );
+      return jsonResponse({
+        financial: {
+          grossCentavos: amountTotal("gross_amount_centavos", "amount_centavos"),
+          feeCentavos: amountTotal("fee_centavos"),
+          netCentavos: amountTotal("net_amount_centavos", "amount_centavos"),
+          paidTransactions: paidInvoices.length,
+          issuedInvoices: invoices.length,
+          outstandingInvoices: invoices.filter((invoice: any) => ["pending", "link_created"].includes(invoice.status)).length,
+          failedInvoices: invoices.filter((invoice: any) => invoice.status === "failed").length,
+        },
+        receipts: {
+          total: notificationRows.length,
+          sent: notificationRows.filter((row: any) => row.status === "sent").length,
+          failed: notificationRows.filter((row: any) => row.status === "failed").length,
+        },
+        audit: {
+          total: auditRows.length,
+          failures: auditRows.filter((row: any) => row.outcome !== "success").length,
+        },
+        generatedAt: new Date().toISOString(),
+      });
+    }
+
+    if (action === "list_audit_records") {
+      if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
+      const section = cleanText(body.section, 30).toLowerCase();
+      const search = cleanText(body.search, 160).toLowerCase();
+      const status = cleanText(body.status, 40).toLowerCase() || "all";
+      const page = Math.max(1, Math.trunc(Number(body.page) || 1));
+      const pageSize = Math.max(10, Math.min(100, Math.trunc(Number(body.pageSize) || 25)));
+      let records: any[] = [];
+
+      if (section === "financial") {
+        const [invoices, storeRows] = await Promise.all([
+          readAllRows(admin, "billing_invoices", "id,subscription_id,store_id,owner_user_id,invoice_type,status,amount_centavos,currency,paymongo_reference_number,manual_payment_reference,paid_at,payment_method,paymongo_payment_id,gross_amount_centavos,fee_centavos,net_amount_centavos,due_at,created_at,updated_at"),
+          readAllRows(admin, "stores", "id,data,created_at"),
+        ]);
+        const stores = new Map(storeRows.map((row: any) => [String(row.id), row.data || {}]));
+        records = invoices.filter((invoice: any) =>
+          (stores.get(String(invoice.store_id)) as any)?.isDemo !== true
+        ).map((invoice: any) => ({
+          ...invoice,
+          storeName: cleanText((stores.get(String(invoice.store_id)) as any)?.businessName || (stores.get(String(invoice.store_id)) as any)?.name, 160),
+          reference: invoice.manual_payment_reference || invoice.paymongo_reference_number || invoice.paymongo_payment_id || "",
+        }));
+      } else if (section === "receipts") {
+        const [notifications, invoices, storeRows] = await Promise.all([
+          readAllRows(admin, "billing_notifications", "id,invoice_id,channel,notification_type,recipient,status,attempt_count,last_error,sent_at,created_at,updated_at"),
+          readAllRows(admin, "billing_invoices", "id,store_id,status,amount_centavos,currency,paid_at,payment_method"),
+          readAllRows(admin, "stores", "id,data,created_at"),
+        ]);
+        const invoicesById = new Map(invoices.map((row: any) => [String(row.id), row]));
+        const stores = new Map(storeRows.map((row: any) => [String(row.id), row.data || {}]));
+        records = notifications.map((notification: any) => {
+          const invoice = invoicesById.get(String(notification.invoice_id)) as any;
+          const store = stores.get(String(invoice?.store_id)) as any;
+          return {
+            ...notification,
+            invoiceStatus: invoice?.status || "",
+            amountCentavos: Number(invoice?.amount_centavos || 0),
+            currency: invoice?.currency || "PHP",
+            storeId: invoice?.store_id || "",
+            storeName: cleanText(store?.businessName || store?.name, 160),
+          };
+        }).filter((record: any) =>
+          (stores.get(String(record.storeId)) as any)?.isDemo !== true
+        );
+      } else if (section === "loyalty") {
+        const [scanRows, storeRows] = await Promise.all([
+          readAllRows(admin, "promotions_scanned", "id,data,created_at,updated_at"),
+          readAllRows(admin, "stores", "id,data,created_at"),
+        ]);
+        const stores = new Map(storeRows.map((row: any) => [String(row.id), row.data || {}]));
+        records = scanRows.filter((row: any) =>
+          (stores.get(cleanText(row.data?.storeId, 100)) as any)?.isDemo !== true
+        ).map((row: any) => ({
+          id: String(row.id),
+          type: cleanText(row.data?.type || "loyalty_scan", 60),
+          status: cleanText(row.data?.status || "completed", 40),
+          storeId: cleanText(row.data?.storeId, 100),
+          storeName: cleanText((stores.get(cleanText(row.data?.storeId, 100)) as any)?.businessName || (stores.get(cleanText(row.data?.storeId, 100)) as any)?.name, 160),
+          customerId: cleanText(row.data?.customerId, 100),
+          staffId: cleanText(row.data?.staffId, 100),
+          promotionId: cleanText(row.data?.promotionId, 100),
+          amount: Number(row.data?.stars ?? row.data?.points ?? 0),
+          occurredAt: toIsoTimestamp(row.data?.timestamp || row.data?.redeemedAt || row.data?.createdAt) || row.created_at,
+        }));
+      } else if (section === "events") {
+        records = await readAllRows(admin, "audit_events", "id,actor_user_id,actor_email,actor_role,action,entity_type,entity_id,outcome,source,metadata,created_at");
+      } else {
+        return jsonResponse({ error: "Select a valid audit section." }, 400);
+      }
+
+      records = records.filter((record: any) => {
+        const recordStatus = cleanText(record.status || record.outcome || "success", 40).toLowerCase();
+        if (status !== "all" && recordStatus !== status) return false;
+        if (!search) return true;
+        return Object.values(record).some((value) => {
+          if (value && typeof value === "object") return JSON.stringify(value).toLowerCase().includes(search);
+          return String(value || "").toLowerCase().includes(search);
+        });
+      }).sort((left: any, right: any) => {
+        const leftDate = Date.parse(left.created_at || left.occurredAt || left.sent_at || "") || 0;
+        const rightDate = Date.parse(right.created_at || right.occurredAt || right.sent_at || "") || 0;
+        return rightDate - leftDate;
+      });
+      const from = (page - 1) * pageSize;
+      return jsonResponse({
+        records: records.slice(from, from + pageSize),
+        page,
+        pageSize,
+        total: records.length,
+      });
+    }
+
+    if (action === "get_system_health") {
+      if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
+      const now = new Date();
+      const [
+        usersResult,
+        storesResult,
+        openErrorsResult,
+        failedWebhooksResult,
+        failedNotificationsResult,
+        overdueInvoicesResult,
+        latestInvoiceResult,
+        latestWebhookResult,
+        authResult,
+      ] = await Promise.all([
+        admin.from("users").select("id", { count: "exact", head: true })
+          .or("data->>isDemo.is.null,data->>isDemo.eq.false"),
+        admin.from("stores").select("id", { count: "exact", head: true })
+          .or("data->>isDemo.is.null,data->>isDemo.eq.false"),
+        admin.from("client_error_reports").select("id", { count: "exact", head: true }).in("status", ["open", "in_progress"]),
+        admin.from("paymongo_webhook_events").select("event_id", { count: "exact", head: true }).eq("status", "failed"),
+        admin.from("billing_notifications").select("id", { count: "exact", head: true }).eq("status", "failed"),
+        admin.from("billing_invoices").select("id", { count: "exact", head: true }).in("status", ["pending", "link_created"]).lt("due_at", now.toISOString()),
+        admin.from("billing_invoices").select("id,status,updated_at").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
+        admin.from("paymongo_webhook_events").select("event_id,status,received_at,processed_at").order("received_at", { ascending: false }).limit(1).maybeSingle(),
+        admin.auth.admin.listUsers({ page: 1, perPage: 1 }),
+      ]);
+      const queryResults = [
+        usersResult,
+        storesResult,
+        openErrorsResult,
+        failedWebhooksResult,
+        failedNotificationsResult,
+        overdueInvoicesResult,
+        latestInvoiceResult,
+        latestWebhookResult,
+      ];
+      const databaseError = queryResults.find((result: any) => result.error)?.error;
+      const checks = [
+        {
+          id: "database",
+          name: "Database",
+          status: databaseError ? "critical" : "healthy",
+          value: databaseError ? "Query failed" : `${usersResult.count || 0} accounts · ${storesResult.count || 0} stores`,
+          detail: databaseError?.message || "Core account and store tables responded successfully.",
+          checkedAt: now.toISOString(),
+        },
+        {
+          id: "authentication",
+          name: "Authentication",
+          status: authResult.error ? "critical" : "healthy",
+          value: authResult.error ? "Unavailable" : "Operational",
+          detail: authResult.error?.message || "Supabase Auth admin API responded successfully.",
+          checkedAt: now.toISOString(),
+        },
+        {
+          id: "billing",
+          name: "Subscription billing",
+          status: (overdueInvoicesResult.count || 0) > 0 ? "warning" : "healthy",
+          value: `${overdueInvoicesResult.count || 0} overdue`,
+          detail: latestInvoiceResult.data
+            ? `Latest invoice activity: ${latestInvoiceResult.data.updated_at}.`
+            : "No invoices have been issued yet.",
+          checkedAt: now.toISOString(),
+        },
+        {
+          id: "paymongo_webhooks",
+          name: "PayMongo webhooks",
+          status: (failedWebhooksResult.count || 0) > 0 ? "critical" : "healthy",
+          value: `${failedWebhooksResult.count || 0} failed`,
+          detail: latestWebhookResult.data
+            ? `Latest event: ${latestWebhookResult.data.status} at ${latestWebhookResult.data.received_at}.`
+            : "No webhook events received yet.",
+          checkedAt: now.toISOString(),
+        },
+        {
+          id: "notifications",
+          name: "Billing email and receipts",
+          status: (failedNotificationsResult.count || 0) > 0 ? "warning" : "healthy",
+          value: `${failedNotificationsResult.count || 0} failed`,
+          detail: "Tracks payment reminders, confirmations, and receipt delivery.",
+          checkedAt: now.toISOString(),
+        },
+        {
+          id: "client_errors",
+          name: "Client diagnostics",
+          status: (openErrorsResult.count || 0) > 0 ? "warning" : "healthy",
+          value: `${openErrorsResult.count || 0} unresolved`,
+          detail: "Open and in-progress client error reports.",
+          checkedAt: now.toISOString(),
+        },
+      ];
+      return jsonResponse({
+        checks,
+        overall: checks.some((check) => check.status === "critical")
+          ? "critical"
+          : checks.some((check) => check.status === "warning")
+          ? "warning"
+          : "healthy",
+        generatedAt: now.toISOString(),
+      });
+    }
 
     if (action === "list_public_engagement") {
       if (!actorCanReview) return jsonResponse({ error: "Admin access required." }, 403);
@@ -242,6 +1264,117 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (action === "list_billing_invoices") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+
+      const page = Math.max(1, Math.trunc(Number(body.page) || 1));
+      const pageSize = Math.max(10, Math.min(100, Math.trunc(Number(body.pageSize) || 25)));
+      const statusFilter = cleanText(body.status, 20).toLowerCase() || "all";
+      const statusGroups: Record<string, string[]> = {
+        outstanding: ["pending", "link_created"],
+        paid: ["paid"],
+        failed: ["failed"],
+        closed: ["expired", "void"],
+      };
+      if (statusFilter !== "all" && !statusGroups[statusFilter]) {
+        return jsonResponse({ error: "Select a valid invoice status filter." }, 400);
+      }
+
+      const invoiceColumns = [
+        "id",
+        "subscription_id",
+        "store_id",
+        "owner_user_id",
+        "invoice_type",
+        "status",
+        "created_at",
+        "due_at",
+        "period_start",
+        "period_end",
+        "amount_centavos",
+        "currency",
+        "payment_url",
+        "paymongo_reference_number",
+        "manual_payment_reference",
+        "livemode",
+        "paid_at",
+        "payment_method",
+        "paymongo_payment_id",
+        "gross_amount_centavos",
+        "fee_centavos",
+        "net_amount_centavos",
+        "last_error",
+      ].join(",");
+      let invoiceQuery = admin
+        .from("billing_invoices")
+        .select(invoiceColumns, { count: "exact" })
+        .order("created_at", { ascending: false });
+      if (statusFilter !== "all") invoiceQuery = invoiceQuery.in("status", statusGroups[statusFilter]);
+
+      const from = (page - 1) * pageSize;
+      const invoiceResult = await invoiceQuery.range(from, from + pageSize - 1);
+      if (invoiceResult.error) throw invoiceResult.error;
+      const invoiceRows = invoiceResult.data || [];
+
+      const storeIds = [...new Set(invoiceRows.map((row: any) => String(row.store_id)))];
+      const subscriptionIds = [...new Set(invoiceRows.map((row: any) => String(row.subscription_id)))];
+      const [storesResult, subscriptionsResult, totalResult, paidResult, outstandingResult, failedResult] = await Promise.all([
+        storeIds.length
+          ? admin.from("stores").select("id,data").in("id", storeIds)
+          : Promise.resolve({ data: [], error: null }),
+        subscriptionIds.length
+          ? admin.from("billing_subscriptions")
+            .select("id,billing_email,plan_id,interval_days,grace_period_days")
+            .in("id", subscriptionIds)
+          : Promise.resolve({ data: [], error: null }),
+        admin.from("billing_invoices").select("id", { count: "exact", head: true }),
+        admin.from("billing_invoices").select("id", { count: "exact", head: true }).eq("status", "paid"),
+        admin.from("billing_invoices").select("id", { count: "exact", head: true }).in("status", statusGroups.outstanding),
+        admin.from("billing_invoices").select("id", { count: "exact", head: true }).eq("status", "failed"),
+      ]);
+      if (storesResult.error) throw storesResult.error;
+      if (subscriptionsResult.error) throw subscriptionsResult.error;
+      if (totalResult.error) throw totalResult.error;
+      if (paidResult.error) throw paidResult.error;
+      if (outstandingResult.error) throw outstandingResult.error;
+      if (failedResult.error) throw failedResult.error;
+
+      const storesById = new Map((storesResult.data || []).map((row: any) => [String(row.id), row.data || {}]));
+      const subscriptionsById = new Map(
+        (subscriptionsResult.data || []).map((row: any) => [String(row.id), row]),
+      );
+
+      return jsonResponse({
+        invoices: invoiceRows.map((invoice: any) => {
+          const store = storesById.get(String(invoice.store_id)) || {};
+          const subscription = subscriptionsById.get(String(invoice.subscription_id)) || {};
+          return {
+            ...invoice,
+            business: {
+              name: cleanText(store.businessName || store.name, 160) || "PerkUp merchant",
+              address: cleanText(store.address || store.location, 300) || null,
+              contact: cleanText(store.contact || store.contactNumber || store.phone, 100) || null,
+            },
+            subscription: {
+              billing_email: subscription.billing_email || null,
+              plan_id: subscription.plan_id || cleanText(store.subscriptionLevel, 80) || null,
+              interval_days: subscription.interval_days || Number(store.billingIntervalDays) || null,
+              grace_period_days: subscription.grace_period_days ?? null,
+            },
+          };
+        }),
+        page,
+        pageSize,
+        total: invoiceResult.count || 0,
+        summary: {
+          total: totalResult.count || 0,
+          paid: paidResult.count || 0,
+          outstanding: outstandingResult.count || 0,
+          failed: failedResult.count || 0,
+        },
+      });
+    }
+
     if (action === "sync_subscription_billing") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
       const storeId = cleanText(body.storeId, 100);
@@ -349,6 +1482,15 @@ Deno.serve(async (req) => {
       );
       if (fulfillmentError) throw fulfillmentError;
 
+      await writeAuditEvent(admin, {
+        actorUserId: authData.user.id,
+        actorEmail: authData.user.email || actor.email,
+        actorRole: actor.role,
+        action: "record_manual_invoice_payment",
+        entityType: "billing_invoice",
+        entityId: invoiceId,
+        metadata: { paymentMethod, paymentReference, paidAt: paidAt.toISOString() },
+      });
       return jsonResponse({ updated: true, fulfillment });
     }
 
@@ -1067,39 +2209,29 @@ Deno.serve(async (req) => {
       const email = cleanText(body.email, 254).toLowerCase();
       const password = String(body.password || "");
       const name = cleanText(body.name, 80);
+      if (actor.isDemo) {
+        return jsonResponse({ error: "Demo staff accounts can only be added by an auditor in Demo Management." }, 403);
+      }
 
       const canCreate =
         actorIsAdmin ||
         (actor.role === "store_owner" && role === "staff" && storeId && await ownsStore(admin, storeId, authData.user.id));
       const allowedRole =
-        ["store_owner", "staff"].includes(role) ||
-        (actorIsAdmin && role === "assistant_admin");
+        (actorIsAdmin && MANAGED_ROLES.has(role)) ||
+        (actor.role === "store_owner" && role === "staff");
       if (!canCreate || !allowedRole) {
         return jsonResponse({ error: "You are not allowed to create this account." }, 403);
+      }
+      if (email === PERMANENT_AUDITOR_EMAIL && role !== "auditor") {
+        return jsonResponse({ error: "The permanent auditor email must use the auditor role." }, 400);
+      }
+      if (["staff", "store_owner"].includes(role) && !storeId) {
+        return jsonResponse({ error: "Select the store assigned to this staff member or store owner." }, 400);
       }
       if (!email || !name || !isStrongPassword(password, name, email)) {
         return jsonResponse({ error: "Use a 12+ character password with upper and lowercase letters, a number, a symbol, no spaces, and no account name or email." }, 400);
       }
-      if (role === "staff" && storeId) {
-        const { data: storeRow, error: storeLimitError } = await admin
-          .from("stores")
-          .select("data")
-          .eq("id", storeId)
-          .maybeSingle();
-        if (storeLimitError) throw storeLimitError;
-        const staffLimit = Math.trunc(Number(storeRow?.data?.subscriptionDependencies?.staffLimit || 0));
-        if (staffLimit > 0) {
-          const { count, error: countError } = await admin
-            .from("users")
-            .select("id", { count: "exact", head: true })
-            .eq("data->>storeId", storeId)
-            .eq("data->>role", "staff");
-          if (countError) throw countError;
-          if ((count || 0) >= staffLimit) {
-            return jsonResponse({ error: `This subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.` }, 409);
-          }
-        }
-      }
+      if (role === "staff") await assertStaffSlotAvailable(admin, storeId);
 
       const { data: created, error: createError } = await admin.auth.admin.createUser({
         email,
@@ -1116,6 +2248,8 @@ Deno.serve(async (req) => {
         name,
         role,
         ...(storeId ? { storeId } : {}),
+        accountStatus: "active",
+        accountStatusReason: "",
         forcePasswordReset: Boolean(body.forcePasswordReset),
         createdAt: timestamp(),
         updatedAt: timestamp(),
@@ -1127,6 +2261,32 @@ Deno.serve(async (req) => {
       if (profileError) {
         await admin.auth.admin.deleteUser(created.user.id).catch(() => undefined);
         throw profileError;
+      }
+
+      if (role === "customer") {
+        const { error: customerError } = await admin.from("customers").insert({
+          id: created.user.id,
+          data: { email, name, phone: "", number: "", createdAt: timestamp(), updatedAt: timestamp() },
+        });
+        if (customerError) {
+          await admin.from("users").delete().eq("id", created.user.id);
+          await admin.auth.admin.deleteUser(created.user.id).catch(() => undefined);
+          throw customerError;
+        }
+      }
+      if (role === "store_owner") {
+        const { data: storeRow, error: storeError } = await admin.from("stores")
+          .select("id,data").eq("id", storeId).maybeSingle();
+        if (storeError) throw storeError;
+        if (!storeRow) {
+          await admin.from("users").delete().eq("id", created.user.id);
+          await admin.auth.admin.deleteUser(created.user.id).catch(() => undefined);
+          return jsonResponse({ error: "The selected store was not found." }, 404);
+        }
+        const { error: assignmentError } = await admin.from("stores").update({
+          data: { ...storeRow.data, ownerId: created.user.id, updatedAt: timestamp() },
+        }).eq("id", storeId);
+        if (assignmentError) throw assignmentError;
       }
 
       let notification = { sent: false, error: "" };
@@ -1163,6 +2323,16 @@ Deno.serve(async (req) => {
         }
       }
 
+      await writeAuditEvent(admin, {
+        actorUserId: authData.user.id,
+        actorEmail: authData.user.email || actor.email,
+        actorRole: actor.role,
+        action: "create_account",
+        entityType: "user",
+        entityId: created.user.id,
+        metadata: { role, storeId: storeId || null },
+      });
+
       return jsonResponse({ user: { id: created.user.id, ...profile }, notification });
     }
 
@@ -1170,6 +2340,9 @@ Deno.serve(async (req) => {
       const userId = cleanText(body.userId, 100);
       const password = String(body.password || "");
       const target = await getUserProfile(admin, userId);
+      if (target?.isDemo) {
+        return jsonResponse({ error: "Only an auditor can reset demo credentials from Demo Management." }, 403);
+      }
       const canReset =
         actorIsAdmin ||
         (actor.role === "store_owner" &&
@@ -1212,6 +2385,9 @@ Deno.serve(async (req) => {
     if (action === "delete_user") {
       const userId = cleanText(body.userId, 100);
       const target = await getUserProfile(admin, userId);
+      if (target?.isDemo) {
+        return jsonResponse({ error: "Demo accounts are lifecycle-managed from the auditor Demo Management page." }, 403);
+      }
       const canDelete =
         actorIsAdmin ||
         (actor.role === "store_owner" &&
@@ -1219,9 +2395,37 @@ Deno.serve(async (req) => {
           Boolean(target.storeId) &&
           await ownsStore(admin, String(target.storeId), authData.user.id));
       if (!canDelete) return jsonResponse({ error: "You are not allowed to delete this account." }, 403);
+      if (userId === authData.user.id) {
+        return jsonResponse({ error: "You cannot delete your own privileged account." }, 400);
+      }
+      const { data: targetAuthResult, error: targetAuthError } = await admin.auth.admin.getUserById(userId);
+      if (targetAuthError && !targetAuthError.message.toLowerCase().includes("not found")) throw targetAuthError;
+      const targetEmail = cleanText(targetAuthResult?.user?.email || target?.email, 254).toLowerCase();
+      if (targetEmail === PERMANENT_AUDITOR_EMAIL) {
+        return jsonResponse({ error: "The permanent auditor account cannot be deleted." }, 403);
+      }
+      if (target?.role === "store_owner") {
+        const { count, error: ownedStoreError } = await admin.from("stores")
+          .select("id", { count: "exact", head: true }).eq("data->>ownerId", userId);
+        if (ownedStoreError) throw ownedStoreError;
+        if ((count || 0) > 0) {
+          return jsonResponse({
+            error: "This store owner still owns one or more stores. Reassign or delete those stores first.",
+          }, 409);
+        }
+      }
       await admin.from("users").delete().eq("id", userId);
       const { error } = await admin.auth.admin.deleteUser(userId);
       if (error && !error.message.toLowerCase().includes("not found")) throw error;
+      await writeAuditEvent(admin, {
+        actorUserId: authData.user.id,
+        actorEmail: authData.user.email || actor.email,
+        actorRole: actor.role,
+        action: "delete_account",
+        entityType: "user",
+        entityId: userId,
+        metadata: { role: target?.role || null },
+      });
       return jsonResponse({ deleted: true });
     }
 
@@ -1688,6 +2892,364 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: error instanceof Error ? error.message : "Backend operation failed." }, 500);
   }
 });
+
+type DemoCredential = {
+  userId: string;
+  role: "customer" | "staff" | "store_owner" | "admin";
+  name: string;
+  email: string;
+  password: string;
+};
+
+type DemoTenantRow = {
+  id: string;
+  name: string;
+  slug: string;
+  status: "active" | "deactivated" | "expired";
+  store_id: string;
+  expires_at: string;
+};
+
+const verifyActorPassword = async (
+  supabaseUrl: string,
+  anonKey: string,
+  email: string,
+  password: string,
+) => {
+  const verifier = createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await verifier.auth.signInWithPassword({ email, password });
+  if (data.session) await verifier.auth.signOut().catch(() => undefined);
+  return !error && Boolean(data.user);
+};
+
+const randomToken = (length: number) => {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
+};
+
+const generateDemoPassword = () => `Demo!7${randomToken(18)}`;
+
+const slugify = (value: string) => value
+  .toLowerCase()
+  .normalize("NFKD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .replace(/[^a-z0-9]+/g, "-")
+  .replace(/^-+|-+$/g, "");
+
+const demoEmail = (slug: string, label: string) =>
+  `demo-${slug.slice(0, 24)}-${slugify(label).slice(0, 12)}-${randomToken(8).toLowerCase()}@sandbox.perktoday.com`;
+
+const createDemoAccount = async (
+  admin: any,
+  input: {
+    tenantId: string;
+    storeId: string;
+    expiresAt: string;
+    role: DemoCredential["role"];
+    email: string;
+    name: string;
+    username?: string;
+  },
+): Promise<DemoCredential> => {
+  const password = generateDemoPassword();
+  const { data: created, error: createError } = await admin.auth.admin.createUser({
+    email: input.email,
+    password,
+    email_confirm: true,
+    user_metadata: {
+      full_name: input.name,
+      name: input.name,
+      is_demo: true,
+      demo_tenant_id: input.tenantId,
+    },
+    app_metadata: {
+      is_demo: true,
+      demo_tenant_id: input.tenantId,
+    },
+  });
+  if (createError || !created.user) {
+    throw createError || new Error(`Could not create ${input.role} demo account.`);
+  }
+
+  const now = timestamp();
+  const profile = {
+    email: input.email,
+    name: input.name,
+    role: input.role,
+    ...(input.role !== "customer" ? { storeId: input.storeId } : {}),
+    ...(input.username ? { username: input.username } : {}),
+    isDemo: true,
+    demoTenantId: input.tenantId,
+    demoExpiresAt: input.expiresAt,
+    accountStatus: "active",
+    accountStatusReason: "",
+    forcePasswordReset: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const { error: profileError } = await admin.from("users").insert({
+    id: created.user.id,
+    data: profile,
+  });
+  if (profileError) {
+    await admin.auth.admin.deleteUser(created.user.id).catch(() => undefined);
+    throw profileError;
+  }
+
+  if (input.role === "customer") {
+    const { error: customerError } = await admin.from("customers").insert({
+      id: created.user.id,
+      data: {
+        name: input.name,
+        email: input.email,
+        username: input.username,
+        isDemo: true,
+        demoTenantId: input.tenantId,
+        demoExpiresAt: input.expiresAt,
+        lifetimeStars: 0,
+        qrVersion: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    if (customerError) {
+      await admin.from("users").delete().eq("id", created.user.id);
+      await admin.auth.admin.deleteUser(created.user.id).catch(() => undefined);
+      throw customerError;
+    }
+  }
+
+  return {
+    userId: created.user.id,
+    role: input.role,
+    name: input.name,
+    email: input.email,
+    password,
+  };
+};
+
+const getDemoTenant = async (admin: any, tenantId: string): Promise<DemoTenantRow> => {
+  const { data, error } = await admin.from("demo_tenants")
+    .select("id,name,slug,status,store_id,expires_at")
+    .eq("id", tenantId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("Demo sandbox was not found.");
+  return data as DemoTenantRow;
+};
+
+const getActiveDemoTenant = async (admin: any, tenantId: string): Promise<DemoTenantRow> => {
+  const tenant = await getDemoTenant(admin, tenantId);
+  if (tenant.status === "active" && Date.parse(tenant.expires_at) <= Date.now()) {
+    await setDemoTenantState(admin, tenant, "expired", { expiresAt: tenant.expires_at });
+    throw new Error("This demo sandbox has expired. Reactivate it before changing its accounts.");
+  }
+  if (tenant.status !== "active") {
+    throw new Error(`This demo sandbox is ${tenant.status}. Reactivate it before changing its accounts.`);
+  }
+  return tenant;
+};
+
+const setDemoTenantState = async (
+  admin: any,
+  tenant: DemoTenantRow,
+  status: DemoTenantRow["status"],
+  options: { expiresAt: string; actorId?: string },
+) => {
+  const isActive = status === "active";
+  const accountStatus = isActive ? "active" : "suspended";
+  const reason = isActive
+    ? ""
+    : status === "expired"
+    ? "This demo sandbox has expired."
+    : "This demo sandbox was deactivated by an auditor.";
+
+  const { data: accountRows, error: accountsError } = await admin.from("demo_accounts")
+    .select("auth_user_id")
+    .eq("tenant_id", tenant.id);
+  if (accountsError) throw accountsError;
+  const userIds = (accountRows || []).map((row: any) => String(row.auth_user_id));
+
+  const { data: storeRow, error: storeError } = await admin.from("stores")
+    .select("data")
+    .eq("id", tenant.store_id)
+    .maybeSingle();
+  if (storeError) throw storeError;
+  if (storeRow) {
+    const { error } = await admin.from("stores").update({
+      data: {
+        ...storeRow.data,
+        status: isActive ? "active" : "suspended",
+        demoExpiresAt: options.expiresAt,
+        subscriptionEnd: options.expiresAt,
+        updatedAt: timestamp(),
+      },
+    }).eq("id", tenant.store_id);
+    if (error) throw error;
+  }
+
+  const { error: tenantError } = await admin.from("demo_tenants").update({
+    status,
+    expires_at: options.expiresAt,
+    deactivated_at: status === "deactivated" ? new Date().toISOString() : null,
+    deactivated_by: status === "deactivated" ? options.actorId || null : null,
+  }).eq("id", tenant.id);
+  if (tenantError) throw tenantError;
+
+  const { error: accountUpdateError } = await admin.from("demo_accounts").update({
+    status,
+  }).eq("tenant_id", tenant.id);
+  if (accountUpdateError) throw accountUpdateError;
+
+  if (userIds.length) {
+    const { data: profileRows, error: profilesError } = await admin.from("users")
+      .select("id,data")
+      .in("id", userIds);
+    if (profilesError) throw profilesError;
+    for (const row of profileRows || []) {
+      const { error } = await admin.from("users").update({
+        data: {
+          ...row.data,
+          demoExpiresAt: options.expiresAt,
+          accountStatus,
+          accountStatusReason: reason,
+          accountStatusUpdatedAt: timestamp(),
+          accountStatusUpdatedBy: options.actorId || null,
+          updatedAt: timestamp(),
+        },
+      }).eq("id", row.id);
+      if (error) throw error;
+    }
+
+    for (const userId of userIds) {
+      const { error } = await admin.auth.admin.updateUserById(userId, {
+        ban_duration: isActive ? "none" : "876000h",
+        app_metadata: {
+          is_demo: true,
+          demo_tenant_id: tenant.id,
+          demo_status: status,
+        },
+      });
+      if (error) throw error;
+    }
+  }
+};
+
+const reconcileExpiredDemoTenants = async (admin: any) => {
+  const { data, error } = await admin.from("demo_tenants")
+    .select("id,name,slug,status,store_id,expires_at")
+    .eq("status", "active")
+    .lte("expires_at", new Date().toISOString())
+    .limit(100);
+  if (error) throw error;
+  for (const tenant of data || []) {
+    await setDemoTenantState(admin, tenant as DemoTenantRow, "expired", {
+      expiresAt: tenant.expires_at,
+    });
+  }
+};
+
+const readAllRows = async (
+  admin: any,
+  table: string,
+  columns: string,
+  maximumRows = 50_000,
+) => {
+  const rows: any[] = [];
+  const batchSize = 1000;
+  for (let from = 0; from < maximumRows; from += batchSize) {
+    const { data, error } = await admin
+      .from(table)
+      .select(columns)
+      .order("created_at", { ascending: false })
+      .range(from, Math.min(from + batchSize - 1, maximumRows - 1));
+    if (error) throw error;
+    const batch = data || [];
+    rows.push(...batch);
+    if (batch.length < batchSize) break;
+  }
+  return rows;
+};
+
+const listAllAuthUsers = async (admin: any, maximumUsers = 50_000) => {
+  const users: any[] = [];
+  const perPage = 1000;
+  for (let page = 1; users.length < maximumUsers; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    if (error) throw error;
+    const batch = data?.users || [];
+    users.push(...batch);
+    if (batch.length < perPage) break;
+  }
+  return users.slice(0, maximumUsers);
+};
+
+const assertStaffSlotAvailable = async (
+  admin: any,
+  storeId: string,
+  excludingUserId = "",
+) => {
+  const { data: storeRow, error: storeLimitError } = await admin
+    .from("stores")
+    .select("data")
+    .eq("id", storeId)
+    .maybeSingle();
+  if (storeLimitError) throw storeLimitError;
+  if (!storeRow) throw new Error("The selected store was not found.");
+
+  const staffLimit = Math.trunc(Number(storeRow.data?.subscriptionDependencies?.staffLimit || 0));
+  if (staffLimit <= 0) return;
+
+  let countQuery = admin
+    .from("users")
+    .select("id", { count: "exact", head: true })
+    .eq("data->>storeId", storeId)
+    .eq("data->>role", "staff");
+  if (excludingUserId) countQuery = countQuery.neq("id", excludingUserId);
+  const { count, error: countError } = await countQuery;
+  if (countError) throw countError;
+  if ((count || 0) >= staffLimit) {
+    throw new Error(
+      `This subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.`,
+    );
+  }
+};
+
+const writeAuditEvent = async (
+  admin: any,
+  event: {
+    actorUserId?: string;
+    actorEmail?: string;
+    actorRole?: string;
+    action: string;
+    entityType: string;
+    entityId?: string;
+    outcome?: "success" | "failure" | "blocked";
+    source?: "database" | "admin_backend" | "auth" | "billing" | "system";
+    metadata?: Record<string, unknown>;
+  },
+) => {
+  const { error } = await admin.from("audit_events").insert({
+    actor_user_id: cleanText(event.actorUserId, 100) || null,
+    actor_email: cleanText(event.actorEmail, 254) || null,
+    actor_role: cleanText(event.actorRole, 30) || null,
+    action: cleanText(event.action, 120),
+    entity_type: cleanText(event.entityType, 80),
+    entity_id: cleanText(event.entityId, 160) || null,
+    outcome: event.outcome || "success",
+    source: event.source || "admin_backend",
+    metadata: event.metadata || {},
+  });
+  if (error) {
+    // The primary operation should not be rolled back solely because the audit
+    // sink is temporarily unavailable, but the failure remains visible in logs.
+    console.error("Could not persist audit event", event.action, error);
+  }
+};
 
 const ownsStore = async (admin: any, storeId: string, ownerId: string) => {
   const { data, error } = await admin

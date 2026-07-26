@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { sessionNeedsMfa } from "../_shared/auth.ts";
+import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
 const LEGACY_TOKEN_PREFIX = "perkup:v1:";
 const RETIRED_SIGNED_TOKEN_PREFIX = "perkup:v2:";
@@ -200,6 +201,8 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false },
     });
+    const runtime = await readRuntimeConfig(admin);
+    if (runtime.mode === "maintenance") return jsonResponse(maintenanceError(runtime), 503);
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) return jsonResponse({ error: "Staff authentication required." }, 401);
@@ -214,7 +217,18 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (staffError) throw staffError;
 
-    const staff = staffRow?.data as { role?: string; storeId?: string; name?: string } | null;
+    const staff = staffRow?.data as {
+      role?: string;
+      storeId?: string;
+      name?: string;
+      accountStatus?: string;
+      isDemo?: boolean;
+      demoTenantId?: string;
+      demoExpiresAt?: string;
+    } | null;
+    if (["suspended", "banned"].includes(String(staff?.accountStatus || "active"))) {
+      return jsonResponse({ error: `This staff account is ${staff?.accountStatus}.` }, 403);
+    }
     const isAuthorizedStaff =
       staff?.role === "staff" && String(staff.storeId || "") === storeId;
     if (!isAuthorizedStaff) {
@@ -234,7 +248,23 @@ Deno.serve(async (req) => {
       stampIcon?: string;
       stampColor?: string;
       stampLabel?: string;
+      isDemo?: boolean;
+      demoTenantId?: string;
+      demoExpiresAt?: string;
     } | null;
+    if (staff?.isDemo === true) {
+      const demoExpired = !staff.demoExpiresAt || Date.parse(staff.demoExpiresAt) <= Date.now();
+      if (
+        demoExpired ||
+        store?.isDemo !== true ||
+        !staff.demoTenantId ||
+        staff.demoTenantId !== store.demoTenantId
+      ) {
+        return jsonResponse({ error: "This demo staff account is not active in this sandbox." }, 403);
+      }
+    } else if (store?.isDemo === true) {
+      return jsonResponse({ error: "Production accounts cannot process demo sandbox activity." }, 403);
+    }
     const storeStampStyle = {
       stampIcon: String(store?.stampIcon || "star"),
       stampColor: String(store?.stampColor || "#1b1b1b"),
@@ -374,6 +404,8 @@ Deno.serve(async (req) => {
       avatarUrl?: string;
       photoURL?: string;
       qrVersion?: number;
+      isDemo?: boolean;
+      demoTenantId?: string;
     } | null;
     if (isSignedToken) {
       const activeQrVersion = Number.isFinite(Number(customer?.qrVersion)) ? Number(customer?.qrVersion) : 1;
@@ -383,6 +415,15 @@ Deno.serve(async (req) => {
     }
     if (!customer) {
       return jsonResponse({ error: "Invalid: no customer found." }, 404);
+    }
+    if (
+      staff?.isDemo === true &&
+      (customer.isDemo !== true || customer.demoTenantId !== staff.demoTenantId)
+    ) {
+      return jsonResponse({ error: "Demo staff can only scan the customer created in the same sandbox." }, 403);
+    }
+    if (staff?.isDemo !== true && customer.isDemo === true) {
+      return jsonResponse({ error: "Production staff cannot scan demo customer accounts." }, 403);
     }
 
     const customerUsername = normalizeUsername(customer?.username || manualUsername);

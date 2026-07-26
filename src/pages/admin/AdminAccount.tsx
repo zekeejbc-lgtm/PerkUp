@@ -42,7 +42,7 @@ export default function AdminAccount() {
   useEffect(() => {
     async function fetchAdmins() {
       try {
-        const q = query(collection(db, "users"), where("role", "in", ["admin", "assistant_admin"]));
+        const q = query(collection(db, "users"), where("role", "in", ["admin", "assistant_admin", "auditor"]));
         const snap = await getDocs(q);
         setAdmins(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (error) {
@@ -326,7 +326,7 @@ export default function AdminAccount() {
 
         <div className="space-y-6">
           <div className="flex justify-between items-center">
-            <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Assistant Admins</h4>
+            <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Privileged Accounts</h4>
             <button onClick={() => setShowAddModal(true)} className="flex items-center gap-1 text-xs font-medium bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white px-3 py-1.5 rounded-lg hover:bg-gray-200">
               <Plus className="w-3 h-3" /> Add New
             </button>
@@ -348,7 +348,7 @@ export default function AdminAccount() {
                        </div>
                        <div>
                          <p className="font-medium text-sm text-gray-900 dark:text-white">{admin.name}</p>
-                         <p className="text-xs text-gray-500">{admin.email} • {admin.role === 'admin' ? 'Super Admin' : 'Assistant'}</p>
+                         <p className="text-xs text-gray-500">{admin.email} • {admin.role === 'admin' ? 'Super Admin' : admin.role === 'auditor' ? 'Auditor' : 'Assistant'}</p>
                        </div>
                      </div>
                      {admin.role !== 'admin' && (
@@ -359,7 +359,7 @@ export default function AdminAccount() {
                    </div>
                  ))}
                  {admins.length === 1 && (
-                   <div className="p-6 text-center text-sm text-gray-500">No assistant admins configured.</div>
+                   <div className="p-6 text-center text-sm text-gray-500">No additional privileged accounts configured.</div>
                  )}
               </div>
             )}

@@ -309,6 +309,7 @@ Deno.serve(async (req) => {
           userName,
           invoice: {
             invoiceId: invoice.invoice_id,
+            subscriberName: userName,
             storeName,
             planName: invoice.plan_id,
             amountCentavos: invoice.amount_centavos,
@@ -450,6 +451,7 @@ Deno.serve(async (req) => {
         ).toISOString();
         const invoicePayload = {
           invoiceId: invoice.id,
+          subscriberName: userName,
           storeName,
           planName: subscription.plan_id,
           intervalDays: subscription.interval_days,

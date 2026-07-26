@@ -1,5 +1,6 @@
 export type BillingParty = {
   name: string;
+  company?: string | null;
   address?: string | null;
   email?: string | null;
   phone?: string | null;
@@ -71,6 +72,7 @@ export type SubscriptionInvoicePdfData = {
   };
   business: {
     name: string;
+    subscriberName?: string | null;
     address: string | null;
     contact: string | null;
   };
@@ -125,6 +127,7 @@ const imageAsDataUrl = async (path: string) => {
 };
 
 const partyLines = (party: BillingParty) => [
+  party.company,
   party.address,
   party.email,
   party.phone,
@@ -220,12 +223,6 @@ export async function downloadBillingDocumentPdf(data: UniversalBillingDocumentD
   doc.setFontSize(7.8);
   doc.setTextColor(...BRAND.ink);
   doc.text(status, 175.5, 81.3, { align: "center" });
-  if (document.livemode === false) {
-    doc.setFillColor(...BRAND.warning);
-    doc.roundedRect(155, 89, 41, 9, 4.5, 4.5, "F");
-    doc.text("TEST MODE", 175.5, 94.8, { align: "center" });
-  }
-
   // Universal line-item table.
   const tableY = 119;
   doc.setFillColor(...BRAND.ink);
@@ -398,7 +395,8 @@ export async function downloadSubscriptionInvoicePdf(data: SubscriptionInvoicePd
       website: "www.perktoday.com",
     },
     billTo: {
-      name: business.name || "PerkUp merchant",
+      name: business.subscriberName || business.name || "PerkUp merchant",
+      company: business.subscriberName ? business.name : null,
       address: business.address || "Business address not provided",
       email: subscription.billingEmail || "Billing email not provided",
       phone: business.contact || "Contact number not provided",
@@ -428,6 +426,10 @@ export async function downloadSubscriptionInvoicePdf(data: SubscriptionInvoicePd
       ]
       : ["Pay through the secure PayMongo page before the due date.", "Access updates after PayMongo confirms the exact amount."],
     details: [
+      {
+        label: "Subscription plan",
+        value: planName,
+      },
       {
         label: "Billing period",
         value: `${formatPdfDate(invoice.periodStart)} – ${formatPdfDate(invoice.periodEnd)}`,

@@ -11,6 +11,7 @@ import './index.css';
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { CurrencyProvider } from './contexts/CurrencyContext';
+import { RuntimeModeProvider } from './contexts/RuntimeModeContext';
 
 installLazyImageDefaults();
 
@@ -22,13 +23,15 @@ createRoot(rootElement).render(
     <ThemeProvider>
       <AlertModalProvider>
         <ToastProvider>
-          <AuthProvider>
-            <CurrencyProvider>
-              <BrowserRouter>
-                <App />
-              </BrowserRouter>
-            </CurrencyProvider>
-          </AuthProvider>
+          <RuntimeModeProvider>
+            <AuthProvider>
+              <CurrencyProvider>
+                <BrowserRouter>
+                  <App />
+                </BrowserRouter>
+              </CurrencyProvider>
+            </AuthProvider>
+          </RuntimeModeProvider>
         </ToastProvider>
       </AlertModalProvider>
     </ThemeProvider>

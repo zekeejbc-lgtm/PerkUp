@@ -31,11 +31,13 @@ import { PayMongoDefaultsControl } from "../../components/PayMongoDefaultsContro
 import { PAYMONGO_STANDARD_ACCESS } from "../../lib/subscriptionAccess";
 import { AlreadyPaidControl } from "../../components/AlreadyPaidControl";
 import { useToast } from "../../components/ToastProvider";
+import { useAuth } from "../../contexts/AuthContext";
 
 const STORES_PER_PAGE = 8;
 
 export default function AdminStores() {
   const toast = useToast();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [stores, setStores] = useState<any[]>([]);
   const [ownerProfiles, setOwnerProfiles] = useState<Record<string, any>>({});
@@ -158,7 +160,13 @@ export default function AdminStores() {
     async function fetchStores() {
       try {
         const snap = await getDocs(collection(db, "stores"));
-        const storeRows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const storeRows = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter((store: any) =>
+            user?.isDemo
+              ? store.isDemo === true && store.demoTenantId === user.demoTenantId
+              : store.isDemo !== true
+          );
         setStores(storeRows);
 
         const ownerIds = new Set(storeRows.map((store) => store.ownerId).filter(Boolean));
@@ -189,7 +197,7 @@ export default function AdminStores() {
       }
     }
     fetchStores();
-  }, []);
+  }, [user?.demoTenantId, user?.isDemo]);
 
   const updateStoreStatus = async (storeId: string, newStatus: string) => {
     try {
@@ -378,13 +386,15 @@ export default function AdminStores() {
         </div>
         <div className="mt-5 grid grid-cols-[auto_1fr] items-stretch gap-3 sm:mt-0 sm:flex sm:shrink-0 sm:items-center sm:gap-4">
           {loading ? <SkeletonBlock className="min-h-12 w-24 rounded-2xl sm:min-h-8 sm:rounded-xl" /> : <span className="flex min-h-12 items-center justify-center rounded-2xl border border-gray-300/50 bg-gray-200 px-4 text-base font-semibold leading-tight text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 sm:min-h-0 sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-xs">{filteredStoreGroups.length} {filteredStoreGroups.length === 1 ? "store" : "stores"}</span>}
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[#1b1b1b] px-4 text-base font-semibold leading-tight text-white transition-colors hover:bg-black sm:min-h-0 sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-sm sm:font-medium"
-          >
-            <Plus className="h-5 w-5 sm:h-4 sm:w-4" />
-            <span>Add Store</span>
-          </button>
+          {!user?.isDemo && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[#1b1b1b] px-4 text-base font-semibold leading-tight text-white transition-colors hover:bg-black sm:min-h-0 sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-sm sm:font-medium"
+            >
+              <Plus className="h-5 w-5 sm:h-4 sm:w-4" />
+              <span>Add Store</span>
+            </button>
+          )}
         </div>
       </div>
 

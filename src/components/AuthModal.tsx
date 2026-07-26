@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { AlertTriangle, AtSign, Calendar, Eye, EyeOff, Lock, Mail, Phone, ShieldCheck, Ticket, User, X } from 'lucide-react';
+import { AlertTriangle, AtSign, Calendar, Eye, EyeOff, FlaskConical, Loader2, Lock, Mail, Phone, ShieldCheck, Ticket, User, X } from 'lucide-react';
 import { AUTH_REDIRECT_MESSAGE_KEY, GOOGLE_SIGNUP_PENDING_KEY, signInWithGoogle, auth, db } from '../lib/backend';
 import { 
   signInWithEmailAndPassword,
@@ -18,6 +18,7 @@ import {
   getMfaPromptReason,
   TrustedLoginProfile,
 } from '@/src/lib/trustedDevice';
+import { useRuntimeMode } from '@/src/contexts/RuntimeModeContext';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -59,32 +60,18 @@ type PendingMfa = {
   reason: string;
 };
 
-type DemoRole = 'customer' | 'store_owner' | 'staff' | 'admin';
-
-const DEMO_ACCOUNTS: Array<{ role: DemoRole; label: string }> = [
-  { role: 'customer', label: 'Customer' },
-  { role: 'store_owner', label: 'Store Owner' },
-  { role: 'staff', label: 'Staff' },
-  { role: 'admin', label: 'Admin' },
+type DemoRole = "customer" | "store_owner" | "staff" | "admin";
+type DemoAvailability = Record<DemoRole, boolean>;
+const DEMO_ROLE_LABELS: Array<{ role: DemoRole; label: string }> = [
+  { role: "customer", label: "Customer" },
+  { role: "store_owner", label: "Store Owner" },
+  { role: "staff", label: "Staff" },
+  { role: "admin", label: "Admin" },
 ];
-
-const DEMO_PASSWORD = 'password123';
-const DEMO_LOGIN_ENABLED = import.meta.env.VITE_DEMO_LOGIN_ENABLED === 'true';
-
-const ensureDemoAccount = async (role: DemoRole) => {
-  const { data, error } = await supabase.functions.invoke<{ email: string }>('demo-login', {
-    body: { role },
-  });
-
-  if (error) {
-    throw new Error(`Demo account setup failed for ${role.replace('_', ' ')}. Deploy the demo-login Supabase function and enable DEMO_LOGIN_ENABLED for demos.`);
-  }
-
-  return data?.email || `demo_${role}@perkup.local`;
-};
 
 export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModalProps) {
   const toast = useToast();
+  const { config: runtimeConfig } = useRuntimeMode();
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(initialMode);
   const [hasAgreedToPrivacy, setHasAgreedToPrivacy] = useState(initialMode !== 'signup');
   const [signupStep, setSignupStep] = useState(1);
@@ -139,6 +126,15 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
   const [message, setMessage] = useState('');
   const [pendingMfa, setPendingMfa] = useState<PendingMfa | null>(null);
   const [mfaCode, setMfaCode] = useState('');
+  const [demoAvailability, setDemoAvailability] = useState<DemoAvailability>({
+    customer: false,
+    store_owner: false,
+    staff: false,
+    admin: false,
+  });
+  const [demoTenantName, setDemoTenantName] = useState("");
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoLaunching, setDemoLaunching] = useState<DemoRole | null>(null);
   const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
   const signupPasswordValidation = useMemo(() => validateStrongPassword(password, {
     name: signupProfile.name,
@@ -147,6 +143,40 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     phone: signupProfile.phone,
     birthday: signupProfile.birthday,
   }), [password, signupProfile, username]);
+
+  useEffect(() => {
+    let active = true;
+    if (!isOpen || mode !== "signin" || runtimeConfig.mode !== "development") {
+      setDemoAvailability({ customer: false, store_owner: false, staff: false, admin: false });
+      setDemoTenantName("");
+      setDemoLoading(false);
+      return () => { active = false; };
+    }
+
+    setDemoLoading(true);
+    void supabase.functions.invoke<{
+      availability?: Partial<DemoAvailability>;
+      tenantName?: string;
+    }>("demo-login", { body: { action: "list" } }).then(({ data, error: demoError }) => {
+      if (!active) return;
+      if (demoError || !data) {
+        setDemoAvailability({ customer: false, store_owner: false, staff: false, admin: false });
+        setDemoTenantName("");
+        return;
+      }
+      setDemoAvailability({
+        customer: data.availability?.customer === true,
+        store_owner: data.availability?.store_owner === true,
+        staff: data.availability?.staff === true,
+        admin: data.availability?.admin === true,
+      });
+      setDemoTenantName(String(data.tenantName || ""));
+    }).finally(() => {
+      if (active) setDemoLoading(false);
+    });
+
+    return () => { active = false; };
+  }, [isOpen, mode, runtimeConfig.mode]);
 
   useEffect(() => {
     if (!otpExpiresAt) {
@@ -473,25 +503,29 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
     }
   };
 
-  const handleDemoLogin = async (role: DemoRole) => {
-    setLoading(true);
-    setError('');
-    setMessage('');
-
+  const handleDemoSignIn = async (role: DemoRole) => {
+    if (runtimeConfig.mode !== "development" || !demoAvailability[role]) return;
+    setDemoLaunching(role);
+    setError("");
     try {
-      const email = await ensureDemoAccount(role);
-      const creds = await signInWithEmailAndPassword(auth, email, DEMO_PASSWORD);
-      const mfaRequired = await prepareMfaChallengeIfNeeded(creds.user.uid);
-      if (mfaRequired) {
-        setMessage('Enter the code from your authenticator app to finish signing in.');
-        return;
+      const { data, error: invokeError } = await supabase.functions.invoke<{ tokenHash?: string }>("demo-login", {
+        body: { action: "signin", role },
+      });
+      if (invokeError || !data?.tokenHash) throw invokeError || new Error("Demo access could not be prepared.");
+      const { data: verified, error: verifyError } = await supabase.auth.verifyOtp({
+        token_hash: data.tokenHash,
+        type: "magiclink",
+      });
+      if (verifyError || !verified.user) throw verifyError || new Error("Demo access could not be verified.");
+      const mfaRequired = await prepareMfaChallengeIfNeeded(verified.user.id);
+      if (!mfaRequired) {
+        toast.success(`${DEMO_ROLE_LABELS.find((item) => item.role === role)?.label || "Demo"} account opened.`);
+        onClose();
       }
-      toast.success(`Signed in as demo ${DEMO_ACCOUNTS.find((account) => account.role === role)?.label ?? role}.`);
-      onClose();
-    } catch (err: any) {
-      showInlineError(err.message || `Could not sign in to the ${role.replace('_', ' ')} demo account.`);
+    } catch (demoError) {
+      showInlineError(demoError instanceof Error ? demoError.message : "Demo access is unavailable.");
     } finally {
-      setLoading(false);
+      setDemoLaunching(null);
     }
   };
 
@@ -1027,28 +1061,41 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModal
             </>
           )}
 
-          {DEMO_LOGIN_ENABLED && mode === 'signin' && !pendingMfa && (
-            <div className="mt-6 border-t border-gray-100 pt-6 dark:border-gray-800">
-              <p className="mb-3 text-center text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                Demo Accounts
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {DEMO_ACCOUNTS.map((account) => (
-                  <button
-                    key={account.role}
-                    type="button"
-                    disabled={loading}
-                    onClick={() => handleDemoLogin(account.role)}
-                    className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-                  >
-                    {account.label}
-                  </button>
-                ))}
+          {mode === "signin" && !pendingMfa && runtimeConfig.mode === "development" && (
+            <section className="mt-7 border-t border-gray-200 pt-6 dark:border-gray-800" aria-labelledby="demo-accounts-heading">
+              <div className="flex items-center justify-center gap-2">
+                <FlaskConical className="h-4 w-4 text-blue-500" />
+                <h3 id="demo-accounts-heading" className="text-sm font-bold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">
+                  Demo accounts
+                </h3>
               </div>
-              <p className="mt-3 text-center text-xs text-gray-400 dark:text-gray-500">
-                One-click access for testing each role.
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                {DEMO_ROLE_LABELS.map(({ role, label }) => {
+                  const launching = demoLaunching === role;
+                  const available = demoAvailability[role];
+                  return (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() => void handleDemoSignIn(role)}
+                      disabled={demoLoading || Boolean(demoLaunching) || !available}
+                      title={!demoLoading && !available ? `No active ${label} demo account` : undefined}
+                      className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-gray-300 bg-gray-100 px-3 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-45 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                    >
+                      {launching && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-4 text-center text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {demoLoading
+                  ? "Checking active demo sandbox…"
+                  : demoTenantName
+                    ? `One-click access to ${demoTenantName}. Demo data never appears in production.`
+                    : "No active demo sandbox. An Auditor can create one in Demo Management."}
               </p>
-            </div>
+            </section>
           )}
 
           {!pendingMfa && <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">

@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { sessionNeedsMfa } from "../_shared/auth.ts";
+import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
@@ -130,6 +131,8 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false },
     });
+    const runtime = await readRuntimeConfig(admin);
+    if (runtime.mode === "maintenance") return jsonResponse(maintenanceError(runtime), 503);
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) {
@@ -151,7 +154,13 @@ Deno.serve(async (req) => {
       .eq("id", authData.user.id)
       .maybeSingle();
     if (actorError) throw actorError;
-    const isAdmin = ["admin", "assistant_admin"].includes(String(actorRow?.data?.role || ""));
+    if (["suspended", "banned"].includes(String(actorRow?.data?.accountStatus || "active"))) {
+      return jsonResponse({ error: `This account is ${actorRow?.data?.accountStatus}.` }, 403);
+    }
+    if (actorRow?.data?.isDemo === true) {
+      return jsonResponse({ error: "External file uploads are disabled inside demo sandboxes." }, 403);
+    }
+    const isAdmin = ["admin", "assistant_admin", "auditor"].includes(String(actorRow?.data?.role || ""));
 
     const getAuthorizedFile = async (fileId: string) => {
       const { data: fileRow, error: fileError } = await admin

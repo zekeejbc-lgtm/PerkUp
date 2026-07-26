@@ -17,6 +17,7 @@ const logoPin = (branch: any) => {
             position: "absolute",
             inset: 0,
             borderRadius: "50%",
+            backgroundColor: "#ffffff",
             backgroundImage: `url(${JSON.stringify(getDisplayImageUrl(branch.logoUrl))})`,
             backgroundPosition: "center",
             backgroundRepeat: "no-repeat",

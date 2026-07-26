@@ -1357,7 +1357,6 @@ export default function AdminStoreDetail({
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-semibold text-gray-900 dark:text-white">{formatMoney(Number(invoice.amount_centavos || 0) / 100)}</span>
                             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">{invoice.status}</span>
-                            {!invoice.livemode && !String(invoice.payment_method || "").startsWith("manual_") && invoice.payment_method !== "admin_confirmed" && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">Test</span>}
                           </div>
                           <p className="mt-1 text-xs text-gray-500">Period {formatBillingDate(invoice.period_start)} - {formatBillingDate(invoice.period_end)}</p>
                           <p className="mt-1 text-xs text-gray-500">{invoice.paid_at ? `Paid ${formatBillingDate(invoice.paid_at)}` : `Due ${formatBillingDate(invoice.due_at)}`} · Ref {invoice.manual_payment_reference || invoice.paymongo_reference_number || "pending"} · Attempts {invoice.attempt_count || 0}</p>

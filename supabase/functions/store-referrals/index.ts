@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { sessionNeedsMfa } from "../_shared/auth.ts";
+import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
 const REFERRAL_POINTS = 1;
 const MAX_SIGNUP_REDEMPTION_AGE_MS = 60 * 60 * 1000;
@@ -143,6 +144,8 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false },
     });
+    const runtime = await readRuntimeConfig(admin);
+    if (runtime.mode === "maintenance") return jsonResponse(maintenanceError(runtime), 503);
 
     if (action === "validate") {
       if (!referralCode) return jsonResponse({ error: "Referral code is required." }, 400);
@@ -183,9 +186,15 @@ Deno.serve(async (req) => {
         .eq("id", authData.user.id)
         .maybeSingle();
       if (ownerError) throw ownerError;
-      const owner = ownerRow?.data as { role?: string } | null;
+      const owner = ownerRow?.data as { role?: string; accountStatus?: string; isDemo?: boolean } | null;
+      if (["suspended", "banned"].includes(String(owner?.accountStatus || "active"))) {
+        return jsonResponse({ error: `This account is ${owner?.accountStatus}.` }, 403);
+      }
       if (owner?.role !== "store_owner") {
         return jsonResponse({ error: "Only store owners can access referral codes." }, 403);
+      }
+      if (owner.isDemo === true) {
+        return jsonResponse({ error: "Referral codes are disabled inside demo sandboxes." }, 403);
       }
 
       const { data: storeRow, error: storeError } = await admin
@@ -227,9 +236,15 @@ Deno.serve(async (req) => {
         .eq("id", authData.user.id)
         .maybeSingle();
       if (userError) throw userError;
-      const profile = userRow?.data as { role?: string; name?: string; username?: string; createdAt?: unknown } | null;
+      const profile = userRow?.data as { role?: string; name?: string; username?: string; createdAt?: unknown; accountStatus?: string; isDemo?: boolean } | null;
+      if (["suspended", "banned"].includes(String(profile?.accountStatus || "active"))) {
+        return jsonResponse({ error: `This account is ${profile?.accountStatus}.` }, 403);
+      }
       if (!profile || profile.role !== "customer") {
         return jsonResponse({ error: "Only customer accounts can redeem referral codes." }, 403);
+      }
+      if (profile.isDemo === true) {
+        return jsonResponse({ error: "Referral codes are disabled inside demo sandboxes." }, 403);
       }
       const createdAtMillis = timestampMillis(profile.createdAt);
       if (!createdAtMillis || Date.now() - createdAtMillis > MAX_SIGNUP_REDEMPTION_AGE_MS) {
@@ -248,6 +263,9 @@ Deno.serve(async (req) => {
 
       const store = await findStoreByReferralCode(admin, referralCode);
       if (!store) return jsonResponse({ error: "Referral code was not found." }, 404);
+      if (store.data.isDemo === true) {
+        return jsonResponse({ error: "Demo sandbox referral codes cannot be redeemed." }, 403);
+      }
       const activeCode = activeReferralCode(store.data);
       if (!activeCode || activeCode.code !== referralCode) {
         return jsonResponse({ error: "This referral code has expired." }, 410);

@@ -61,7 +61,7 @@ export default function AdminPublicEngagement() {
   const [publicResponse, setPublicResponse] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
   const [saving, setSaving] = useState(false);
-  const canEdit = user?.role === "admin" || user?.role === "assistant_admin";
+  const canEdit = user?.role === "admin" || user?.role === "assistant_admin" || user?.role === "auditor";
 
   useEffect(() => {
     let active = true;

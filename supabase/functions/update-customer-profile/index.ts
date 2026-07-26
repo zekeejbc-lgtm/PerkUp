@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { sessionNeedsMfa } from "../_shared/auth.ts";
+import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
 const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
 const RESERVED_USERNAMES = new Set([
@@ -76,6 +77,8 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false },
     });
+    const runtime = await readRuntimeConfig(admin);
+    if (runtime.mode === "maintenance") return jsonResponse(maintenanceError(runtime), 503);
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) return jsonResponse({ error: "Authentication required." }, 401);
@@ -91,6 +94,9 @@ Deno.serve(async (req) => {
     if (userError) throw userError;
 
     const existingUser = (userRow?.data || {}) as Record<string, unknown>;
+    if (["suspended", "banned"].includes(String(existingUser.accountStatus || "active"))) {
+      return jsonResponse({ error: `This account is ${existingUser.accountStatus}.` }, 403);
+    }
     if (existingUser.role && existingUser.role !== "customer") {
       return jsonResponse({ error: "Only customer accounts can update customer usernames." }, 403);
     }

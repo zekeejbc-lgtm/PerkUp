@@ -14,6 +14,7 @@ import { useCurrency } from "../../contexts/CurrencyContext";
 import { supabase } from "../../lib/supabase";
 import { downloadSubscriptionInvoicePdf } from "../../lib/subscriptionInvoicePdf";
 import { markSubscriptionPaymentPending } from "../../lib/subscriptionAccess";
+import { useAuth } from "../../contexts/AuthContext";
 
 type BillingInvoice = {
   id: string;
@@ -50,6 +51,7 @@ const isManualPayment = (invoice: BillingInvoice) =>
 
 export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
   const { formatCurrency } = useCurrency();
+  const { user } = useAuth();
   const subscriptionStore = stores.find((store) => store.isPrimaryBranch === true) ||
     stores.find((store) => store.subscriptionLevel || store.subscriptionDependencies) ||
     stores[0] || null;
@@ -90,6 +92,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
         },
         business: {
           name: subscriptionStore?.businessName || subscriptionStore?.name || "PerkUp merchant",
+          subscriberName: user?.name || null,
           address: subscriptionStore?.address || subscriptionStore?.location || null,
           contact: subscriptionStore?.contact || subscriptionStore?.contactNumber || subscriptionStore?.phone || null,
         },
@@ -274,7 +277,6 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold text-gray-900 dark:text-white">{formatCurrency(invoice.amount_centavos / 100)}</span>
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">{invoice.status}</span>
-                        {!invoice.livemode && !isManualPayment(invoice) && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">Test mode</span>}
                         {isManualPayment(invoice) && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">Manual payment</span>}
                       </div>
                       <p className="mt-1 text-xs text-gray-500">Period {formatBillingDate(invoice.period_start)} - {formatBillingDate(invoice.period_end)}</p>
