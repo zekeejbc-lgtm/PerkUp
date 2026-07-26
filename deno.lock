@@ -1,0 +1,39 @@
+{
+  "version": "5",
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.106.2": "239a7bd494d2521e29f1b25f00b2dfb595a6b8eb4694543db239073eaecf8d32"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@supabase/supabase-js@^2.106.2",
+        "npm:@tailwindcss/vite@^4.1.14",
+        "npm:@types/leaflet@^1.9.21",
+        "npm:@types/node@^22.14.0",
+        "npm:@types/react-dom@^19.2.3",
+        "npm:@types/react@^19.2.17",
+        "npm:@vitejs/plugin-react@^5.0.4",
+        "npm:@yudiel/react-qr-scanner@^2.5.1",
+        "npm:autoprefixer@^10.4.21",
+        "npm:barcode-detector@^3.0.8",
+        "npm:clsx@^2.1.1",
+        "npm:date-fns@^4.1.0",
+        "npm:eslint@^10.3.0",
+        "npm:jspdf@^4.2.1",
+        "npm:leaflet@^1.9.4",
+        "npm:lucide-react@^1.14.0",
+        "npm:motion@^12.23.24",
+        "npm:qrcode.react@^4.2.0",
+        "npm:react-dom@^19.0.1",
+        "npm:react-leaflet@5",
+        "npm:react-router-dom@^7.15.0",
+        "npm:react@^19.0.1",
+        "npm:tailwind-merge@^3.5.0",
+        "npm:tailwindcss@^4.1.14",
+        "npm:typescript@~5.8.2",
+        "npm:vite@^6.2.3",
+        "npm:zxing-wasm@^2.2.4"
+      ]
+    }
+  }
+}

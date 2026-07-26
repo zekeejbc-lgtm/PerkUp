@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
+import { createPayMongoPaymentLink } from "../_shared/paymongo.ts";
 
 const PAYMONGO_API = "https://api.paymongo.com/v1";
 
@@ -7,6 +8,40 @@ const requiredEnv = (name: string) => {
   const value = Deno.env.get(name)?.trim();
   if (!value) throw new Error(`${name} is not configured.`);
   return value;
+};
+
+const safeEqual = (left: string, right: string) => {
+  const encoder = new TextEncoder();
+  const a = encoder.encode(left);
+  const b = encoder.encode(right);
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let index = 0; index < a.length; index += 1) result |= a[index] ^ b[index];
+  return result === 0;
+};
+
+const isSupabaseServiceToken = async (
+  supabaseUrl: string,
+  providedToken: string,
+  injectedServiceKey: string,
+) => {
+  if (safeEqual(providedToken, injectedServiceKey)) return true;
+  let claimedRole = "";
+  try {
+    const payload = providedToken.split(".")[1] || "";
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
+    claimedRole = String(JSON.parse(atob(normalized))?.role || "");
+  } catch {
+    claimedRole = "";
+  }
+  if (!providedToken.startsWith("sb_secret_") && claimedRole !== "service_role") return false;
+  const response = await fetch(`${supabaseUrl}/auth/v1/admin/users?page=1&per_page=1`, {
+    headers: {
+      apikey: providedToken,
+      Authorization: `Bearer ${providedToken}`,
+    },
+  });
+  return response.ok;
 };
 
 const errorMessage = (error: unknown, fallback: string) => {
@@ -20,46 +55,6 @@ const errorMessage = (error: unknown, fallback: string) => {
   }
   const text = String(error || "").trim();
   return text && text !== "[object Object]" ? text : fallback;
-};
-
-const createPaymentLink = async (invoice: any) => {
-  const response = await fetch(`${PAYMONGO_API}/payment_links`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Basic ${btoa(`${requiredEnv("PAYMONGO_SECRET_KEY")}:`)}`,
-      "Content-Type": "application/json",
-      "Idempotency-Key": `perkup-invoice-${invoice.id}`,
-    },
-    body: JSON.stringify({
-      amount: invoice.amount_centavos,
-      currency: invoice.currency,
-      description: `PerkUp ${invoice.subscription?.plan_id || "subscription"} subscription`,
-      remarks: `Invoice ${invoice.id}`,
-      metadata: {
-        invoice_id: invoice.id,
-        subscription_id: invoice.subscription_id,
-        store_id: invoice.store_id,
-      },
-      restriction: { completed_sessions: { limit: 1 } },
-    }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const detail = payload?.errors?.[0]?.detail || payload?.error || `HTTP ${response.status}`;
-    throw new Error(`PayMongo link creation failed: ${String(detail).slice(0, 500)}`);
-  }
-  const resource = payload?.data || {};
-  const attributes = resource?.attributes || resource;
-  const url = attributes?.checkout_url || attributes?.url || resource?.url;
-  const referenceNumber = attributes?.reference_number || resource?.reference_number;
-  if (!resource?.id || !url || !referenceNumber) throw new Error("PayMongo returned an incomplete Payment Link response.");
-  return {
-    id: String(resource.id),
-    url: String(url),
-    referenceNumber: String(referenceNumber),
-    livemode: Boolean(attributes?.livemode ?? resource?.livemode),
-  };
 };
 
 const sendPaymentLinkEmail = async (
@@ -161,26 +156,79 @@ Deno.serve(async (req) => {
     if (!authorization) return jsonResponse({ error: "Authentication required." }, 401);
 
     const supabaseUrl = requiredEnv("SUPABASE_URL");
-    const userClient = createClient(supabaseUrl, requiredEnv("SUPABASE_ANON_KEY"), {
-      global: { headers: { Authorization: authorization } },
-      auth: { persistSession: false },
-    });
-    const { data: authData, error: authError } = await userClient.auth.getUser();
-    if (authError || !authData.user) return jsonResponse({ error: "Authentication required." }, 401);
+    const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const bearerToken = authorization.replace(/^Bearer\s+/i, "").trim();
+    const isServiceRequest = await isSupabaseServiceToken(supabaseUrl, bearerToken, serviceKey);
+    let ownerUserId = "";
+    if (!isServiceRequest) {
+      const userClient = createClient(supabaseUrl, requiredEnv("SUPABASE_ANON_KEY"), {
+        global: { headers: { Authorization: authorization } },
+        auth: { persistSession: false },
+      });
+      const { data: authData, error: authError } = await userClient.auth.getUser();
+      if (authError || !authData.user) return jsonResponse({ error: "Authentication required." }, 401);
+      ownerUserId = authData.user.id;
+    }
 
     const body = await req.json().catch(() => ({}));
+    if (isServiceRequest && body?.action === "health") {
+      const mode = (Deno.env.get("PAYMONGO_MODE") || "test").toLowerCase();
+      if (mode !== "test" && mode !== "live") throw new Error("PAYMONGO_MODE must be test or live.");
+      const expectedUrl = `${supabaseUrl.replace(/\/+$/, "")}/functions/v1/paymongo-webhook`;
+      const startedAt = performance.now();
+      const response = await fetch(`${PAYMONGO_API}/webhooks?limit=100`, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Basic ${btoa(`${requiredEnv("PAYMONGO_SECRET_KEY")}:`)}`,
+        },
+      });
+      const apiLatencyMs = Math.round(performance.now() - startedAt);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = payload?.errors?.[0]?.detail || payload?.error || `HTTP ${response.status}`;
+        throw new Error(`PayMongo webhook health check failed: ${String(detail).slice(0, 500)}`);
+      }
+      const webhooks = Array.isArray(payload?.data) ? payload.data : [];
+      const configured = webhooks.find((resource: any) => {
+        const attributes = resource?.attributes || resource || {};
+        return String(attributes.url || "").replace(/\/+$/, "") === expectedUrl &&
+          Array.isArray(attributes.events) &&
+          attributes.events.includes("link.payment.paid") &&
+          Boolean(attributes.livemode) === (mode === "live");
+      });
+      const attributes = configured?.attributes || configured || {};
+      const returnedSecret = String(attributes.secret_key || "");
+      const secretMatches = returnedSecret
+        ? safeEqual(returnedSecret, requiredEnv("PAYMONGO_WEBHOOK_SECRET"))
+        : null;
+      const enabled = String(attributes.status || "").toLowerCase() === "enabled";
+      return jsonResponse({
+        healthy: Boolean(configured && enabled && secretMatches !== false),
+        mode,
+        apiLatencyMs,
+        webhook: {
+          registered: Boolean(configured),
+          enabled,
+          eventSubscribed: Boolean(configured),
+          urlMatches: Boolean(configured),
+          modeMatches: Boolean(configured),
+          secretMatches,
+        },
+      });
+    }
     const storeId = String(body?.storeId || "").trim().slice(0, 100);
     if (!storeId) return jsonResponse({ error: "Store is required." }, 400);
 
-    const admin = createClient(supabaseUrl, requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
+    const admin = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false },
     });
-    const { data: invoice, error: invoiceError } = await admin.from("billing_invoices")
+    let invoiceQuery = admin.from("billing_invoices")
       .select("id,subscription_id,store_id,owner_user_id,invoice_type,status,due_at,paymongo_link_id,payment_url,amount_centavos,currency,livemode,paid_at,period_end,paymongo_reference_number,subscription:billing_subscriptions(billing_email,plan_id)")
       .eq("store_id", storeId)
-      .eq("owner_user_id", authData.user.id)
       .in("status", ["pending", "failed", "link_created", "paid"])
-      .order("created_at", { ascending: false })
+      .order("created_at", { ascending: false });
+    if (ownerUserId) invoiceQuery = invoiceQuery.eq("owner_user_id", ownerUserId);
+    const { data: invoice, error: invoiceError } = await invoiceQuery
       .limit(1)
       .maybeSingle();
     if (invoiceError) throw invoiceError;
@@ -199,7 +247,14 @@ Deno.serve(async (req) => {
     let paymentUrl = String(invoice.payment_url || "");
     let referenceNumber = String(invoice.paymongo_reference_number || "");
     if (!linkId || !paymentUrl || !referenceNumber) {
-      const link = await createPaymentLink(invoice);
+      const link = await createPayMongoPaymentLink({
+        id: invoice.id,
+        subscriptionId: invoice.subscription_id,
+        storeId: invoice.store_id,
+        amountCentavos: invoice.amount_centavos,
+        currency: invoice.currency,
+        planId: invoice.subscription?.plan_id,
+      }, requiredEnv("PAYMONGO_SECRET_KEY"));
       const mode = (Deno.env.get("PAYMONGO_MODE") || "test").toLowerCase();
       if (mode !== "test" && mode !== "live") throw new Error("PAYMONGO_MODE must be test or live.");
       if ((mode === "live") !== link.livemode) throw new Error("PayMongo payment mode does not match the configured billing mode.");
@@ -211,7 +266,7 @@ Deno.serve(async (req) => {
         payment_url: link.url,
         livemode: link.livemode,
         last_error: null,
-      }).eq("id", invoice.id).eq("owner_user_id", authData.user.id);
+      }).eq("id", invoice.id);
       if (linkUpdateError) throw linkUpdateError;
 
       const { data: storeRow, error: storeError } = await admin.from("stores").select("data").eq("id", storeId).single();

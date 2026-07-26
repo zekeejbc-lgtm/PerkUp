@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { deleteField, doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { AlertTriangle, ArrowLeft, Ban, BellRing, Building2, Check, ChevronDown, Clock3, Edit, Key, Loader2, MessageSquare, Plus, RotateCcw, Save, Snowflake, Star, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BadgeCheck, Ban, BellRing, Building2, Check, ChevronDown, Clock3, Edit, Key, Loader2, MessageSquare, Plus, RotateCcw, Save, Snowflake, Star, Trash2, Upload, X } from "lucide-react";
 
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
@@ -38,6 +38,10 @@ import { ConfirmationModal } from "../../components/ConfirmationModal";
 
 const ACTIVITY_LOGS_PER_PAGE = 8;
 type SubscriptionAccessAction = "active" | "warning" | "grace" | "frozen";
+const localDateTimeInputValue = (date = new Date()) => {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 16);
+};
 
 export default function AdminStoreDetail({
   storeId,
@@ -105,6 +109,14 @@ export default function AdminStoreDetail({
   const [billingInvoices, setBillingInvoices] = useState<any[]>([]);
   const [billingInvoicesLoading, setBillingInvoicesLoading] = useState(false);
   const [billingRetryId, setBillingRetryId] = useState("");
+  const [manualPaymentInvoiceId, setManualPaymentInvoiceId] = useState("");
+  const [manualPaymentForm, setManualPaymentForm] = useState({
+    paymentMethod: "bank_transfer",
+    paymentReference: "",
+    paidAt: localDateTimeInputValue(),
+  });
+  const [manualPaymentBusy, setManualPaymentBusy] = useState(false);
+  const [manualPaymentError, setManualPaymentError] = useState("");
   const [restrictionReason, setRestrictionReason] = useState(DEFAULT_POLICY_SUSPENSION_MESSAGE);
   const [restrictionInternalNote, setRestrictionInternalNote] = useState("");
   const [restrictionBusy, setRestrictionBusy] = useState(false);
@@ -393,7 +405,7 @@ export default function AdminStoreDetail({
     setBillingInvoicesLoading(true);
     try {
       const { data, error } = await supabase.from("billing_invoices")
-        .select("id,status,due_at,period_start,period_end,amount_centavos,currency,paymongo_reference_number,payment_url,livemode,paid_at,attempt_count,last_error,created_at")
+        .select("id,status,due_at,period_start,period_end,amount_centavos,currency,paymongo_reference_number,manual_payment_reference,payment_method,manual_recorded_at,payment_url,livemode,paid_at,attempt_count,last_error,created_at")
         .eq("store_id", subscriptionStore.id)
         .order("created_at", { ascending: false })
         .limit(12);
@@ -466,6 +478,72 @@ export default function AdminStoreDetail({
       setSubscriptionAccessError((error as Error).message);
     } finally {
       setBillingRetryId("");
+    }
+  };
+
+  const toggleManualPayment = (invoiceId: string, enabled: boolean) => {
+    setManualPaymentError("");
+    setManualPaymentInvoiceId(enabled ? invoiceId : "");
+    if (enabled) {
+      setManualPaymentForm({
+        paymentMethod: "bank_transfer",
+        paymentReference: "",
+        paidAt: localDateTimeInputValue(),
+      });
+    }
+  };
+
+  const recordManualPayment = async (invoice: any) => {
+    if (!manualPaymentForm.paymentReference.trim()) {
+      setManualPaymentError("Enter the receipt or transaction reference.");
+      return;
+    }
+    setManualPaymentBusy(true);
+    setManualPaymentError("");
+    setSubscriptionAccessError("");
+    try {
+      const result = await invokeAdminBackend<{
+        fulfillment: {
+          storeId: string;
+          periodStart: string;
+          periodEnd: string;
+          paidAt: string;
+          paymentMethod: string;
+          paymentReference: string;
+        };
+      }>({
+        action: "record_manual_invoice_payment",
+        invoiceId: invoice.id,
+        paymentMethod: manualPaymentForm.paymentMethod,
+        paymentReference: manualPaymentForm.paymentReference.trim(),
+        paidAt: new Date(manualPaymentForm.paidAt).toISOString(),
+      });
+      const updatedAccess = {
+        ...subscriptionAccessForm,
+        status: "active",
+        paymentLink: "",
+        graceStartedAt: "",
+        graceEndsAt: "",
+      };
+      const storeUpdates = {
+        subscriptionStart: result.fulfillment.periodStart,
+        subscriptionEnd: result.fulfillment.periodEnd,
+        subscriptionAccess: updatedAccess,
+        initialPaymentRequired: false,
+        initialPaymentStatus: "paid",
+      };
+      if (store?.id === result.fulfillment.storeId) setStore({ ...store, ...storeUpdates });
+      setBranches((current) => current.map((branch) => (
+        branch.id === result.fulfillment.storeId ? { ...branch, ...storeUpdates } : branch
+      )));
+      setSubscriptionAccessForm(normalizeSubscriptionAccess(updatedAccess));
+      setSubscriptionAccessMessage("Manual payment recorded. The invoice is paid and subscription access is active.");
+      setManualPaymentInvoiceId("");
+      await loadBillingInvoices();
+    } catch (error) {
+      setManualPaymentError((error as Error).message);
+    } finally {
+      setManualPaymentBusy(false);
     }
   };
 
@@ -1262,7 +1340,7 @@ export default function AdminStoreDetail({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">Payment history</h4>
-                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">PayMongo invoices and receipts for each subscription period.</p>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Invoices and receipts for PayMongo and manually recorded subscription payments.</p>
                 </div>
                 <button type="button" onClick={() => void loadBillingInvoices()} disabled={billingInvoicesLoading} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">
                   <RotateCcw className={`h-3.5 w-3.5 ${billingInvoicesLoading ? "animate-spin" : ""}`} /> Refresh
@@ -1279,17 +1357,106 @@ export default function AdminStoreDetail({
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-semibold text-gray-900 dark:text-white">{formatMoney(Number(invoice.amount_centavos || 0) / 100)}</span>
                             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">{invoice.status}</span>
-                            {!invoice.livemode && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">Test</span>}
+                            {!invoice.livemode && !String(invoice.payment_method || "").startsWith("manual_") && invoice.payment_method !== "admin_confirmed" && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">Test</span>}
                           </div>
                           <p className="mt-1 text-xs text-gray-500">Period {formatBillingDate(invoice.period_start)} - {formatBillingDate(invoice.period_end)}</p>
-                          <p className="mt-1 text-xs text-gray-500">{invoice.paid_at ? `Paid ${formatBillingDate(invoice.paid_at)}` : `Due ${formatBillingDate(invoice.due_at)}`} · Ref {invoice.paymongo_reference_number || "pending"} · Attempts {invoice.attempt_count || 0}</p>
+                          <p className="mt-1 text-xs text-gray-500">{invoice.paid_at ? `Paid ${formatBillingDate(invoice.paid_at)}` : `Due ${formatBillingDate(invoice.due_at)}`} · Ref {invoice.manual_payment_reference || invoice.paymongo_reference_number || "pending"} · Attempts {invoice.attempt_count || 0}</p>
                         </div>
                         {invoice.status !== "paid" && (
-                          <button type="button" onClick={() => void retryBillingInvoice(invoice.id)} disabled={billingRetryId === invoice.id} className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-black disabled:opacity-50 dark:bg-white dark:text-gray-900">
-                            {billingRetryId === invoice.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Retry
-                          </button>
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <button type="button" onClick={() => void retryBillingInvoice(invoice.id)} disabled={billingRetryId === invoice.id || manualPaymentBusy} className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-black disabled:opacity-50 dark:bg-white dark:text-gray-900">
+                              {billingRetryId === invoice.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Retry
+                            </button>
+                            {["pending", "link_created", "failed"].includes(String(invoice.status)) && (
+                              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                <input
+                                  type="checkbox"
+                                  checked={manualPaymentInvoiceId === invoice.id}
+                                  onChange={(event) => toggleManualPayment(invoice.id, event.target.checked)}
+                                  disabled={manualPaymentBusy}
+                                  className="peer sr-only"
+                                />
+                                <span className={`flex h-5 w-9 rounded-full p-0.5 transition ${manualPaymentInvoiceId === invoice.id ? "bg-emerald-600" : "bg-gray-300 dark:bg-gray-700"}`}>
+                                  <span className={`h-4 w-4 rounded-full bg-white shadow-sm transition ${manualPaymentInvoiceId === invoice.id ? "translate-x-4" : "translate-x-0"}`} />
+                                </span>
+                                Manual paid
+                              </label>
+                            )}
+                          </div>
                         )}
                       </div>
+                      {invoice.status === "paid" && String(invoice.payment_method || "").startsWith("manual_") && (
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
+                          <span className="inline-flex items-center gap-1 font-semibold"><BadgeCheck className="h-3.5 w-3.5" /> Manually recorded</span>
+                          <span>{String(invoice.payment_method).replace(/^manual_/, "").replace(/_/g, " ")}</span>
+                          <span>Ref {invoice.manual_payment_reference}</span>
+                        </div>
+                      )}
+                      {manualPaymentInvoiceId === invoice.id && (
+                        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/60 dark:bg-emerald-950/20">
+                          <div className="mb-4 flex items-start gap-3">
+                            <BadgeCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-300" />
+                            <div>
+                              <p className="text-sm font-bold text-gray-900 dark:text-white">Record a manual payment</p>
+                              <p className="mt-1 text-xs leading-5 text-gray-600 dark:text-gray-300">This will mark the {formatMoney(Number(invoice.amount_centavos || 0) / 100)} invoice as paid, activate subscription access, and queue the payment receipt.</p>
+                            </div>
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
+                              Payment method <span className="text-red-500">*</span>
+                              <select
+                                value={manualPaymentForm.paymentMethod}
+                                onChange={(event) => setManualPaymentForm({ ...manualPaymentForm, paymentMethod: event.target.value })}
+                                disabled={manualPaymentBusy}
+                                className="mt-1.5 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                              >
+                                <option value="bank_transfer">Bank transfer</option>
+                                <option value="cash">Cash</option>
+                                <option value="gcash">GCash</option>
+                                <option value="maya">Maya</option>
+                                <option value="cheque">Cheque</option>
+                                <option value="other">Other</option>
+                              </select>
+                            </label>
+                            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
+                              Paid date and time <span className="text-red-500">*</span>
+                              <input
+                                type="datetime-local"
+                                value={manualPaymentForm.paidAt}
+                                max={localDateTimeInputValue()}
+                                onChange={(event) => setManualPaymentForm({ ...manualPaymentForm, paidAt: event.target.value })}
+                                disabled={manualPaymentBusy}
+                                className="mt-1.5 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                              />
+                            </label>
+                            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 sm:col-span-2">
+                              Receipt or transaction reference <span className="text-red-500">*</span>
+                              <input
+                                type="text"
+                                maxLength={100}
+                                value={manualPaymentForm.paymentReference}
+                                onChange={(event) => setManualPaymentForm({ ...manualPaymentForm, paymentReference: event.target.value })}
+                                placeholder="e.g. OR-2026-00124 or bank transaction ID"
+                                disabled={manualPaymentBusy}
+                                className="mt-1.5 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-normal text-gray-900 placeholder:text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                              />
+                            </label>
+                          </div>
+                          {manualPaymentError && <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{manualPaymentError}</p>}
+                          <div className="mt-4 flex flex-wrap justify-end gap-2">
+                            <button type="button" onClick={() => toggleManualPayment(invoice.id, false)} disabled={manualPaymentBusy} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">Cancel</button>
+                            <button
+                              type="button"
+                              onClick={() => void recordManualPayment(invoice)}
+                              disabled={manualPaymentBusy || !manualPaymentForm.paymentReference.trim() || !manualPaymentForm.paidAt}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {manualPaymentBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BadgeCheck className="h-3.5 w-3.5" />}
+                              Mark invoice paid
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {invoice.last_error && <p className="mt-3 break-words text-xs leading-5 text-red-700 dark:text-red-300">{invoice.last_error}</p>}
                     </div>
                   ))}

@@ -417,7 +417,7 @@ function sendSubscriptionPaymentReceivedEmail(recipientEmail, userName, invoice)
     userName: userName,
     heading: "Payment received. Your access is active.",
     introText: adminConfirmed
-      ? "A PerkUp administrator confirmed your initial subscription payment. Your subscription is active from the paid date shown on the attached receipt."
+      ? "A PerkUp administrator confirmed your subscription payment. Your subscription is active from the paid date shown on the attached receipt."
       : "PayMongo confirmed your subscription payment and PerkUp automatically renewed your access.",
     secondaryText: "Keep the attached receipt for your records. You can also review payment history from your PerkUp subscription page.",
     invoice: invoiceDetails,
@@ -475,34 +475,41 @@ function getSubscriptionDocumentNumber_(invoice) {
 
 function createSubscriptionDocumentPdf_(invoice, documentType) {
   var isReceipt = documentType === "receipt";
-  var title = isReceipt ? "Subscription Payment Receipt" : "Subscription Invoice";
-  var rows = [
-    ["Document number", invoice.documentNumber],
-    ["Status", invoice.status],
-    ["Business", invoice.storeName],
-    ["Plan", invoice.planName],
-    ["Amount", invoice.amount],
-    ["Due", invoice.dueDate],
-    ["Paid", invoice.paidAt],
-    ["Payment method", invoice.paymentMethod],
-    ["PayMongo reference", invoice.referenceNumber],
-    ["Access renewed until", invoice.renewedUntil]
-  ];
-  var rowHtml = rows.filter(function(row) { return row[1]; }).map(function(row) {
-    return "<tr><th>" + escapeHtml_(row[0]) + "</th><td>" + escapeHtml_(row[1]) + "</td></tr>";
-  }).join("");
-  var modeNotice = invoice.testMode ? "<div class='test'>TEST MODE - no real funds were collected.</div>" : "";
+  var title = isReceipt ? "RECEIPT" : "INVOICE";
+  var paidOrDueLabel = isReceipt ? "PAID" : "DUE DATE";
+  var paidOrDueValue = isReceipt ? invoice.paidAt : invoice.dueDate;
+  var note = isReceipt
+    ? "Payment confirmed. Keep this receipt for your records."
+    : "Please use the secure PayMongo link in your email and include the document number with your payment.";
+  var modeNotice = invoice.testMode
+    ? "<div class='test'>TEST MODE &mdash; no real funds were collected.</div>"
+    : "";
   var html = "<!doctype html><html><head><meta charset='UTF-8'><style>" +
-    "body{font-family:Arial,sans-serif;color:#171717;padding:42px}h1{margin:0 0 8px;font-size:26px}" +
-    ".brand{font-size:18px;font-weight:700;margin-bottom:30px}.meta{color:#666;margin-bottom:24px}" +
-    "table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:12px;border-bottom:1px solid #ddd}" +
-    "th{width:38%;color:#555}.test{margin:20px 0;padding:12px;background:#fff3cd;border:1px solid #f0cc65}" +
-    ".footer{margin-top:36px;color:#666;font-size:11px;line-height:1.5}</style></head><body>" +
-    "<div class='brand'>PerkUp</div><h1>" + escapeHtml_(title) + "</h1>" +
-    "<div class='meta'>Issued " + escapeHtml_(formatPhilippineDateTime_(new Date())) + "</div>" + modeNotice +
-    "<table>" + rowHtml + "</table>" +
-    "<div class='footer'>This system-generated document records a PerkUp subscription charge or payment. " +
-    "It is not represented as a VAT official receipt or tax invoice. For questions, contact " + escapeHtml_(EMAIL_CONFIG.contactEmail) + ".</div>" +
+    "@page{size:A4;margin:0}*{box-sizing:border-box}body{margin:0;padding:38px 42px;font-family:Arial,sans-serif;color:#1b1b1b;font-size:12px}" +
+    ".top{display:table;width:100%;border-bottom:3px solid #1b1b1b;padding-bottom:18px}.brand,.document{display:table-cell;vertical-align:bottom}" +
+    ".brand img{display:block;width:98px;height:auto}.document{text-align:right}.document h1{margin:0;font-size:34px;letter-spacing:1px}.number{margin-top:5px;color:#6b6b6b}" +
+    ".company{display:table;width:100%;padding:18px 0 26px}.from,.meta{display:table-cell;width:50%;vertical-align:top}.from strong{font-size:15px}.muted{color:#6b6b6b;line-height:1.55}" +
+    ".meta{text-align:right}.meta-row{margin-bottom:7px}.meta-label{display:inline-block;width:90px;color:#6b6b6b;font-weight:700}.meta-value{display:inline-block;min-width:150px}" +
+    ".bill{width:52%;margin-bottom:24px}.section-title{padding:7px 12px;background:#1b1b1b;color:#fff;font-weight:700;letter-spacing:.4px}.bill-body{padding:12px}.bill-name{font-size:15px;font-weight:700;margin-bottom:6px}" +
+    ".status{float:right;margin-top:-58px;padding:7px 16px;border-radius:999px;background:#f3f3f3;font-size:10px;font-weight:700}" +
+    ".test{float:right;clear:right;margin-top:-25px;padding:6px 12px;border-radius:999px;background:#fff0c2;font-size:9px;font-weight:700}" +
+    "table{width:100%;border-collapse:collapse}.items th{padding:9px 12px;background:#1b1b1b;color:#fff;text-align:left;font-size:10px}.items th:last-child,.items td:last-child{text-align:right}.items td{padding:12px;border-bottom:1px solid #e2e2e2}.items tr:nth-child(even) td{background:#f7f7f7}" +
+    ".summary{display:table;width:100%;margin-top:24px}.notes,.totals{display:table-cell;vertical-align:top}.notes{width:58%;padding-right:28px}.notes-title{font-size:10px;font-weight:700;color:#6b6b6b;margin-bottom:8px}.totals{width:42%}.total-row{padding:7px 10px;border-bottom:1px solid #e2e2e2}.total-row span:last-child{float:right}.grand-total{padding:11px 10px;background:#1b1b1b;color:#fff;font-weight:700;font-size:14px}" +
+    ".details{display:table;width:100%;margin-top:26px;padding:14px;background:#f7f7f7;border-radius:8px}.detail{display:table-cell;width:50%}.detail-label{color:#6b6b6b;font-size:9px;font-weight:700;text-transform:uppercase}.detail-value{margin-top:5px;font-weight:700}" +
+    ".footer{position:absolute;left:42px;right:42px;bottom:34px;border-top:1px solid #e2e2e2;padding-top:11px;color:#6b6b6b;font-size:9px;line-height:1.45}.footer-right{float:right;text-align:right}</style></head><body>" +
+    "<div class='top'><div class='brand'><img src='" + escapeHtml_(EMAIL_CONFIG.logoUrl) + "' alt='PerkUp'></div><div class='document'><h1>" + title + "</h1><div class='number'>" + escapeHtml_(invoice.documentNumber) + "</div></div></div>" +
+    "<div class='company'><div class='from'><strong>PerkUp</strong><div class='muted'>Tagum City, Davao del Norte, Philippines<br>" + escapeHtml_(EMAIL_CONFIG.contactEmail) + "<br>www.perktoday.com</div></div>" +
+    "<div class='meta'><div class='meta-row'><span class='meta-label'>DATE</span><span class='meta-value'>" + escapeHtml_(formatPhilippineDateTime_(new Date())) + "</span></div>" +
+    "<div class='meta-row'><span class='meta-label'>" + title + " #</span><span class='meta-value'>" + escapeHtml_(invoice.documentNumber) + "</span></div>" +
+    "<div class='meta-row'><span class='meta-label'>" + paidOrDueLabel + "</span><span class='meta-value'>" + escapeHtml_(paidOrDueValue) + "</span></div></div></div>" +
+    "<div class='bill'><div class='section-title'>BILL TO</div><div class='bill-body'><div class='bill-name'>" + escapeHtml_(invoice.storeName) + "</div><div class='muted'>PerkUp merchant subscription</div></div></div>" +
+    "<div class='status'>" + escapeHtml_(invoice.status || (isReceipt ? "Paid" : "Payment due")) + "</div>" + modeNotice +
+    "<table class='items'><tr><th>DESCRIPTION</th><th style='text-align:center'>QTY</th><th>AMOUNT</th></tr><tr><td><strong>" + escapeHtml_(invoice.planName) + "</strong><div class='muted'>Subscription access and plan features</div></td><td style='text-align:center'>1</td><td>" + escapeHtml_(invoice.amount) + "</td></tr></table>" +
+    "<div class='summary'><div class='notes'><div class='notes-title'>" + (isReceipt ? "PAYMENT NOTE" : "NOTES") + "</div>" + escapeHtml_(note) + "</div>" +
+    "<div class='totals'><div class='total-row'><span>Subtotal</span><span>" + escapeHtml_(invoice.amount) + "</span></div><div class='grand-total'><span>" + (isReceipt ? "TOTAL PAID" : "TOTAL DUE") + "</span><span style='float:right'>" + escapeHtml_(invoice.amount) + "</span></div></div></div>" +
+    "<div class='details'><div class='detail'><div class='detail-label'>Payment reference</div><div class='detail-value'>" + escapeHtml_(invoice.referenceNumber || "Pending") + "</div></div>" +
+    "<div class='detail'><div class='detail-label'>Payment method</div><div class='detail-value'>" + escapeHtml_(isReceipt ? (invoice.paymentMethod || "PayMongo") : "Secure PayMongo link") + "</div></div></div>" +
+    "<div class='footer'><div class='footer-right'>www.perktoday.com<br>" + escapeHtml_(invoice.documentNumber) + "</div>This system-generated billing statement records a PerkUp charge or payment.<br>It is not a VAT official receipt or tax invoice. For questions, contact " + escapeHtml_(EMAIL_CONFIG.contactEmail) + ".</div>" +
     "</body></html>";
   var filename = (isReceipt ? "PerkUp-Receipt-" : "PerkUp-Invoice-") + invoice.documentNumber + ".pdf";
   return HtmlService.createHtmlOutput(html).getBlob().getAs(MimeType.PDF).setName(filename);

@@ -4,6 +4,9 @@ import { signOut } from "../lib/supabaseAuthCompat";
 import {
   getEffectiveSubscriptionStatus,
   getGraceTimeLabel,
+  clearSubscriptionPaymentPending,
+  isSubscriptionPaymentPending,
+  markSubscriptionPaymentPending,
   normalizeAccountRestriction,
   resolveSubscriptionAccess,
   safePaymentLink,
@@ -33,7 +36,7 @@ export type PaymentConfirmation = {
 };
 
 const LINK_REFRESH_SECONDS = 10;
-const PAYMENT_STATUS_FALLBACK_MS = 30_000;
+const PAYMENT_STATUS_FALLBACK_MS = 10_000;
 
 const elapsedLabel = (startedAt: Date | null, now: number) => {
   if (!startedAt) return "a few seconds";
@@ -102,7 +105,7 @@ export function SubscriptionAccessBanner({ store, role = "store_owner" }: { stor
           )}
         </div>
         {role === "store_owner" && latestInvoice?.paymentUrl && (
-          <a href={latestInvoice.paymentUrl} target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-black">
+          <a href={latestInvoice.paymentUrl} target="_blank" rel="noopener noreferrer" onClick={() => markSubscriptionPaymentPending(store.id)} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-black">
             Pay now - {formatPhp(latestInvoice.amountCentavos / 100)} <ExternalLink className="h-4 w-4" />
           </a>
         )}
@@ -164,10 +167,11 @@ export function SubscriptionFrozenScreen({
   const mirroredPaymentLink = safePaymentLink(policy.paymentLink);
   const [latestInvoice, setLatestInvoice] = useState<FrozenInvoice | null>(null);
   const [paymentLookupComplete, setPaymentLookupComplete] = useState(role !== "store_owner");
-  const paymentWatchKey = `perkup-payment-watch:${String(store?.id || "store")}`;
-  const [paymentPageOpened, setPaymentPageOpened] = useState(() => window.sessionStorage.getItem(paymentWatchKey) === "active");
+  const storeId = String(store?.id || "store");
+  const [paymentPageOpened, setPaymentPageOpened] = useState(() => isSubscriptionPaymentPending(storeId));
   const [clock, setClock] = useState(Date.now());
   const [lastCheckedAt, setLastCheckedAt] = useState(Date.now());
+  const [linkPreparationError, setLinkPreparationError] = useState("");
   const paymentLink = latestInvoice?.paymentUrl || mirroredPaymentLink;
   const amountDue = latestInvoice
     ? latestInvoice.amountCentavos / 100
@@ -207,6 +211,7 @@ export function SubscriptionFrozenScreen({
         return;
       }
       const verifiedUrl = safePaymentLink(data?.payment_url);
+      if (verifiedUrl) setLinkPreparationError("");
       if (data) {
         const invoice = {
           amountCentavos: Number(data.amount_centavos || 0),
@@ -220,7 +225,7 @@ export function SubscriptionFrozenScreen({
         };
         setLatestInvoice(invoice);
         if (data.status === "paid") {
-          window.sessionStorage.removeItem(paymentWatchKey);
+          clearSubscriptionPaymentPending(storeId);
           onPaymentConfirmed?.({
             amountCentavos: invoice.amountCentavos,
             paidAt: invoice.paidAt,
@@ -232,7 +237,7 @@ export function SubscriptionFrozenScreen({
             body: { storeId: store.id },
           });
           if (!cancelled && !confirmationError && confirmation?.paid === true) {
-            window.sessionStorage.removeItem(paymentWatchKey);
+            clearSubscriptionPaymentPending(storeId);
             onPaymentConfirmed?.({
               amountCentavos: Number(confirmation.amountCentavos || invoice.amountCentavos),
               paidAt: confirmation.paidAt || null,
@@ -254,7 +259,7 @@ export function SubscriptionFrozenScreen({
       window.removeEventListener("focus", loadLatestInvoice);
       document.removeEventListener("visibilitychange", loadLatestInvoice);
     };
-  }, [onPaymentConfirmed, paymentPageOpened, paymentWatchKey, role, store?.id]);
+  }, [onPaymentConfirmed, paymentPageOpened, role, store?.id, storeId]);
 
   useEffect(() => {
     if (role !== "store_owner" || !store?.id) return;
@@ -273,13 +278,32 @@ export function SubscriptionFrozenScreen({
           const invoice = payload.new as {
             status?: string;
             amount_centavos?: number;
+            payment_url?: string | null;
+            created_at?: string | null;
+            next_attempt_at?: string | null;
             paid_at?: string | null;
             period_end?: string | null;
             paymongo_reference_number?: string | null;
           };
+          if (invoice.status === "link_created") {
+            const verifiedUrl = safePaymentLink(invoice.payment_url);
+            if (!verifiedUrl) return;
+            setLinkPreparationError("");
+            setLatestInvoice((current) => ({
+              amountCentavos: Number(invoice.amount_centavos || current?.amountCentavos || 0),
+              paymentUrl: verifiedUrl,
+              referenceNumber: invoice.paymongo_reference_number || current?.referenceNumber || null,
+              status: "link_created",
+              createdAt: invoice.created_at || current?.createdAt || new Date().toISOString(),
+              nextAttemptAt: invoice.next_attempt_at || current?.nextAttemptAt || null,
+              paidAt: current?.paidAt || null,
+              periodEnd: invoice.period_end || current?.periodEnd || null,
+            }));
+            return;
+          }
           if (invoice.status !== "paid") return;
 
-          window.sessionStorage.removeItem(paymentWatchKey);
+          clearSubscriptionPaymentPending(storeId);
           onPaymentConfirmed?.({
             amountCentavos: Number(invoice.amount_centavos || 0),
             paidAt: invoice.paid_at || null,
@@ -293,34 +317,53 @@ export function SubscriptionFrozenScreen({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [onPaymentConfirmed, paymentWatchKey, role, store?.id]);
+  }, [onPaymentConfirmed, role, store?.id, storeId]);
 
   useEffect(() => {
     if (role !== "store_owner" || !store?.id || paymentLink || !paymentLookupComplete) return;
     let cancelled = false;
+    let inFlight = false;
     const preparePaymentLink = async () => {
-      const { data, error } = await supabase.functions.invoke("subscription-payment-status", {
-        body: { storeId: store.id },
-      });
-      if (cancelled || error || !data?.paymentUrl) {
-        if (error) console.warn("Could not prepare the subscription payment link", error);
-        return;
+      if (inFlight) return;
+      inFlight = true;
+      setLastCheckedAt(Date.now());
+      try {
+        const { data, error } = await supabase.functions.invoke("subscription-payment-status", {
+          body: { storeId: store.id },
+        });
+        if (cancelled) return;
+        if (error || !data?.paymentUrl) {
+          const message = String(data?.error || error?.message || "PayMongo did not return a payment link.");
+          setLinkPreparationError(message);
+          if (error) console.warn("Could not prepare the subscription payment link", error);
+          return;
+        }
+        const verifiedUrl = safePaymentLink(data.paymentUrl);
+        if (!verifiedUrl) {
+          setLinkPreparationError("PayMongo returned an invalid payment link. PerkUp will retry automatically.");
+          return;
+        }
+        setLinkPreparationError("");
+        setLatestInvoice((current) => ({
+          amountCentavos: Number(data.amountCentavos || current?.amountCentavos || 0),
+          paymentUrl: verifiedUrl,
+          referenceNumber: data.referenceNumber || current?.referenceNumber || null,
+          status: "link_created",
+          createdAt: current?.createdAt || new Date().toISOString(),
+          nextAttemptAt: current?.nextAttemptAt || null,
+          paidAt: current?.paidAt || null,
+          periodEnd: current?.periodEnd || null,
+        }));
+      } finally {
+        inFlight = false;
       }
-      const verifiedUrl = safePaymentLink(data.paymentUrl);
-      if (!verifiedUrl) return;
-      setLatestInvoice((current) => ({
-        amountCentavos: Number(data.amountCentavos || current?.amountCentavos || 0),
-        paymentUrl: verifiedUrl,
-        referenceNumber: data.referenceNumber || current?.referenceNumber || null,
-        status: "link_created",
-        createdAt: current?.createdAt || new Date().toISOString(),
-        nextAttemptAt: current?.nextAttemptAt || null,
-        paidAt: current?.paidAt || null,
-        periodEnd: current?.periodEnd || null,
-      }));
     };
     void preparePaymentLink();
-    return () => { cancelled = true; };
+    const retryId = window.setInterval(preparePaymentLink, LINK_REFRESH_SECONDS * 1_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(retryId);
+    };
   }, [paymentLink, paymentLookupComplete, role, store?.id]);
 
   useEffect(() => {
@@ -370,6 +413,11 @@ export function SubscriptionFrozenScreen({
                   <p className="mt-1 text-blue-800 dark:text-blue-200">
                     Elapsed: {elapsedLabel(invoiceStartedAt, clock)}. Checking automatically again in {secondsUntilRefresh}s; you do not need to refresh this page.
                   </p>
+                  {linkPreparationError && (
+                    <p className="mt-2 text-blue-900 dark:text-blue-100">
+                      Last attempt: {linkPreparationError} Retrying automatically.
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -378,7 +426,7 @@ export function SubscriptionFrozenScreen({
                 <LoaderCircle className="mt-0.5 h-5 w-5 shrink-0 animate-spin" />
                 <div className="text-sm">
                   <p className="font-bold">Waiting for PayMongo confirmation</p>
-                  <p className="mt-1 text-blue-800 dark:text-blue-200">Keep this PerkUp tab open. Your dashboard will update automatically as soon as PayMongo confirms the payment.</p>
+                  <p className="mt-1 text-blue-800 dark:text-blue-200">You can safely close this PerkUp or PayMongo tab and come back later. Payment processing continues securely, and we will resume checking when you return.</p>
                 </div>
               </div>
             )}
@@ -386,7 +434,7 @@ export function SubscriptionFrozenScreen({
 
           {role === "store_owner" && <div className="flex flex-col gap-3 sm:flex-row">
             {paymentLink && (
-              <a href={paymentLink} target="_blank" rel="noopener noreferrer" onClick={() => { window.sessionStorage.setItem(paymentWatchKey, "active"); setPaymentPageOpened(true); }} aria-label={`Pay now - ${formatPhp(amountDue)} securely with PayMongo`} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-green-700">
+              <a href={paymentLink} target="_blank" rel="noopener noreferrer" onClick={() => { markSubscriptionPaymentPending(storeId); setPaymentPageOpened(true); }} aria-label={`Pay now - ${formatPhp(amountDue)} securely with PayMongo`} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-green-700">
                 Pay now - {formatPhp(amountDue)} <ExternalLink className="h-4 w-4" />
               </a>
             )}

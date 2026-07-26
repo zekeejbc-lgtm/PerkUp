@@ -426,7 +426,7 @@ Deno.serve(async (req) => {
       try {
         const { data: invoice, error: invoiceError } = await supabase
           .from("billing_invoices")
-          .select("id,store_id,owner_user_id,invoice_type,period_start,period_end,due_at,amount_centavos,currency,status,paymongo_reference_number,payment_url,livemode,paid_at,payment_method,gross_amount_centavos,fee_centavos,net_amount_centavos,last_error,subscription_id")
+          .select("id,store_id,owner_user_id,invoice_type,period_start,period_end,due_at,amount_centavos,currency,status,paymongo_reference_number,manual_payment_reference,payment_url,livemode,paid_at,payment_method,gross_amount_centavos,fee_centavos,net_amount_centavos,last_error,subscription_id")
           .eq("id", notification.invoice_id)
           .maybeSingle();
         if (invoiceError) throw invoiceError;
@@ -464,14 +464,14 @@ Deno.serve(async (req) => {
           periodEnd: invoice.period_end,
           paidAt: invoice.paid_at,
           paymentMethod: invoice.payment_method,
-          referenceNumber: invoice.paymongo_reference_number,
+          referenceNumber: invoice.manual_payment_reference || invoice.paymongo_reference_number,
           paymentLink: invoice.payment_url,
-          testMode: invoice.payment_method === "admin_confirmed" ? false : !invoice.livemode,
+          testMode: invoice.payment_method === "admin_confirmed" || String(invoice.payment_method || "").startsWith("manual_") ? false : !invoice.livemode,
           noticeType: notification.notification_type,
           renewedUntil: subscription.current_period_end,
           failureReason: invoice.last_error,
           initialPayment: invoice.invoice_type === "initial",
-          adminConfirmed: invoice.payment_method === "admin_confirmed",
+          adminConfirmed: invoice.payment_method === "admin_confirmed" || String(invoice.payment_method || "").startsWith("manual_"),
         };
 
         await sendGasRequest({

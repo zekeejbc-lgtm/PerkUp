@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { sessionNeedsMfa } from "../_shared/auth.ts";
+import { createPayMongoPaymentLink } from "../_shared/paymongo.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
@@ -290,6 +291,67 @@ Deno.serve(async (req) => {
       return jsonResponse({ updated: true, invoiceId: invoice.id, status: nextStatus });
     }
 
+    if (action === "record_manual_invoice_payment") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const invoiceId = cleanText(body.invoiceId, 100);
+      const paymentMethod = cleanText(body.paymentMethod, 30).toLowerCase();
+      const paymentReference = cleanText(body.paymentReference, 100);
+      const paidAtInput = cleanText(body.paidAt, 100);
+      const paidAt = new Date(paidAtInput);
+      const allowedMethods = ["bank_transfer", "cash", "gcash", "maya", "cheque", "other"];
+
+      if (!invoiceId) return jsonResponse({ error: "Invoice ID is required." }, 400);
+      if (!allowedMethods.includes(paymentMethod)) {
+        return jsonResponse({ error: "Select a valid manual payment method." }, 400);
+      }
+      if (paymentReference.length < 3) {
+        return jsonResponse({ error: "Enter the receipt or transaction reference (at least 3 characters)." }, 400);
+      }
+      if (Number.isNaN(paidAt.getTime()) || paidAt.getTime() > Date.now() + 5 * 60_000) {
+        return jsonResponse({ error: "Enter a valid paid date that is not in the future." }, 400);
+      }
+
+      const { data: invoice, error: invoiceError } = await admin
+        .from("billing_invoices")
+        .select("id,status")
+        .eq("id", invoiceId)
+        .maybeSingle();
+      if (invoiceError) throw invoiceError;
+      if (!invoice) return jsonResponse({ error: "Billing invoice was not found." }, 404);
+      if (invoice.status === "paid") {
+        return jsonResponse({ error: "This invoice is already marked as paid." }, 409);
+      }
+      if (["void", "expired"].includes(String(invoice.status))) {
+        return jsonResponse({ error: "A closed invoice cannot be marked as paid." }, 409);
+      }
+
+      const { data: duplicateReference, error: duplicateReferenceError } = await admin
+        .from("billing_invoices")
+        .select("id")
+        .eq("manual_payment_reference", paymentReference)
+        .neq("id", invoiceId)
+        .limit(1)
+        .maybeSingle();
+      if (duplicateReferenceError) throw duplicateReferenceError;
+      if (duplicateReference) {
+        return jsonResponse({ error: "That manual payment reference is already attached to another invoice." }, 409);
+      }
+
+      const { data: fulfillment, error: fulfillmentError } = await admin.rpc(
+        "fulfill_billing_invoice_manually",
+        {
+          p_invoice_id: invoiceId,
+          p_payment_method: paymentMethod,
+          p_payment_reference: paymentReference,
+          p_paid_at: paidAt.toISOString(),
+          p_recorded_by: authData.user.id,
+        },
+      );
+      if (fulfillmentError) throw fulfillmentError;
+
+      return jsonResponse({ updated: true, fulfillment });
+    }
+
     if (action === "update_subscription_access") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
       const storeId = cleanText(body.storeId, 100);
@@ -498,20 +560,80 @@ Deno.serve(async (req) => {
             if (!billingSubscription?.id || !periodStart || !periodEnd) {
               throw new Error("The initial PayMongo invoice could not be prepared.");
             }
+            const invoiceId = crypto.randomUUID();
+            const dueAt = new Date().toISOString();
             const { error: invoiceError } = await admin.from("billing_invoices").insert({
+              id: invoiceId,
               subscription_id: billingSubscription.id,
               store_id: storeId,
               owner_user_id: ownerId,
               invoice_type: "initial",
               period_start: periodStart,
               period_end: periodEnd,
-              due_at: new Date().toISOString(),
+              due_at: dueAt,
               amount_centavos: billingSubscription.amount_centavos,
               currency: billingSubscription.currency,
               status: "pending",
-              next_attempt_at: new Date().toISOString(),
+              next_attempt_at: dueAt,
             });
             if (invoiceError) throw invoiceError;
+
+            let linkPersisted = false;
+            try {
+              const link = await createPayMongoPaymentLink({
+                id: invoiceId,
+                subscriptionId: billingSubscription.id,
+                storeId,
+                amountCentavos: billingSubscription.amount_centavos,
+                currency: billingSubscription.currency,
+                planId: cleanText(store.subscriptionLevel, 80),
+              }, requiredEnv("PAYMONGO_SECRET_KEY"));
+              const mode = (Deno.env.get("PAYMONGO_MODE") || "test").toLowerCase();
+              if (mode !== "test" && mode !== "live") {
+                throw new Error("PAYMONGO_MODE must be test or live.");
+              }
+              if ((mode === "live") !== link.livemode) {
+                throw new Error("PayMongo payment mode does not match the configured billing mode.");
+              }
+
+              const { error: linkUpdateError } = await admin.from("billing_invoices").update({
+                status: "link_created",
+                paymongo_link_id: link.id,
+                paymongo_reference_number: link.referenceNumber,
+                payment_url: link.url,
+                livemode: link.livemode,
+                attempt_count: 1,
+                next_attempt_at: dueAt,
+                last_error: null,
+              }).eq("id", invoiceId);
+              if (linkUpdateError) throw linkUpdateError;
+              linkPersisted = true;
+
+              const existingAccess = store.subscriptionAccess && typeof store.subscriptionAccess === "object"
+                ? store.subscriptionAccess as Record<string, unknown>
+                : {};
+              store.subscriptionAccess = {
+                ...existingAccess,
+                paymentLink: link.url,
+                updatedAt: new Date().toISOString(),
+                updatedBy: "admin-account-creation",
+              };
+              const { error: storeLinkError } = await admin.from("stores").update({ data: store }).eq("id", storeId);
+              if (storeLinkError) throw storeLinkError;
+            } catch (linkError) {
+              const message = linkError instanceof Error ? linkError.message : "PayMongo link creation failed.";
+              await admin.from("billing_invoices").update({
+                status: linkPersisted ? "link_created" : "failed",
+                attempt_count: 1,
+                next_attempt_at: new Date(Date.now() + 10_000).toISOString(),
+                last_error: message.slice(0, 1000),
+              }).eq("id", invoiceId);
+              console.error("Initial PayMongo link could not be created immediately", {
+                invoiceId,
+                storeId,
+                error: message,
+              });
+            }
           } else if (alreadyPaid && billingSubscription?.id) {
             const invoiceId = crypto.randomUUID();
             const referenceNumber = `ADMIN-${invoiceId.slice(0, 8).toUpperCase()}`;

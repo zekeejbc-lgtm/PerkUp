@@ -13,6 +13,7 @@ import {
 import { useCurrency } from "../../contexts/CurrencyContext";
 import { supabase } from "../../lib/supabase";
 import { downloadSubscriptionInvoicePdf } from "../../lib/subscriptionInvoicePdf";
+import { markSubscriptionPaymentPending } from "../../lib/subscriptionAccess";
 
 type BillingInvoice = {
   id: string;
@@ -25,6 +26,7 @@ type BillingInvoice = {
   currency: string;
   payment_url: string | null;
   paymongo_reference_number: string | null;
+  manual_payment_reference: string | null;
   livemode: boolean;
   paid_at: string | null;
   payment_method: string | null;
@@ -43,6 +45,8 @@ type BillingSubscriptionSummary = {
 };
 
 const invoiceNumber = (invoice: BillingInvoice) => `PU-${invoice.id.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
+const isManualPayment = (invoice: BillingInvoice) =>
+  String(invoice.payment_method || "").startsWith("manual_") || invoice.payment_method === "admin_confirmed";
 
 export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
   const { formatCurrency } = useCurrency();
@@ -71,7 +75,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
           amountCentavos: invoice.amount_centavos,
           currency: invoice.currency,
           paymentUrl: invoice.payment_url,
-          referenceNumber: invoice.paymongo_reference_number,
+          referenceNumber: invoice.manual_payment_reference || invoice.paymongo_reference_number,
           livemode: invoice.livemode,
           paidAt: invoice.paid_at,
           paymentMethod: invoice.payment_method,
@@ -105,7 +109,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
     Promise.all([
       supabase.from("billing_subscriptions").select("automation_enabled,billing_email,plan_id,interval_days,grace_period_days").eq("store_id", subscriptionStore.id).maybeSingle(),
       supabase.from("billing_invoices")
-        .select("id,status,created_at,due_at,period_start,period_end,amount_centavos,currency,payment_url,paymongo_reference_number,livemode,paid_at,payment_method,paymongo_payment_id,gross_amount_centavos,fee_centavos,net_amount_centavos")
+        .select("id,status,created_at,due_at,period_start,period_end,amount_centavos,currency,payment_url,paymongo_reference_number,manual_payment_reference,livemode,paid_at,payment_method,paymongo_payment_id,gross_amount_centavos,fee_centavos,net_amount_centavos")
         .eq("store_id", subscriptionStore.id)
         .order("created_at", { ascending: false })
         .limit(6),
@@ -270,14 +274,15 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold text-gray-900 dark:text-white">{formatCurrency(invoice.amount_centavos / 100)}</span>
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">{invoice.status}</span>
-                        {!invoice.livemode && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">Test mode</span>}
+                        {!invoice.livemode && !isManualPayment(invoice) && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">Test mode</span>}
+                        {isManualPayment(invoice) && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">Manual payment</span>}
                       </div>
                       <p className="mt-1 text-xs text-gray-500">Period {formatBillingDate(invoice.period_start)} - {formatBillingDate(invoice.period_end)}</p>
-                      <p className="mt-1 text-xs text-gray-500">{invoice.paid_at ? `Paid ${formatBillingDate(invoice.paid_at)}` : `Due ${formatBillingDate(invoice.due_at)}`}{invoice.paymongo_reference_number ? ` | Ref ${invoice.paymongo_reference_number}` : ""}</p>
+                      <p className="mt-1 text-xs text-gray-500">{invoice.paid_at ? `Paid ${formatBillingDate(invoice.paid_at)}` : `Due ${formatBillingDate(invoice.due_at)}`}{(invoice.manual_payment_reference || invoice.paymongo_reference_number) ? ` | Ref ${invoice.manual_payment_reference || invoice.paymongo_reference_number}` : ""}</p>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       {invoice.status !== "paid" && invoice.payment_url && (
-                        <a href={invoice.payment_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black dark:bg-white dark:text-gray-900">
+                        <a href={invoice.payment_url} target="_blank" rel="noopener noreferrer" onClick={() => markSubscriptionPaymentPending(subscriptionStore.id)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black dark:bg-white dark:text-gray-900">
                           Open payment page <ExternalLink className="h-4 w-4" />
                         </a>
                       )}

@@ -1,3 +1,50 @@
+export type BillingParty = {
+  name: string;
+  address?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  website?: string | null;
+};
+
+export type BillingLineItem = {
+  description: string;
+  detail?: string | null;
+  quantity?: number;
+  amountCentavos: number;
+};
+
+export type UniversalBillingDocumentData = {
+  document: {
+    kind: "invoice" | "receipt";
+    number: string;
+    status: string;
+    issuedAt: string;
+    dueAt?: string | null;
+    paidAt?: string | null;
+    currency: string;
+    livemode?: boolean;
+  };
+  from: BillingParty;
+  billTo: BillingParty;
+  items: BillingLineItem[];
+  totals: {
+    subtotalCentavos: number;
+    taxCentavos?: number;
+    discountCentavos?: number;
+    totalCentavos: number;
+  };
+  payment?: {
+    referenceNumber?: string | null;
+    method?: string | null;
+    paymentId?: string | null;
+    paymentUrl?: string | null;
+  };
+  notes?: string[];
+  details?: Array<{ label: string; value: string }>;
+  disclaimer?: string;
+  filename?: string;
+};
+
 export type SubscriptionInvoicePdfData = {
   invoice: {
     id: string;
@@ -30,29 +77,26 @@ export type SubscriptionInvoicePdfData = {
 };
 
 const BRAND = {
-  ink: [23, 27, 31] as const,
-  teal: [27, 86, 96] as const,
-  gold: [236, 171, 58] as const,
-  paleGold: [255, 248, 229] as const,
-  paleTeal: [235, 246, 246] as const,
-  gray: [102, 112, 122] as const,
-  line: [222, 226, 230] as const,
+  ink: [27, 27, 27] as const,
+  muted: [105, 105, 105] as const,
+  line: [226, 226, 226] as const,
+  soft: [247, 247, 247] as const,
   white: [255, 255, 255] as const,
+  warning: [255, 246, 218] as const,
 };
 
 const invoiceNumber = (id: string) => `PU-${id.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
 
-const formatPdfDate = (value: string | null) => {
+const formatPdfDate = (value?: string | null, includeTime = false) => {
   if (!value) return "Not available";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Not available";
   return new Intl.DateTimeFormat("en-PH", {
     timeZone: "Asia/Manila",
     year: "numeric",
-    month: "long",
+    month: "short",
     day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
+    ...(includeTime ? { hour: "numeric", minute: "2-digit" } : {}),
   }).format(date);
 };
 
@@ -64,226 +108,335 @@ const formatPdfMoney = (centavos: number, currency = "PHP") => {
   })}`;
 };
 
-const titleCase = (value: string | null) => value
+const titleCase = (value?: string | null) => value
   ? value.replace(/[_-]+/g, " ").replace(/\b\w/g, (character) => character.toUpperCase())
   : "Not available";
 
 const imageAsDataUrl = async (path: string) => {
   const response = await fetch(path, { cache: "force-cache" });
-  if (!response.ok) throw new Error(`Could not load invoice logo (${response.status})`);
+  if (!response.ok) throw new Error(`Could not load billing logo (${response.status})`);
   const blob = await response.blob();
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error || new Error("Could not read invoice logo"));
+    reader.onerror = () => reject(reader.error || new Error("Could not read billing logo"));
     reader.readAsDataURL(blob);
   });
 };
 
-export async function downloadSubscriptionInvoicePdf(data: SubscriptionInvoicePdfData) {
+const partyLines = (party: BillingParty) => [
+  party.address,
+  party.email,
+  party.phone,
+  party.website,
+].filter((line): line is string => Boolean(line?.trim()));
+
+/**
+ * The single PerkUp invoice/receipt renderer. Other billing features should
+ * normalize their data into this shape instead of creating a separate design.
+ */
+export async function downloadBillingDocumentPdf(data: UniversalBillingDocumentData) {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const { invoice, subscription, business } = data;
-  const documentNumber = invoiceNumber(invoice.id);
-  const isPaid = invoice.status === "paid";
-  const totalCentavos = isPaid && invoice.grossAmountCentavos
-    ? invoice.grossAmountCentavos
-    : invoice.amountCentavos;
-  const planName = subscription.planId
-    ? `${titleCase(subscription.planId)} subscription`
-    : "PerkUp subscription";
+  const { document, from, billTo, items, totals, payment } = data;
+  const isReceipt = document.kind === "receipt";
+  const currency = document.currency || "PHP";
+  const title = isReceipt ? "RECEIPT" : "INVOICE";
 
   doc.setProperties({
-    title: `PerkUp ${isPaid ? "Receipt" : "Invoice"} ${documentNumber}`,
-    subject: `${planName} for ${business.name}`,
+    title: `PerkUp ${titleCase(document.kind)} ${document.number}`,
+    subject: `${titleCase(document.status)} billing document for ${billTo.name}`,
     author: "PerkUp",
     creator: "PerkUp Billing",
   });
 
-  // Branded document header.
-  doc.setFillColor(...BRAND.ink);
-  doc.rect(0, 0, 210, 43, "F");
-  doc.setFillColor(...BRAND.gold);
-  doc.rect(0, 40.5, 210, 2.5, "F");
-  doc.setFillColor(...BRAND.white);
-  doc.roundedRect(14, 8, 27, 27, 4, 4, "F");
+  // Header: deliberately mirrors the current black-and-white web app.
   try {
-    const logo = await imageAsDataUrl("/icons/icon-192.png");
-    doc.addImage(logo, "PNG", 17, 11, 21, 21);
+    const wordmark = await imageAsDataUrl("/icons/perkup-wordmark-light-transparent.png?v=20260722-theme");
+    doc.addImage(wordmark, "PNG", 14, 13, 33, 15, undefined, "FAST");
   } catch (error) {
-    console.warn("Invoice logo could not be embedded", error);
-    doc.setTextColor(...BRAND.teal);
+    console.warn("Billing wordmark could not be embedded", error);
+    doc.setTextColor(...BRAND.ink);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text("P", 22.5, 25.5);
+    doc.setFontSize(20);
+    doc.text("perk.", 14, 24);
   }
+  doc.setTextColor(...BRAND.ink);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(26);
+  doc.text(title, 196, 21, { align: "right" });
+  doc.setFontSize(8.5);
+  doc.setTextColor(...BRAND.muted);
+  doc.text(document.number, 196, 27, { align: "right" });
+  doc.setDrawColor(...BRAND.ink);
+  doc.setLineWidth(0.8);
+  doc.line(14, 34, 196, 34);
+
+  // Sender and document metadata.
+  doc.setTextColor(...BRAND.ink);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10.5);
+  doc.text(from.name, 14, 44);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.1);
+  doc.setTextColor(...BRAND.muted);
+  doc.text(partyLines(from), 14, 50, { lineHeightFactor: 1.5 });
+
+  const metadata = [
+    ["DATE", formatPdfDate(document.issuedAt)],
+    [isReceipt ? "RECEIPT #" : "INVOICE #", document.number],
+    [isReceipt ? "PAID" : "DUE DATE", formatPdfDate(isReceipt ? document.paidAt : document.dueAt)],
+  ];
+  let metadataY = 42;
+  metadata.forEach(([label, value]) => {
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...BRAND.muted);
+    doc.text(label, 143, metadataY, { align: "right" });
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...BRAND.ink);
+    doc.text(value, 196, metadataY, { align: "right" });
+    metadataY += 7;
+  });
+
+  // Bill-to block and status.
+  doc.setFillColor(...BRAND.ink);
+  doc.roundedRect(14, 75, 88, 9, 1.5, 1.5, "F");
   doc.setTextColor(...BRAND.white);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("SUBSCRIPTION BILLING", 47, 20);
-  doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
-  doc.text("PerkUp merchant services", 47, 26);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.text(isPaid ? "PAYMENT RECEIPT" : "SUBSCRIPTION INVOICE", 196, 18, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.text(documentNumber, 196, 25, { align: "right" });
-
-  // Status and document metadata.
-  const statusText = isPaid ? "PAID" : "PAYMENT DUE";
-  const statusBackground = isPaid ? BRAND.paleTeal : BRAND.paleGold;
-  const statusForeground = isPaid ? BRAND.teal : BRAND.ink;
-  doc.setFillColor(statusBackground[0], statusBackground[1], statusBackground[2]);
-  doc.roundedRect(14, 50, 42, 9, 4.5, 4.5, "F");
-  doc.setTextColor(statusForeground[0], statusForeground[1], statusForeground[2]);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.text(statusText, 35, 55.8, { align: "center" });
-  if (!invoice.livemode) {
-    doc.setFillColor(255, 237, 190);
-    doc.roundedRect(60, 50, 34, 9, 4.5, 4.5, "F");
-    doc.setTextColor(142, 91, 0);
-    doc.text("TEST MODE", 77, 55.8, { align: "center" });
-  }
-  doc.setTextColor(...BRAND.gray);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  doc.text(`Issued: ${formatPdfDate(invoice.createdAt)}`, 196, 53, { align: "right" });
-  doc.text(`Due: ${formatPdfDate(invoice.dueAt)}`, 196, 58, { align: "right" });
-
-  // Merchant and customer details.
-  doc.setTextColor(...BRAND.gray);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.text("FROM", 14, 70);
-  doc.text("BILL TO", 109, 70);
+  doc.text("BILL TO", 18, 80.8);
   doc.setTextColor(...BRAND.ink);
-  doc.setFontSize(11);
-  doc.text("PerkUp", 14, 77);
-  doc.text(business.name || "PerkUp merchant", 109, 77);
+  doc.setFontSize(10.5);
+  doc.text(billTo.name, 18, 91);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  doc.setTextColor(...BRAND.gray);
-  const merchantLines = [
-    "Tagum City, Davao del Norte, Philippines",
-    "perkup.shop@youthserviceph.org | 0962 232 8290",
-    "www.perktoday.com",
-  ];
-  doc.text(merchantLines, 14, 83, { lineHeightFactor: 1.55 });
-  const billToLines = [
-    business.address || "Business address not provided",
-    subscription.billingEmail || "Billing email not provided",
-    business.contact ? `Contact: ${business.contact}` : "Contact number not provided",
-  ];
-  doc.text(billToLines.map((line) => doc.splitTextToSize(line, 87)).flat(), 109, 83, { lineHeightFactor: 1.45 });
+  doc.setFontSize(8.2);
+  doc.setTextColor(...BRAND.muted);
+  doc.text(partyLines(billTo), 18, 97, { lineHeightFactor: 1.5 });
 
-  // Subscription line item table.
-  const tableY = 105;
+  const status = titleCase(document.status).toUpperCase();
+  doc.setFillColor(...BRAND.soft);
+  doc.roundedRect(155, 75, 41, 10, 5, 5, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.8);
+  doc.setTextColor(...BRAND.ink);
+  doc.text(status, 175.5, 81.3, { align: "center" });
+  if (document.livemode === false) {
+    doc.setFillColor(...BRAND.warning);
+    doc.roundedRect(155, 89, 41, 9, 4.5, 4.5, "F");
+    doc.text("TEST MODE", 175.5, 94.8, { align: "center" });
+  }
+
+  // Universal line-item table.
+  const tableY = 119;
   doc.setFillColor(...BRAND.ink);
-  doc.roundedRect(14, tableY, 182, 10, 2, 2, "F");
+  doc.rect(14, tableY, 182, 10, "F");
   doc.setTextColor(...BRAND.white);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
   doc.text("DESCRIPTION", 18, tableY + 6.4);
-  doc.text("QTY", 145, tableY + 6.4, { align: "center" });
+  doc.text("QTY", 147, tableY + 6.4, { align: "center" });
   doc.text("AMOUNT", 192, tableY + 6.4, { align: "right" });
-  doc.setTextColor(...BRAND.ink);
-  doc.setFontSize(9.5);
-  doc.text(planName, 18, tableY + 18);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(...BRAND.gray);
+
+  const visibleItems = items.length > 5
+    ? [
+        ...items.slice(0, 4),
+        {
+          description: `Additional items (${items.length - 4})`,
+          detail: "Combined on this document",
+          quantity: items.slice(4).reduce((sum, item) => sum + (item.quantity ?? 1), 0),
+          amountCentavos: items.slice(4).reduce((sum, item) => sum + item.amountCentavos, 0),
+        },
+      ]
+    : items;
+  let rowY = tableY + 10;
+  visibleItems.forEach((item, index) => {
+    const rowHeight = 12;
+    if (index % 2 === 0) {
+      doc.setFillColor(...BRAND.soft);
+      doc.rect(14, rowY, 182, rowHeight, "F");
+    }
+    doc.setTextColor(...BRAND.ink);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.text(doc.splitTextToSize(item.description, 112)[0], 18, rowY + 5.2);
+    if (item.detail) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(...BRAND.muted);
+      doc.text(doc.splitTextToSize(item.detail, 112)[0], 18, rowY + 9.3);
+    }
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(...BRAND.ink);
+    doc.text(String(item.quantity ?? 1), 147, rowY + 7.2, { align: "center" });
+    doc.text(formatPdfMoney(item.amountCentavos, currency), 192, rowY + 7.2, { align: "right" });
+    rowY += rowHeight;
+  });
+  const tableBottom = Math.max(rowY, 174);
+  doc.setDrawColor(...BRAND.line);
+  doc.rect(14, tableY, 182, tableBottom - tableY);
+  doc.line(137, tableY, 137, tableBottom);
+  doc.line(157, tableY, 157, tableBottom);
+
+  // Notes and totals use the same hierarchy for invoices and receipts.
+  const summaryY = tableBottom + 9;
+  doc.setTextColor(...BRAND.muted);
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
-  const accessDays = subscription.intervalDays || 30;
-  doc.text(`${accessDays}-day portal access and plan features`, 18, tableY + 24);
-  doc.setTextColor(...BRAND.ink);
-  doc.setFontSize(9);
-  doc.text("1", 145, tableY + 20, { align: "center" });
-  doc.text(formatPdfMoney(invoice.amountCentavos, invoice.currency), 192, tableY + 20, { align: "right" });
-  doc.setDrawColor(...BRAND.line);
-  doc.line(14, tableY + 30, 196, tableY + 30);
-
-  const periodText = `${formatPdfDate(invoice.periodStart)} - ${formatPdfDate(invoice.periodEnd)}`;
-  doc.setTextColor(...BRAND.gray);
-  doc.setFontSize(8.5);
-  doc.text("Billing period", 18, tableY + 38);
-  doc.setTextColor(...BRAND.ink);
-  doc.text(periodText, 54, tableY + 38);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.text(isPaid ? "TOTAL PAID" : "TOTAL DUE", 145, tableY + 42, { align: "right" });
-  doc.setTextColor(...BRAND.teal);
-  doc.setFontSize(14);
-  doc.text(formatPdfMoney(totalCentavos, invoice.currency), 192, tableY + 42, { align: "right" });
-
-  // Payment and reference details.
-  const detailsY = 166;
-  doc.setFillColor(247, 249, 250);
-  doc.roundedRect(14, detailsY, 182, 42, 3, 3, "F");
-  doc.setTextColor(...BRAND.ink);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.text("Payment details", 19, detailsY + 9);
+  doc.text(isReceipt ? "PAYMENT NOTE" : "NOTES", 14, summaryY);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  doc.setTextColor(...BRAND.gray);
-  doc.text("PayMongo reference", 19, detailsY + 17);
-  doc.text("Payment method", 19, detailsY + 24);
-  doc.text(isPaid ? "Paid on" : "Payment deadline", 19, detailsY + 31);
-  doc.text("Payment ID", 109, detailsY + 17);
-  doc.text("Invoice status", 109, detailsY + 24);
-  doc.text("Grace period", 109, detailsY + 31);
-  doc.setTextColor(...BRAND.ink);
-  doc.setFont("helvetica", "bold");
-  doc.text(invoice.referenceNumber || "Pending", 56, detailsY + 17);
-  doc.text(isPaid ? titleCase(invoice.paymentMethod) : "PayMongo payment link", 56, detailsY + 24);
-  doc.text(formatPdfDate(isPaid ? invoice.paidAt : invoice.dueAt), 56, detailsY + 31);
-  doc.text(invoice.paymentId || "Pending", 138, detailsY + 17);
-  doc.text(titleCase(invoice.status), 138, detailsY + 24);
-  doc.text(`${subscription.gracePeriodDays ?? 0} day(s)`, 138, detailsY + 31);
+  doc.setFontSize(7.8);
+  const notes = data.notes?.length
+    ? data.notes
+    : [isReceipt ? "Thank you. Your payment has been recorded." : "Please include the document number with your payment."];
+  doc.text(doc.splitTextToSize(notes.map((note, index) => `${index + 1}. ${note}`).join("\n"), 105), 14, summaryY + 6, {
+    lineHeightFactor: 1.45,
+  });
 
-  // Payment instructions or receipt confirmation.
-  const noteY = 216;
-  doc.setFillColor(statusBackground[0], statusBackground[1], statusBackground[2]);
-  doc.roundedRect(14, noteY, 182, 32, 3, 3, "F");
-  doc.setTextColor(statusForeground[0], statusForeground[1], statusForeground[2]);
+  const totalRows: Array<[string, number]> = [
+    ["Subtotal", totals.subtotalCentavos],
+    ...(totals.discountCentavos ? [["Discount", -totals.discountCentavos] as [string, number]] : []),
+    ...(totals.taxCentavos ? [["Tax", totals.taxCentavos] as [string, number]] : []),
+  ];
+  let totalY = summaryY;
+  totalRows.forEach(([label, amount]) => {
+    doc.setTextColor(...BRAND.muted);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.2);
+    doc.text(label, 157, totalY, { align: "right" });
+    doc.setTextColor(...BRAND.ink);
+    doc.text(formatPdfMoney(amount, currency), 196, totalY, { align: "right" });
+    totalY += 7;
+  });
+  doc.setDrawColor(...BRAND.ink);
+  doc.setLineWidth(0.5);
+  doc.line(127, totalY - 2, 196, totalY - 2);
+  doc.setFillColor(...BRAND.ink);
+  doc.roundedRect(127, totalY, 69, 13, 2, 2, "F");
+  doc.setTextColor(...BRAND.white);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9.5);
-  doc.text(isPaid ? "Payment confirmed" : "How to pay", 19, noteY + 9);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.3);
-  const note = isPaid
-    ? "PayMongo confirmed this payment for the exact invoice amount. Your PerkUp subscription access is updated automatically after confirmation. Keep this document for your records."
-    : "Open the secure PayMongo payment page, confirm that the amount matches this invoice, and select an available method such as QR Ph. Access is updated automatically only after PayMongo confirms the exact payment amount.";
-  doc.text(doc.splitTextToSize(note, 171), 19, noteY + 16, { lineHeightFactor: 1.45 });
-  if (!isPaid && invoice.paymentUrl) {
-    doc.setTextColor(...BRAND.teal);
+  doc.setFontSize(9);
+  doc.text(isReceipt ? "TOTAL PAID" : "TOTAL DUE", 132, totalY + 8.4);
+  doc.text(formatPdfMoney(totals.totalCentavos, currency), 192, totalY + 8.4, { align: "right" });
+
+  // Compact payment/reference area.
+  const detailsY = Math.max(summaryY + 35, totalY + 21);
+  doc.setFillColor(...BRAND.soft);
+  doc.roundedRect(14, detailsY, 182, 29, 3, 3, "F");
+  const details = [
+    { label: "Payment reference", value: payment?.referenceNumber || "Pending" },
+    { label: "Payment method", value: isReceipt ? titleCase(payment?.method) : "Secure PayMongo link" },
+    ...(data.details || []),
+  ].slice(0, 4);
+  details.forEach((detail, index) => {
+    const columnX = index % 2 === 0 ? 19 : 109;
+    const detailY = detailsY + 9 + Math.floor(index / 2) * 11;
+    doc.setTextColor(...BRAND.muted);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.text(detail.label.toUpperCase(), columnX, detailY);
+    doc.setTextColor(...BRAND.ink);
     doc.setFont("helvetica", "bold");
-    doc.textWithLink("Open secure PayMongo payment page", 19, noteY + 27.5, { url: invoice.paymentUrl });
+    doc.setFontSize(8.2);
+    doc.text(doc.splitTextToSize(detail.value, 78)[0], columnX, detailY + 4.5);
+  });
+
+  if (!isReceipt && payment?.paymentUrl) {
+    doc.setTextColor(...BRAND.ink);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.2);
+    doc.textWithLink("PAY SECURELY WITH PAYMONGO  →", 14, detailsY + 38, { url: payment.paymentUrl });
   }
 
-  if (!invoice.livemode) {
-    doc.setFillColor(255, 244, 214);
-    doc.rect(14, 253, 182, 11, "F");
-    doc.setTextColor(142, 91, 0);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.8);
-    doc.text("TEST MODE: No live charge was collected. This document is for testing only.", 105, 259.8, { align: "center" });
-  }
-
-  // Legal/support footer.
+  const footerY = 274;
   doc.setDrawColor(...BRAND.line);
-  doc.line(14, 271, 196, 271);
-  doc.setTextColor(...BRAND.gray);
+  doc.setLineWidth(0.3);
+  doc.line(14, footerY, 196, footerY);
+  doc.setTextColor(...BRAND.muted);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.3);
-  const footer = "This system-generated billing statement records a PerkUp subscription charge or payment. It is not a VAT official receipt or tax invoice. For billing assistance or an official tax document, contact perkup.shop@youthserviceph.org.";
-  doc.text(doc.splitTextToSize(footer, 155), 14, 277, { lineHeightFactor: 1.35 });
+  doc.setFontSize(6.8);
+  const disclaimer = data.disclaimer ||
+    "This system-generated billing statement records a PerkUp charge or payment. It is not a VAT official receipt or tax invoice. For billing assistance or an official tax document, contact perkup.shop@youthserviceph.org.";
+  doc.text(doc.splitTextToSize(disclaimer, 150), 14, footerY + 5, { lineHeightFactor: 1.35 });
   doc.setFont("helvetica", "bold");
-  doc.text("Page 1 of 1", 196, 277, { align: "right" });
-  doc.text(documentNumber, 196, 282, { align: "right" });
+  doc.text("www.perktoday.com", 196, footerY + 5, { align: "right" });
+  doc.text(document.number, 196, footerY + 10, { align: "right" });
 
-  const filename = `PerkUp-${isPaid ? "Receipt" : "Invoice"}-${documentNumber}.pdf`;
+  const filename = data.filename || `PerkUp-${titleCase(document.kind)}-${document.number}.pdf`;
   doc.save(filename);
+}
+
+export async function downloadSubscriptionInvoicePdf(data: SubscriptionInvoicePdfData) {
+  const { invoice, subscription, business } = data;
+  const isPaid = invoice.status === "paid";
+  const isManualPayment = String(invoice.paymentMethod || "").startsWith("manual_") ||
+    invoice.paymentMethod === "admin_confirmed";
+  const documentNumber = invoiceNumber(invoice.id);
+  const planName = subscription.planId
+    ? `${titleCase(subscription.planId)} subscription`
+    : "PerkUp subscription";
+  const totalCentavos = isPaid && invoice.grossAmountCentavos
+    ? invoice.grossAmountCentavos
+    : invoice.amountCentavos;
+
+  return downloadBillingDocumentPdf({
+    document: {
+      kind: isPaid ? "receipt" : "invoice",
+      number: documentNumber,
+      status: isPaid ? "paid" : "payment due",
+      issuedAt: invoice.createdAt,
+      dueAt: invoice.dueAt,
+      paidAt: invoice.paidAt,
+      currency: invoice.currency,
+      livemode: isManualPayment ? undefined : invoice.livemode,
+    },
+    from: {
+      name: "PerkUp",
+      address: "Tagum City, Davao del Norte, Philippines",
+      email: "perkup.shop@youthserviceph.org",
+      phone: "0962 232 8290",
+      website: "www.perktoday.com",
+    },
+    billTo: {
+      name: business.name || "PerkUp merchant",
+      address: business.address || "Business address not provided",
+      email: subscription.billingEmail || "Billing email not provided",
+      phone: business.contact || "Contact number not provided",
+    },
+    items: [{
+      description: planName,
+      detail: `${subscription.intervalDays || 30}-day portal access and plan features`,
+      quantity: 1,
+      amountCentavos: invoice.amountCentavos,
+    }],
+    totals: {
+      subtotalCentavos: invoice.amountCentavos,
+      totalCentavos,
+    },
+    payment: {
+      referenceNumber: invoice.referenceNumber,
+      method: invoice.paymentMethod,
+      paymentId: invoice.paymentId,
+      paymentUrl: invoice.paymentUrl,
+    },
+    notes: isPaid
+      ? [
+        isManualPayment
+          ? "A PerkUp administrator recorded this payment from the paid date and reference shown."
+          : "PayMongo confirmed this payment and subscription access updated automatically.",
+        "Keep this receipt for your records.",
+      ]
+      : ["Pay through the secure PayMongo page before the due date.", "Access updates after PayMongo confirms the exact amount."],
+    details: [
+      {
+        label: "Billing period",
+        value: `${formatPdfDate(invoice.periodStart)} – ${formatPdfDate(invoice.periodEnd)}`,
+      },
+      {
+        label: isPaid ? "Paid on" : "Grace period",
+        value: isPaid ? formatPdfDate(invoice.paidAt, true) : `${subscription.gracePeriodDays ?? 0} day(s)`,
+      },
+    ],
+    filename: `PerkUp-${isPaid ? "Receipt" : "Invoice"}-${documentNumber}.pdf`,
+  });
 }

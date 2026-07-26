@@ -158,3 +158,40 @@ export const subscriptionNoticeDismissKey = (storeId: string, value: unknown) =>
   const policy = normalizeSubscriptionAccess(value);
   return `perkup:subscription-notice:${storeId}:${policy.updatedAt}:${policy.status}`;
 };
+
+export const subscriptionPaymentWatchKey = (storeId: string) =>
+  `perkup-payment-watch:${String(storeId || "store")}`;
+
+export const isSubscriptionPaymentPending = (storeId: string) => {
+  if (typeof window === "undefined") return false;
+  const key = subscriptionPaymentWatchKey(storeId);
+  try {
+    if (window.localStorage.getItem(key) === "active") return true;
+    if (window.sessionStorage.getItem(key) === "active") {
+      window.localStorage.setItem(key, "active");
+      window.sessionStorage.removeItem(key);
+      return true;
+    }
+  } catch {
+    return window.sessionStorage.getItem(key) === "active";
+  }
+  return false;
+};
+
+export const markSubscriptionPaymentPending = (storeId: string) => {
+  if (typeof window === "undefined") return;
+  const key = subscriptionPaymentWatchKey(storeId);
+  try {
+    window.localStorage.setItem(key, "active");
+    window.sessionStorage.removeItem(key);
+  } catch {
+    window.sessionStorage.setItem(key, "active");
+  }
+};
+
+export const clearSubscriptionPaymentPending = (storeId: string) => {
+  if (typeof window === "undefined") return;
+  const key = subscriptionPaymentWatchKey(storeId);
+  window.localStorage.removeItem(key);
+  window.sessionStorage.removeItem(key);
+};
