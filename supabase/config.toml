@@ -1,3 +1,23 @@
+[auth]
+site_url = "https://www.perktoday.com/"
+additional_redirect_urls = [
+  "https://www.perktoday.com/",
+  "https://www.perktoday.com/owner",
+  "https://www.perktoday.com/reset-password",
+]
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[auth.email]
+double_confirm_changes = false
+max_frequency = "1m0s"
+otp_length = 8
+
+[storage.vector]
+enabled = false
+
 [functions.issue-customer-qr]
 verify_jwt = false
 

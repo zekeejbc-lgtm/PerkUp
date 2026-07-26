@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { AlertTriangle, Eye, EyeOff, KeyRound, Loader2, LockKeyhole, Wrench } from "lucide-react";
+import { AlertTriangle, Eye, EyeOff, KeyRound, Loader2, LockKeyhole, LogIn, Wrench } from "lucide-react";
 import { BrandMark } from "./BrandMark";
 import { useRuntimeMode } from "../contexts/RuntimeModeContext";
 import { supabase } from "../lib/supabase";
@@ -20,14 +20,62 @@ const formatStartedAt = (value: string | null) => {
 
 export function MaintenanceScreen() {
   const { config, statusUnavailable, refreshRuntimeMode } = useRuntimeMode();
+  const [showAdminSignIn, setShowAdminSignIn] = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminSubmitting, setAdminSubmitting] = useState(false);
+  const [adminError, setAdminError] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const startedAt = formatStartedAt(config.maintenanceStartedAt);
+
+  const signInDuringMaintenance = async (event: FormEvent) => {
+    event.preventDefault();
+    setAdminError("");
+    setAdminSubmitting(true);
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: adminEmail.trim().toLowerCase(),
+        password: adminPassword,
+      });
+      if (signInError) throw signInError;
+      if (!signInData.user) throw new Error("Sign-in did not return an authenticated account.");
+
+      const { data: profileRow, error: profileError } = await supabase
+        .from("users")
+        .select("data")
+        .eq("id", signInData.user.id)
+        .maybeSingle();
+      if (profileError) throw profileError;
+
+      const profile = (profileRow?.data || {}) as {
+        role?: string;
+        isDemo?: boolean;
+        accountStatus?: string;
+      };
+      const hasAccess =
+        profile.isDemo !== true &&
+        !["suspended", "banned"].includes(profile.accountStatus || "active") &&
+        ["admin", "assistant_admin", "auditor"].includes(profile.role || "");
+      if (!hasAccess) {
+        await supabase.auth.signOut({ scope: "local" });
+        throw new Error("Maintenance access is limited to active Auditor and administrator accounts.");
+      }
+
+      window.location.assign("/admin?tab=runtime");
+    } catch (signInError) {
+      setAdminError(signInError instanceof Error ? signInError.message : "Administrator sign-in failed.");
+    } finally {
+      setAdminSubmitting(false);
+    }
+  };
 
   const endMaintenance = async (event: FormEvent) => {
     event.preventDefault();
@@ -87,17 +135,80 @@ export function MaintenanceScreen() {
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={() => {
-            setShowRecovery((current) => !current);
-            setError("");
-          }}
-          className="mt-8 inline-flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-white/5"
-        >
-          <KeyRound className="h-4 w-4" />
-          Auditor recovery
-        </button>
+        <div className="mt-8 flex flex-wrap justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setShowAdminSignIn((current) => !current);
+              setShowRecovery(false);
+              setAdminError("");
+            }}
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-white/5"
+          >
+            <LogIn className="h-4 w-4" />
+            Admin or Auditor sign in
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowRecovery((current) => !current);
+              setShowAdminSignIn(false);
+              setError("");
+            }}
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-white/5"
+          >
+            <KeyRound className="h-4 w-4" />
+            End maintenance
+          </button>
+        </div>
+
+        {showAdminSignIn && (
+          <form onSubmit={signInDuringMaintenance} className="mx-auto mt-6 max-w-md space-y-4 rounded-2xl border border-gray-200 bg-white p-5 text-left dark:border-gray-700 dark:bg-[#181818]">
+            <div>
+              <h2 className="font-bold">Maintenance access</h2>
+              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                Active Auditor and administrator accounts can continue to the admin dashboard. Other accounts remain locked out.
+              </p>
+            </div>
+            <label className="block text-xs font-semibold">
+              Email
+              <input
+                required
+                type="email"
+                autoComplete="username"
+                value={adminEmail}
+                onChange={(event) => setAdminEmail(event.target.value)}
+                className="mt-1.5 min-h-11 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none focus:ring-2 focus:ring-gray-950 dark:border-gray-700 dark:bg-gray-800 dark:focus:ring-white"
+              />
+            </label>
+            <label className="block text-xs font-semibold">
+              Password
+              <span className="relative mt-1.5 block">
+                <LockKeyhole className="pointer-events-none absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                <input
+                  required
+                  type={showAdminPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={adminPassword}
+                  onChange={(event) => setAdminPassword(event.target.value)}
+                  className="min-h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-11 text-sm outline-none focus:ring-2 focus:ring-gray-950 dark:border-gray-700 dark:bg-gray-800 dark:focus:ring-white"
+                />
+                <button type="button" onClick={() => setShowAdminPassword((current) => !current)} className="absolute right-3 top-3 text-gray-400" aria-label={showAdminPassword ? "Hide password" : "Show password"}>
+                  {showAdminPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
+              </span>
+            </label>
+            {adminError && <p role="alert" className="text-sm font-medium text-red-600 dark:text-red-400">{adminError}</p>}
+            <button
+              type="submit"
+              disabled={adminSubmitting}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-gray-950 px-4 text-sm font-bold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-950"
+            >
+              {adminSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Continue to admin dashboard
+            </button>
+          </form>
+        )}
 
         {showRecovery && (
           <form onSubmit={endMaintenance} className="mx-auto mt-6 max-w-md space-y-4 rounded-2xl border border-gray-200 bg-white p-5 text-left dark:border-gray-700 dark:bg-[#181818]">

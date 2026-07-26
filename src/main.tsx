@@ -6,6 +6,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './components/ToastProvider';
 import { AlertModalProvider } from './components/AlertModalProvider';
 import { installLazyImageDefaults } from './lib/performance';
+import { installChunkRecovery } from './lib/chunkRecovery';
 import { registerServiceWorker } from './lib/pwa';
 import './index.css';
 
@@ -14,6 +15,7 @@ import { CurrencyProvider } from './contexts/CurrencyContext';
 import { RuntimeModeProvider } from './contexts/RuntimeModeContext';
 
 installLazyImageDefaults();
+installChunkRecovery();
 
 const rootElement = document.getElementById('root')!;
 rootElement.replaceChildren();

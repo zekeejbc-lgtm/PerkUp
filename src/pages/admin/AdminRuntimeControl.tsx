@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { AlertTriangle, CheckCircle2, Eye, EyeOff, FlaskConical, Loader2, LockKeyhole, RadioTower, ShieldCheck, Wrench } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, FlaskConical, Loader2, LockKeyhole, RadioTower, ShieldCheck, Wrench, X } from "lucide-react";
 import { useToast } from "../../components/ToastProvider";
 import { useRuntimeMode, RuntimeMode } from "../../contexts/RuntimeModeContext";
 import { invokeAdminBackend } from "../../lib/adminBackend";
@@ -79,7 +79,7 @@ export default function AdminRuntimeControl() {
       mode: "maintenance" as const,
       label: "Maintenance Mode",
       icon: Wrench,
-      description: "Replaces every page with the maintenance screen and blocks direct database access plus user-facing backend operations.",
+      description: "Locks public and tenant access while active, non-demo Auditors and administrators retain secured dashboard access for operations and recovery.",
       tone: "amber",
     },
   ];
@@ -136,20 +136,32 @@ export default function AdminRuntimeControl() {
 
       <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-        Maintenance mode is fail-closed. Existing sessions, copied URLs, direct API requests, and alternate routes cannot read or change application data until an Auditor ends maintenance from the recovery form.
+        Maintenance mode is fail-closed for public and tenant accounts. Their existing sessions, copied URLs, direct API requests, and alternate routes cannot read or change application data until an Auditor ends maintenance.
       </div>
 
       {showMaintenance && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm">
-          <form onSubmit={initiateMaintenance} className="my-auto w-full max-w-xl rounded-[2rem] bg-white p-6 shadow-2xl dark:bg-gray-900 sm:p-8">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-gray-950 dark:text-white">Initiate maintenance mode</h2>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">These details will be shown on the public maintenance screen.</p>
-              </div>
-              <button type="button" onClick={() => setShowMaintenance(false)} className="rounded-xl px-3 py-2 text-sm font-semibold text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">Close</button>
-            </div>
-            <div className="mt-6 space-y-4">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <form
+            onSubmit={initiateMaintenance}
+            className="flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl dark:bg-gray-900"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="maintenance-modal-title"
+          >
+            <header className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-200 px-6 py-5 dark:border-gray-800 sm:px-8">
+              <h2 id="maintenance-modal-title" className="text-xl font-bold text-gray-950 dark:text-white">Initiate maintenance mode</h2>
+              <button
+                type="button"
+                onClick={() => setShowMaintenance(false)}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-500 transition hover:bg-gray-100 dark:hover:bg-gray-800"
+                aria-label="Close maintenance modal"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-6 sm:px-8">
+              <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">These details will be shown on the public maintenance screen.</p>
+              <div className="space-y-4">
               <label className="block text-xs font-semibold text-gray-800 dark:text-gray-200">
                 Screen title
                 <input required minLength={1} maxLength={120} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} className={`mt-1.5 ${INPUT_CLASSES}`} />
@@ -176,14 +188,14 @@ export default function AdminRuntimeControl() {
                 Type <span className="font-mono">{INITIATE_PHRASE}</span>
                 <input required autoComplete="off" value={form.confirmation} onChange={(event) => setForm({ ...form, confirmation: event.target.value })} className={`mt-1.5 font-mono ${INPUT_CLASSES}`} />
               </label>
+              </div>
             </div>
-            <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-              <button type="button" onClick={() => setShowMaintenance(false)} className="min-h-11 rounded-xl border border-gray-200 px-5 text-sm font-bold text-gray-700 dark:border-gray-700 dark:text-gray-200">Cancel</button>
-              <button type="submit" disabled={workingMode === "maintenance" || form.confirmation !== INITIATE_PHRASE} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 text-sm font-bold text-gray-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50">
+            <footer className="flex shrink-0 flex-col-reverse gap-3 border-t border-gray-200 px-6 py-5 dark:border-gray-800 sm:flex-row sm:justify-end sm:px-8">
+              <button type="submit" disabled={workingMode === "maintenance" || form.confirmation !== INITIATE_PHRASE} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 text-sm font-bold text-gray-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto">
                 {workingMode === "maintenance" && <Loader2 className="h-4 w-4 animate-spin" />}
                 Initiate maintenance mode
               </button>
-            </div>
+            </footer>
           </form>
         </div>
       )}

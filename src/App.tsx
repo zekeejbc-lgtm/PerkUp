@@ -420,8 +420,15 @@ function Layout({ children }: { children: ReactNode }) {
 
 export default function App() {
   const { config, loading } = useRuntimeMode();
+  const { user, loading: authLoading } = useAuth();
+  const hasMaintenanceAccess =
+    Boolean(user) &&
+    user?.isDemo !== true &&
+    user?.accountStatus !== "suspended" &&
+    user?.accountStatus !== "banned" &&
+    ["admin", "assistant_admin", "auditor"].includes(user?.role || "");
 
-  if (loading) {
+  if (loading || (config.mode === "maintenance" && authLoading)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white dark:bg-[#151515]">
         <div className="flex flex-col items-center gap-5" role="status" aria-label="Checking system status">
@@ -432,7 +439,7 @@ export default function App() {
     );
   }
 
-  if (config.mode === "maintenance") return <MaintenanceScreen />;
+  if (config.mode === "maintenance" && !hasMaintenanceAccess) return <MaintenanceScreen />;
 
   return (
     <>

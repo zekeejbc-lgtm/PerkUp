@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   Ban,
   Check,
+  ChevronDown,
   Clock3,
   Copy,
   FlaskConical,
@@ -126,7 +127,7 @@ export default function AdminDemoManagement() {
     unit: "hours",
     staffCount: "1",
     includeCustomer: true,
-    includeAdmin: true,
+    includeAdmin: false,
   });
   const [credentials, setCredentials] = useState<DemoCredential[]>([]);
   const [credentialTitle, setCredentialTitle] = useState("");
@@ -136,6 +137,19 @@ export default function AdminDemoManagement() {
   const [renewDuration, setRenewDuration] = useState("24");
   const [addStaffTenant, setAddStaffTenant] = useState<DemoTenant | null>(null);
   const [addStaffCount, setAddStaffCount] = useState("1");
+  const [collapsedTenants, setCollapsedTenants] = useState<Set<string>>(() => new Set());
+
+  const toggleTenant = (tenantId: string) => {
+    setCollapsedTenants((current) => {
+      const next = new Set(current);
+      if (next.has(tenantId)) {
+        next.delete(tenantId);
+      } else {
+        next.add(tenantId);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -188,7 +202,7 @@ export default function AdminDemoManagement() {
       setCredentials(response.credentials);
       setCredentialTitle(`${createForm.name} credentials`);
       setShowCreate(false);
-      setCreateForm({ name: "", duration: "24", unit: "hours", staffCount: "1", includeCustomer: true, includeAdmin: true });
+      setCreateForm({ name: "", duration: "24", unit: "hours", staffCount: "1", includeCustomer: true, includeAdmin: false });
       toast.success("Isolated demo sandbox created.");
       await loadTenants(true);
     } catch (error) {
@@ -380,8 +394,12 @@ export default function AdminDemoManagement() {
 
         {tenants.length ? (
           <div className="divide-y divide-gray-100 dark:divide-gray-800">
-            {tenants.map((tenant) => (
-              <article key={tenant.id} className="space-y-4 p-5">
+            {tenants.map((tenant) => {
+              const isCollapsed = collapsedTenants.has(tenant.id);
+              const accountsId = `demo-accounts-${tenant.id}`;
+
+              return (
+              <article key={tenant.id} className="p-5">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -403,6 +421,18 @@ export default function AdminDemoManagement() {
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleTenant(tenant.id)}
+                      aria-expanded={!isCollapsed}
+                      aria-controls={accountsId}
+                      className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 px-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 dark:focus-visible:ring-gray-500"
+                    >
+                      <ChevronDown
+                        className={`h-4 w-4 transition-transform duration-300 ease-out motion-reduce:transition-none ${isCollapsed ? "-rotate-90" : "rotate-0"}`}
+                      />
+                      {isCollapsed ? "Expand" : "Collapse"}
+                    </button>
                     {tenant.status === "active" ? (
                       <>
                         <button
@@ -438,33 +468,47 @@ export default function AdminDemoManagement() {
                   </div>
                 </div>
 
-                <div className="grid gap-3 lg:grid-cols-2">
-                  {tenant.accounts.map((account) => (
-                    <div key={account.id} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 p-3 dark:border-gray-800 dark:bg-gray-800/40">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="truncate text-sm font-bold text-gray-900 dark:text-white">{account.name}</p>
-                          <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-gray-500 dark:bg-gray-900">
-                            {roleLabel(account.role)}
-                          </span>
+                <div
+                  className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none ${
+                    isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+                  }`}
+                >
+                  <div
+                    id={accountsId}
+                    aria-hidden={isCollapsed}
+                    inert={isCollapsed}
+                    className="overflow-hidden"
+                  >
+                    <div className="grid gap-3 pt-4 lg:grid-cols-2">
+                      {tenant.accounts.map((account) => (
+                        <div key={account.id} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 p-3 dark:border-gray-800 dark:bg-gray-800/40">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-sm font-bold text-gray-900 dark:text-white">{account.name}</p>
+                              <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-gray-500 dark:bg-gray-900">
+                                {roleLabel(account.role)}
+                              </span>
+                            </div>
+                            <p className="truncate text-xs text-gray-500">{account.email}</p>
+                            <p className="mt-1 text-[11px] text-gray-400">Last accessed {formatDateTime(account.lastAccessedAt)}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void resetPassword(tenant, account)}
+                            disabled={tenant.status !== "active" || Boolean(workingKey)}
+                            title="Generate a new password"
+                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-gray-200 text-gray-600 hover:bg-white disabled:cursor-not-allowed disabled:opacity-35 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
+                          >
+                            {workingKey === `password:${account.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                          </button>
                         </div>
-                        <p className="truncate text-xs text-gray-500">{account.email}</p>
-                        <p className="mt-1 text-[11px] text-gray-400">Last accessed {formatDateTime(account.lastAccessedAt)}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void resetPassword(tenant, account)}
-                        disabled={tenant.status !== "active" || Boolean(workingKey)}
-                        title="Generate a new password"
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-gray-200 text-gray-600 hover:bg-white disabled:cursor-not-allowed disabled:opacity-35 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
-                      >
-                        {workingKey === `password:${account.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-                      </button>
+                      ))}
                     </div>
-                  ))}
+                  </div>
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="px-6 py-16 text-center">

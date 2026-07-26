@@ -44,7 +44,11 @@ export default function AdminAccount() {
       try {
         const q = query(collection(db, "users"), where("role", "in", ["admin", "assistant_admin", "auditor"]));
         const snap = await getDocs(q);
-        setAdmins(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setAdmins(
+          snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter(account => account.isDemo !== true),
+        );
       } catch (error) {
         console.error("Failed to fetch admins:", error);
       } finally {

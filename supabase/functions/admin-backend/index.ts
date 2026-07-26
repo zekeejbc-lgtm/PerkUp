@@ -141,6 +141,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: `This account is ${actorStatus}. Contact a PerkUp administrator.` }, 403);
     }
     const actorIsAdmin = PRIVILEGED_ROLES.has(cleanText(actor.role, 30));
+    const actorHasMaintenanceAccess = actorIsAdmin && actor.isDemo !== true;
     const actorCanReview = actorIsAdmin;
     const runtimeConfig = await readRuntimeConfig(admin);
 
@@ -262,7 +263,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ config: { ...runtimeConfig, mode: nextMode, mode_before_maintenance: nextMode, mode_changed_at: now } });
     }
 
-    if (runtimeConfig.mode === "maintenance") {
+    if (runtimeConfig.mode === "maintenance" && !actorHasMaintenanceAccess) {
       return jsonResponse(maintenanceError(runtimeConfig), 503);
     }
 
@@ -460,7 +461,7 @@ Deno.serve(async (req) => {
       const durationHours = Math.trunc(Number(body.durationHours));
       const staffCount = Math.trunc(Number(body.staffCount ?? 1));
       const includeCustomer = body.includeCustomer !== false;
-      const includeAdmin = body.includeAdmin !== false;
+      const includeAdmin = body.includeAdmin === true;
       if (name.length < 2) return jsonResponse({ error: "Enter a demo sandbox name." }, 400);
       if (!Number.isInteger(durationHours) || durationHours < 1 || durationHours > 2_160) {
         return jsonResponse({ error: "Demo access must last between 1 hour and 90 days." }, 400);

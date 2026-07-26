@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
 import { User as AuthUser } from "@/src/lib/supabaseAuthCompat";
 import { clearDataCache, doc, getDocFromServer, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import {
@@ -11,6 +11,7 @@ import {
 import { signOut } from "@/src/lib/supabaseAuthCompat";
 import type { TrustedLoginDevice } from "@/src/lib/trustedDevice";
 import { supabase } from "@/src/lib/supabase";
+import { useRuntimeMode } from "./RuntimeModeContext";
 
 export type Role = "customer" | "staff" | "store_owner" | "admin" | "assistant_admin" | "auditor";
 
@@ -55,9 +56,15 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { config: runtimeConfig } = useRuntimeMode();
+  const runtimeModeRef = useRef(runtimeConfig.mode);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    runtimeModeRef.current = runtimeConfig.mode;
+  }, [runtimeConfig.mode]);
 
   const rejectGoogleRedirect = async (message: string) => {
     window.sessionStorage.setItem(AUTH_REDIRECT_MESSAGE_KEY, message);
@@ -116,6 +123,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           : {}),
       } as AppUser);
+      return;
+    }
+
+    if (runtimeModeRef.current === "maintenance") {
+      window.sessionStorage.setItem(
+        AUTH_REDIRECT_MESSAGE_KEY,
+        "Maintenance mode is active. Only Auditor and administrator accounts can sign in.",
+      );
+      setAuthUser(null);
+      setUser(null);
+      await signOut();
       return;
     }
 
