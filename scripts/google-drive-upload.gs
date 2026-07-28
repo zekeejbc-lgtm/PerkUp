@@ -155,6 +155,42 @@ function doPost(e) {
       });
     }
 
+    if (action === "subscription_upgrade_scheduled") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        email: sendSubscriptionUpgradeScheduledEmail(
+          data.recipientEmail,
+          data.userName,
+          data.upgrade
+        )
+      });
+    }
+
+    if (action === "subscription_upgrade_applied") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        email: sendSubscriptionUpgradeAppliedEmail(
+          data.recipientEmail,
+          data.userName,
+          data.upgrade
+        )
+      });
+    }
+
+    if (action === "subscription_upgrade_cancelled") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        email: sendSubscriptionUpgradeCancelledEmail(
+          data.recipientEmail,
+          data.userName,
+          data.upgrade
+        )
+      });
+    }
+
     if (action === "upload") {
       requireCrudSecret(data.secret);
       return createJsonResponse(uploadImage(data));

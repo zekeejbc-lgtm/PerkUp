@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { AlertCircle, CalendarDays, CheckCircle2, CreditCard, Download, ExternalLink, FileText, Images, Loader2, RefreshCwOff } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { AlertCircle, ArrowUpCircle, CalendarDays, Check, CheckCircle2, CreditCard, Download, ExternalLink, FileText, Images, Loader2, LockKeyhole, RefreshCwOff } from "lucide-react";
 import {
   formatPaymentSchedule,
   formatPredictedPaymentDate,
@@ -15,8 +15,22 @@ import { supabase } from "../../lib/supabase";
 import { downloadSubscriptionInvoicePdf } from "../../lib/subscriptionInvoicePdf";
 import { markSubscriptionPaymentPending } from "../../lib/subscriptionAccess";
 import { useAuth } from "../../contexts/AuthContext";
-import { invokeAdminBackend } from "../../lib/adminBackend";
+import { BackendOperationError, invokeAdminBackend } from "../../lib/adminBackend";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
+import { SubscriptionUpgradeTermsModal } from "../../components/SubscriptionUpgradeTermsModal";
+import {
+  cancelSubscriptionUpgrade,
+  confirmSubscriptionUpgrade,
+  getSubscriptionUpgradeOptions,
+  quoteSubscriptionUpgrade,
+  type UpgradeOptionsResponse,
+} from "../../lib/subscriptionUpgradeApi";
+import {
+  formatPhpCentavos,
+  type SubscriptionPlanChangeSummary,
+  type SubscriptionPlanSnapshot,
+  type SubscriptionUpgradeQuote,
+} from "../../lib/subscriptionUpgrade";
 
 type BillingInvoice = {
   id: string;
@@ -75,9 +89,127 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
   const [cancellingRenewal, setCancellingRenewal] = useState(false);
   const [renewalMessage, setRenewalMessage] = useState("");
   const [renewalError, setRenewalError] = useState("");
+  const [upgradeOptions, setUpgradeOptions] = useState<UpgradeOptionsResponse | null>(null);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [quotingPlanId, setQuotingPlanId] = useState("");
+  const [upgradeQuote, setUpgradeQuote] = useState<SubscriptionUpgradeQuote | null>(null);
+  const [upgradeSubmitting, setUpgradeSubmitting] = useState(false);
+  const [upgradeError, setUpgradeError] = useState("");
+  const [upgradeMessage, setUpgradeMessage] = useState("");
+  const [upgradeToCancel, setUpgradeToCancel] = useState<SubscriptionPlanChangeSummary | null>(null);
+  const [cancellingUpgrade, setCancellingUpgrade] = useState(false);
   const manualRenewal = billingSubscription?.renewal_mode === "manual";
   const currentPeriodEnd = billingSubscription?.current_period_end || subscriptionStore?.subscriptionEnd;
   const currentPeriodExpired = Boolean(currentPeriodEnd) && new Date(currentPeriodEnd).getTime() <= Date.now();
+  const upgradeUiEnabled =
+    import.meta.env.VITE_SUBSCRIPTION_UPGRADES_ENABLED === "true"
+    || import.meta.env.MODE === "test";
+
+  const refreshUpgradeOptions = useCallback(async () => {
+    if (!upgradeUiEnabled || !subscriptionStore?.id) {
+      setUpgradeOptions(null);
+      return;
+    }
+    setUpgradeLoading(true);
+    try {
+      const nextOptions = await getSubscriptionUpgradeOptions(subscriptionStore.id);
+      setUpgradeOptions(nextOptions);
+    } catch (error) {
+      console.error("Could not load subscription upgrade options", error);
+      setUpgradeOptions(null);
+      setUpgradeError(error instanceof Error ? error.message : "Upgrade options could not be loaded.");
+    } finally {
+      setUpgradeLoading(false);
+    }
+  }, [subscriptionStore?.id, upgradeUiEnabled]);
+
+  useEffect(() => {
+    void refreshUpgradeOptions();
+  }, [refreshUpgradeOptions]);
+
+  const openUpgradeQuote = async (targetPlanId: string) => {
+    if (!subscriptionStore?.id || quotingPlanId || upgradeSubmitting) return;
+    setQuotingPlanId(targetPlanId);
+    setUpgradeError("");
+    setUpgradeMessage("");
+    try {
+      const nextQuote = await quoteSubscriptionUpgrade(subscriptionStore.id, targetPlanId);
+      setUpgradeQuote(nextQuote);
+    } catch (error) {
+      setUpgradeError(error instanceof Error ? error.message : "The upgrade quote could not be prepared.");
+    } finally {
+      setQuotingPlanId("");
+    }
+  };
+
+  const refreshOpenQuote = async () => {
+    if (!subscriptionStore?.id || !upgradeQuote) return;
+    const nextQuote = await quoteSubscriptionUpgrade(
+      subscriptionStore.id,
+      upgradeQuote.targetPlan.id,
+    );
+    setUpgradeQuote(nextQuote);
+    setUpgradeError("");
+  };
+
+  const confirmUpgrade = async (acceptance: {
+    termsVersion: string;
+    termsAccepted: true;
+    quoteFingerprint: string;
+  }) => {
+    if (!subscriptionStore?.id || !upgradeQuote || upgradeSubmitting) return;
+    setUpgradeSubmitting(true);
+    setUpgradeError("");
+    try {
+      const change = await confirmSubscriptionUpgrade({
+        storeId: subscriptionStore.id,
+        targetPlanId: upgradeQuote.targetPlan.id,
+        ...acceptance,
+      });
+      setUpgradeMessage(
+        `${change.toPlan.name} is scheduled for ${formatBillingDate(change.targetPeriodStart)} at ${formatPhpCentavos(change.targetAmountCentavos)}.`,
+      );
+      setUpgradeQuote(null);
+      await refreshUpgradeOptions();
+    } catch (error) {
+      if (error instanceof BackendOperationError && error.code === "STALE_UPGRADE_QUOTE") {
+        try {
+          const refreshedQuote = await quoteSubscriptionUpgrade(
+            subscriptionStore.id,
+            upgradeQuote.targetPlan.id,
+          );
+          setUpgradeQuote(refreshedQuote);
+          setUpgradeError("Billing details changed. Review the refreshed terms before confirming.");
+        } catch (refreshError) {
+          setUpgradeError(
+            refreshError instanceof Error
+              ? refreshError.message
+              : "Billing details changed and a new quote could not be prepared.",
+          );
+        }
+      } else {
+        setUpgradeError(error instanceof Error ? error.message : "The upgrade could not be scheduled.");
+      }
+    } finally {
+      setUpgradeSubmitting(false);
+    }
+  };
+
+  const cancelScheduledUpgrade = async () => {
+    if (!subscriptionStore?.id || !upgradeToCancel || cancellingUpgrade) return;
+    setCancellingUpgrade(true);
+    setUpgradeError("");
+    try {
+      await cancelSubscriptionUpgrade(subscriptionStore.id, upgradeToCancel.id);
+      setUpgradeMessage("The scheduled subscription upgrade has been cancelled.");
+      setUpgradeToCancel(null);
+      await refreshUpgradeOptions();
+    } catch (error) {
+      setUpgradeError(error instanceof Error ? error.message : "The scheduled upgrade could not be cancelled.");
+    } finally {
+      setCancellingUpgrade(false);
+    }
+  };
 
   const cancelAutomaticRenewal = async () => {
     if (!subscriptionStore?.id || cancellingRenewal) return;
@@ -343,6 +475,84 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
             </section>
           )}
 
+          {upgradeUiEnabled && (
+            <section className="mt-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="flex items-start gap-3">
+                <span className="rounded-xl bg-teal-50 p-2.5 text-[#1b5660] dark:bg-teal-950/40 dark:text-teal-300">
+                  <ArrowUpCircle className="h-5 w-5" />
+                </span>
+                <div>
+                  <h4 className="font-bold text-gray-900 dark:text-white">Upgrade your plan at renewal</h4>
+                  <p className="mt-1 max-w-xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+                    Compare available higher plans. There is no charge today; a confirmed upgrade uses the renewal date and amount shown in the required terms panel.
+                  </p>
+                </div>
+              </div>
+
+              {upgradeLoading ? (
+                <div className="mt-5 flex items-center gap-2 rounded-2xl bg-gray-50 p-4 text-sm text-gray-500 dark:bg-gray-800">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Checking eligible upgrades...
+                </div>
+              ) : upgradeOptions?.enabled === false ? (
+                <p className="mt-5 rounded-2xl bg-gray-50 p-4 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                  Subscription upgrades are not available yet.
+                </p>
+              ) : upgradeOptions?.pendingChange ? (
+                <PendingUpgradePanel
+                  change={upgradeOptions.pendingChange}
+                  onCancel={() => {
+                    setUpgradeError("");
+                    setUpgradeToCancel(upgradeOptions.pendingChange);
+                  }}
+                />
+              ) : upgradeOptions ? (
+                <>
+                  {upgradeOptions.blockedReason && (
+                    <p role="status" className="mt-5 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                      {upgradeOptions.blockedReason}
+                    </p>
+                  )}
+                  {upgradeOptions.eligiblePlans.length > 0 ? (
+                    <div className="mt-5 grid gap-4 md:grid-cols-2">
+                      {upgradeOptions.eligiblePlans.map((plan) => (
+                        <UpgradePlanCard
+                          key={plan.id}
+                          plan={plan}
+                          disabled={Boolean(upgradeOptions.blockedReason) || Boolean(quotingPlanId)}
+                          loading={quotingPlanId === plan.id}
+                          onReview={() => openUpgradeQuote(plan.id)}
+                        />
+                      ))}
+                    </div>
+                  ) : !upgradeOptions.blockedReason ? (
+                    <p className="mt-5 rounded-2xl bg-gray-50 p-4 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                      Your current plan has no higher compatible self-service option.
+                    </p>
+                  ) : null}
+                </>
+              ) : upgradeError ? null : (
+                <p className="mt-5 rounded-2xl bg-gray-50 p-4 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                  Upgrade options could not be displayed.
+                </p>
+              )}
+
+              <p className="mt-5 border-t border-gray-100 pt-4 text-sm font-medium text-gray-600 dark:border-gray-800 dark:text-gray-300">
+                Need a lower plan? Contact PerkUp support.
+              </p>
+              {upgradeMessage && (
+                <p className="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm font-medium text-green-700 dark:bg-green-950/30 dark:text-green-300">
+                  {upgradeMessage}
+                </p>
+              )}
+              {upgradeError && !upgradeQuote && (
+                <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:bg-red-950/30 dark:text-red-300">
+                  {upgradeError}
+                </p>
+              )}
+            </section>
+          )}
+
           <section className="mt-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-start gap-3">
@@ -417,6 +627,126 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
           if (!cancellingRenewal) setShowCancelRenewal(false);
         }}
       />
+      <SubscriptionUpgradeTermsModal
+        isOpen={Boolean(upgradeQuote)}
+        quote={upgradeQuote}
+        isSubmitting={upgradeSubmitting}
+        error={upgradeError}
+        onConfirm={confirmUpgrade}
+        onRefreshQuote={refreshOpenQuote}
+        onClose={() => {
+          if (upgradeSubmitting) return;
+          setUpgradeQuote(null);
+          setUpgradeError("");
+        }}
+      />
+      <ConfirmationModal
+        isOpen={Boolean(upgradeToCancel)}
+        title="Cancel scheduled upgrade?"
+        description={upgradeToCancel
+          ? `${upgradeToCancel.toPlan.name} is scheduled for ${formatBillingDate(upgradeToCancel.targetPeriodStart)} at ${formatPhpCentavos(upgradeToCancel.targetAmountCentavos)}. Cancelling keeps your current plan and removes this scheduled change.`
+          : ""}
+        confirmLabel="Cancel upgrade"
+        cancelLabel="Keep scheduled upgrade"
+        isLoading={cancellingUpgrade}
+        onConfirm={cancelScheduledUpgrade}
+        onClose={() => {
+          if (!cancellingUpgrade) setUpgradeToCancel(null);
+        }}
+      />
+    </div>
+  );
+}
+
+function UpgradePlanCard({
+  plan,
+  disabled,
+  loading,
+  onReview,
+}: {
+  plan: SubscriptionPlanSnapshot;
+  disabled: boolean;
+  loading: boolean;
+  onReview: () => void;
+}) {
+  const limits = plan.dependencies;
+  const formatLimit = (value: number) => value <= 0 ? "Unlimited" : value.toLocaleString("en-PH");
+  return (
+    <article className="flex flex-col rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h5 className="font-black text-gray-950 dark:text-white">{plan.name}</h5>
+          <p className="mt-1 text-lg font-black text-[#1b5660] dark:text-teal-300">
+            {formatPhpCentavos(plan.priceCentavos)}
+          </p>
+          <p className="text-xs text-gray-500">per {plan.interval}</p>
+        </div>
+        <span className="rounded-full bg-green-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-green-700 dark:bg-green-950/50 dark:text-green-300">
+          Higher plan
+        </span>
+      </div>
+      <div className="mt-4 space-y-2">
+        {plan.features.slice(0, 5).map((feature) => (
+          <p key={feature} className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-300">
+            <Check className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-400" /> {feature}
+          </p>
+        ))}
+      </div>
+      <p className="mt-4 text-xs leading-5 text-gray-500">
+        {formatLimit(limits.customerLimit)} customers · {formatLimit(limits.staffLimit)} staff · {formatLimit(limits.branchLimit)} branches · {formatLimit(limits.galleryPhotoLimit)} gallery photos
+      </p>
+      <button
+        type="button"
+        aria-label={`Review upgrade to ${plan.name}`}
+        disabled={disabled}
+        onClick={onReview}
+        className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl bg-[#1b5660] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#164750] disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+        {loading ? "Preparing quote..." : "Review upgrade"}
+      </button>
+    </article>
+  );
+}
+
+function PendingUpgradePanel({
+  change,
+  onCancel,
+}: {
+  change: SubscriptionPlanChangeSummary;
+  onCancel: () => void;
+}) {
+  const locked = change.status === "locked" || Boolean(change.renewalInvoiceId);
+  return (
+    <div className="mt-5 rounded-2xl border border-teal-200 bg-teal-50/70 p-4 dark:border-teal-900/60 dark:bg-teal-950/25">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="flex items-center gap-2 text-sm font-black text-teal-950 dark:text-teal-100">
+            {locked ? <LockKeyhole className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+            {locked ? "Locked to renewal invoice" : "Upgrade scheduled"}
+          </p>
+          <p className="mt-2 text-sm text-teal-900 dark:text-teal-200">
+            {change.fromPlan.name} → {change.toPlan.name}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-teal-800 dark:text-teal-300">
+            {formatPhpCentavos(change.targetAmountCentavos)} on {formatBillingDate(change.targetPeriodStart)}
+          </p>
+          {locked && (
+            <p className="mt-2 text-xs leading-5 text-teal-800 dark:text-teal-300">
+              This decision is attached to an issued invoice and can no longer be cancelled from self-service.
+            </p>
+          )}
+        </div>
+        {!locked && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="shrink-0 rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50 dark:border-red-900/70 dark:bg-gray-900 dark:text-red-300 dark:hover:bg-red-950/30"
+          >
+            Cancel scheduled upgrade
+          </button>
+        )}
+      </div>
     </div>
   );
 }

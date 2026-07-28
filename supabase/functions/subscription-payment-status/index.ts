@@ -4,6 +4,9 @@ import { createPayMongoPaymentLink } from "../_shared/paymongo.ts";
 import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
 const PAYMONGO_API = "https://api.paymongo.com/v1";
+declare const EdgeRuntime: {
+  waitUntil(promise: Promise<unknown>): void;
+};
 
 const requiredEnv = (name: string) => {
   const value = Deno.env.get(name)?.trim();
@@ -59,7 +62,7 @@ const errorMessage = (error: unknown, fallback: string) => {
 };
 
 const sendPaymentLinkEmail = async (
-  admin: ReturnType<typeof createClient>,
+  admin: any,
   invoice: any,
   link: { id: string; url: string; referenceNumber: string; livemode: boolean },
 ) => {
@@ -88,7 +91,8 @@ const sendPaymentLinkEmail = async (
         invoice: {
           invoiceId: invoice.id,
           storeName: String(storeRow?.data?.businessName || storeRow?.data?.name || "your store").trim(),
-          planName: invoice.subscription?.plan_id,
+          planName: invoice.plan_name_snapshot || invoice.plan_id_snapshot ||
+            invoice.subscription?.plan_id,
           amountCentavos: invoice.amount_centavos,
           currency: invoice.currency,
           dueAt: invoice.due_at,
@@ -235,7 +239,7 @@ Deno.serve(async (req) => {
     if (subscriptionError) throw subscriptionError;
     if (!subscription) return jsonResponse({ paid: false, status: "pending" });
 
-    const invoiceColumns = "id,subscription_id,store_id,owner_user_id,invoice_type,status,due_at,paymongo_link_id,payment_url,amount_centavos,currency,livemode,paid_at,period_end,paymongo_reference_number,subscription:billing_subscriptions(billing_email,plan_id,automation_enabled,renewal_mode)";
+    const invoiceColumns = "id,subscription_id,store_id,owner_user_id,invoice_type,status,due_at,paymongo_link_id,payment_url,amount_centavos,currency,livemode,paid_at,period_end,paymongo_reference_number,plan_id_snapshot,plan_name_snapshot,subscription:billing_subscriptions(billing_email,plan_id,automation_enabled,renewal_mode)";
     let invoiceQuery = admin.from("billing_invoices")
       .select(invoiceColumns)
       .eq("store_id", storeId)
@@ -320,7 +324,8 @@ Deno.serve(async (req) => {
         storeId: invoice.store_id,
         amountCentavos: invoice.amount_centavos,
         currency: invoice.currency,
-        planId: invoiceSubscription?.plan_id,
+        planId: invoice.plan_name_snapshot || invoice.plan_id_snapshot ||
+          invoiceSubscription?.plan_id,
       }, requiredEnv("PAYMONGO_SECRET_KEY"));
       const mode = (Deno.env.get("PAYMONGO_MODE") || "test").toLowerCase();
       if (mode !== "test" && mode !== "live") throw new Error("PAYMONGO_MODE must be test or live.");

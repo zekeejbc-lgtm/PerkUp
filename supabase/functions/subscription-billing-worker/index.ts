@@ -31,6 +31,25 @@ type BillingNotification = {
   attempt_count: number;
 };
 
+type SubscriptionUpgradeNotification = {
+  notification_id: string;
+  plan_change_id: string;
+  notification_type: "scheduled" | "applied" | "cancelled";
+  recipient: string;
+  attempt_count: number;
+  from_plan_snapshot: { name?: string; id?: string };
+  to_plan_snapshot: { name?: string; id?: string };
+  current_amount_centavos: number;
+  target_amount_centavos: number;
+  difference_centavos: number;
+  target_period_start: string;
+  terms_version: string;
+  renewal_mode: "automatic" | "manual";
+  store_id: string;
+  owner_user_id: string;
+  cancellation_reason: string | null;
+};
+
 class GasEmailError extends Error {
   code: string;
   remainingDailyRecipientQuota: number | null;
@@ -170,14 +189,14 @@ const permanentlyDeleteDriveFile = async (fileId: string) => {
 };
 
 const deleteExpiredInitialAccount = async (
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   storeId: string,
   ownerUserId: string,
 ) => {
   const { data: storeRows, error: storesError } = await supabase.from("stores")
     .select("id,data").eq("data->>ownerId", ownerUserId);
   if (storesError) throw storesError;
-  const stores = storeRows || [];
+  const stores = (storeRows || []) as Array<{ id: string }>;
   if (!stores.some((row) => String(row.id) === storeId)) return false;
   const storeIds = stores.map((row) => String(row.id));
 
@@ -195,7 +214,10 @@ const deleteExpiredInitialAccount = async (
   const { data: staffRows, error: staffError } = await supabase.from("users")
     .select("id").in("data->>storeId", storeIds).eq("data->>role", "staff");
   if (staffError) throw staffError;
-  const userIds = Array.from(new Set([ownerUserId, ...(staffRows || []).map((row) => String(row.id))]));
+  const userIds = Array.from(new Set([
+    ownerUserId,
+    ...((staffRows || []) as Array<{ id: string }>).map((row) => String(row.id)),
+  ]));
 
   const { data: ownedFiles, error: filesError } = await supabase.from("drive_files")
     .select("file_id").in("owner_id", userIds);
@@ -223,7 +245,8 @@ const deleteExpiredInitialAccount = async (
   const { data: applicationRows, error: applicationReadError } = await supabase.from("applications")
     .select("id").in("data->>approvedStoreId", storeIds);
   if (applicationReadError) throw applicationReadError;
-  const applicationIds = (applicationRows || []).map((row) => String(row.id));
+  const applicationIds = ((applicationRows || []) as Array<{ id: string }>)
+    .map((row) => String(row.id));
   if (applicationIds.length) {
     const { error } = await supabase.from("applications").delete().in("id", applicationIds);
     if (error) throw error;
@@ -277,6 +300,7 @@ Deno.serve(async (req) => {
       emailsSent: 0,
       remindersSent: 0,
       receiptsSent: 0,
+      upgradeNotificationsSent: 0,
       emailsDeferred: 0,
       reconciled: 0,
       expiredAccountsDeleted: 0,
@@ -475,7 +499,7 @@ Deno.serve(async (req) => {
       try {
         const { data: invoice, error: invoiceError } = await supabase
           .from("billing_invoices")
-          .select("id,store_id,owner_user_id,invoice_type,period_start,period_end,due_at,amount_centavos,currency,status,paymongo_reference_number,manual_payment_reference,payment_url,livemode,paid_at,payment_method,gross_amount_centavos,fee_centavos,net_amount_centavos,last_error,subscription_id")
+          .select("id,store_id,owner_user_id,invoice_type,period_start,period_end,due_at,amount_centavos,currency,status,paymongo_reference_number,manual_payment_reference,payment_url,livemode,paid_at,payment_method,gross_amount_centavos,fee_centavos,net_amount_centavos,last_error,subscription_id,plan_id_snapshot,plan_name_snapshot")
           .eq("id", notification.invoice_id)
           .maybeSingle();
         if (invoiceError) throw invoiceError;
@@ -517,7 +541,8 @@ Deno.serve(async (req) => {
           invoiceId: invoice.id,
           subscriberName: userName,
           storeName,
-          planName: subscription.plan_id,
+          planName: invoice.plan_name_snapshot || invoice.plan_id_snapshot ||
+            subscription.plan_id,
           intervalDays: subscription.interval_days,
           amountCentavos: invoice.amount_centavos,
           grossAmountCentavos: invoice.gross_amount_centavos,
@@ -586,6 +611,100 @@ Deno.serve(async (req) => {
         } else {
           console.error("Billing lifecycle notification failed", { notificationId: notification.id, error: message });
         }
+      }
+    }
+
+    const { data: upgradeNotifications, error: upgradeNotificationClaimError } =
+      await supabase.rpc("claim_subscription_upgrade_notifications", { p_limit: 50 });
+    if (upgradeNotificationClaimError) throw upgradeNotificationClaimError;
+
+    for (const notification of (upgradeNotifications || []) as SubscriptionUpgradeNotification[]) {
+      const attemptCount = Math.max(1, Number(notification.attempt_count || 1));
+      if (emailQuotaExhausted) {
+        const { error: deferError } = await supabase
+          .from("subscription_plan_change_notifications")
+          .update({
+            status: "pending",
+            attempt_count: Math.max(0, attemptCount - 1),
+            last_error: "Waiting for Google Apps Script email recipient quota to become available.",
+            next_attempt_at: deferredUntil,
+          })
+          .eq("id", notification.notification_id);
+        if (deferError) throw deferError;
+        results.emailsDeferred += 1;
+        continue;
+      }
+
+      try {
+        const { data: ownerRow, error: ownerError } = await supabase
+          .from("users")
+          .select("data")
+          .eq("id", notification.owner_user_id)
+          .maybeSingle();
+        if (ownerError) throw ownerError;
+        const userName = String(ownerRow?.data?.name || "Store owner").trim();
+        await sendGasRequest({
+          action: `subscription_upgrade_${notification.notification_type}`,
+          recipientEmail: notification.recipient,
+          userName,
+          upgrade: {
+            fromPlanName: String(
+              notification.from_plan_snapshot?.name
+                || notification.from_plan_snapshot?.id
+                || "Current plan",
+            ),
+            toPlanName: String(
+              notification.to_plan_snapshot?.name
+                || notification.to_plan_snapshot?.id
+                || "Upgrade plan",
+            ),
+            amountDueTodayCentavos: 0,
+            currentAmountCentavos: notification.current_amount_centavos,
+            targetAmountCentavos: notification.target_amount_centavos,
+            differenceCentavos: notification.difference_centavos,
+            targetPeriodStart: notification.target_period_start,
+            termsVersion: notification.terms_version,
+            renewalMode: notification.renewal_mode,
+            cancellationReason: notification.cancellation_reason,
+          },
+        });
+
+        const { error: sentError } = await supabase
+          .from("subscription_plan_change_notifications")
+          .update({
+            status: "sent",
+            sent_at: new Date().toISOString(),
+            last_error: null,
+            next_attempt_at: new Date().toISOString(),
+          })
+          .eq("id", notification.notification_id);
+        if (sentError) throw sentError;
+        results.upgradeNotificationsSent += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Subscription upgrade notification failed.";
+        const quotaExhausted = error instanceof GasEmailError
+          && error.code === "EMAIL_QUOTA_EXHAUSTED";
+        if (quotaExhausted) {
+          emailQuotaExhausted = true;
+          results.emailsDeferred += 1;
+        } else {
+          results.failed += 1;
+        }
+        const { error: failureUpdateError } = await supabase
+          .from("subscription_plan_change_notifications")
+          .update({
+            status: quotaExhausted ? "pending" : "failed",
+            attempt_count: quotaExhausted ? Math.max(0, attemptCount - 1) : attemptCount,
+            last_error: message.slice(0, 1000),
+            next_attempt_at: quotaExhausted ? deferredUntil : retryAt(attemptCount),
+          })
+          .eq("id", notification.notification_id);
+        if (failureUpdateError) throw failureUpdateError;
+        console.error("Subscription upgrade notification failed", {
+          notificationId: notification.notification_id,
+          planChangeId: notification.plan_change_id,
+          error: message,
+        });
       }
     }
 

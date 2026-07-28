@@ -3,6 +3,16 @@ import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { sessionNeedsMfa } from "../_shared/auth.ts";
 import { createPayMongoPaymentLink } from "../_shared/paymongo.ts";
 import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
+import {
+  buildSubscriptionUpgradeQuote,
+  findPlan,
+  listEligibleUpgradePlans,
+  normalizePlanCatalog,
+  SUBSCRIPTION_UPGRADE_TERMS_VERSION,
+  type PlanSnapshot,
+  type RenewalInvoiceState,
+  type UpgradeQuote,
+} from "../_shared/subscription-upgrade.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
@@ -22,6 +32,9 @@ const AUTO_AUDITED_MUTATIONS = new Set([
   "update_error_report",
   "sync_subscription_billing",
   "cancel_subscription_auto_renewal",
+  "confirm_subscription_upgrade",
+  "cancel_subscription_upgrade",
+  "admin_cancel_subscription_upgrade",
   "retry_billing_invoice",
   "update_subscription_access",
   "update_account_restriction",
@@ -1397,6 +1410,224 @@ const handleAdminRequest = async (req: Request) => {
           failed: failedResult.count || 0,
         },
       });
+    }
+
+    if (action === "get_subscription_upgrade_options") {
+      if (cleanText(actor.role, 30) !== "store_owner") {
+        return jsonResponse({ error: "Store-owner access required." }, 403);
+      }
+      if (Deno.env.get("SUBSCRIPTION_UPGRADES_ENABLED") !== "true") {
+        return jsonResponse({
+          enabled: false,
+          currentPlan: null,
+          eligiblePlans: [],
+          pendingChange: null,
+          blockedReason: "Subscription upgrades are not available yet.",
+        });
+      }
+
+      const storeId = cleanText(body.storeId, 100);
+      if (!storeId) return jsonResponse({ error: "Store is required." }, 400);
+      const upgradeState = await loadSubscriptionUpgradeState(
+        admin,
+        storeId,
+        authData.user.id,
+      );
+      return jsonResponse({
+        enabled: true,
+        currentPlan: upgradeState.currentPlan,
+        eligiblePlans: upgradeState.eligiblePlans,
+        pendingChange: upgradeState.pendingChange,
+        blockedReason: upgradeState.blockedReason,
+      });
+    }
+
+    if (action === "quote_subscription_upgrade") {
+      if (cleanText(actor.role, 30) !== "store_owner") {
+        return jsonResponse({ error: "Store-owner access required." }, 403);
+      }
+      if (Deno.env.get("SUBSCRIPTION_UPGRADES_ENABLED") !== "true") {
+        return jsonResponse({
+          error: "Subscription upgrades are not available yet.",
+          code: "SUBSCRIPTION_UPGRADES_DISABLED",
+        }, 409);
+      }
+
+      const storeId = cleanText(body.storeId, 100);
+      const targetPlanId = cleanText(body.targetPlanId, 80).toLocaleLowerCase();
+      if (!storeId || !targetPlanId) {
+        return jsonResponse({ error: "Store and target plan are required." }, 400);
+      }
+      const upgradeState = await loadSubscriptionUpgradeState(
+        admin,
+        storeId,
+        authData.user.id,
+      );
+      if (upgradeState.blockedReason) {
+        return jsonResponse({ error: upgradeState.blockedReason }, 409);
+      }
+      const quote = await quoteSubscriptionUpgrade(upgradeState, targetPlanId);
+      return jsonResponse({ quote });
+    }
+
+    if (action === "confirm_subscription_upgrade") {
+      if (cleanText(actor.role, 30) !== "store_owner") {
+        return jsonResponse({ error: "Store-owner access required." }, 403);
+      }
+      if (Deno.env.get("SUBSCRIPTION_UPGRADES_ENABLED") !== "true") {
+        return jsonResponse({
+          error: "Subscription upgrades are not available yet.",
+          code: "SUBSCRIPTION_UPGRADES_DISABLED",
+        }, 409);
+      }
+
+      const storeId = cleanText(body.storeId, 100);
+      const targetPlanId = cleanText(body.targetPlanId, 80).toLocaleLowerCase();
+      const termsVersion = cleanText(body.termsVersion, 80);
+      const quoteFingerprint = cleanText(body.quoteFingerprint, 128).toLocaleLowerCase();
+      if (
+        !storeId
+        || !targetPlanId
+        || body.termsAccepted !== true
+        || termsVersion !== SUBSCRIPTION_UPGRADE_TERMS_VERSION
+        || !/^[a-f0-9]{64}$/.test(quoteFingerprint)
+      ) {
+        return jsonResponse({
+          error: "Review all current upgrade terms and acknowledge them before confirming.",
+        }, 400);
+      }
+
+      const upgradeState = await loadSubscriptionUpgradeState(
+        admin,
+        storeId,
+        authData.user.id,
+      );
+      if (upgradeState.blockedReason) {
+        return jsonResponse({ error: upgradeState.blockedReason }, 409);
+      }
+      const quote = await quoteSubscriptionUpgrade(upgradeState, targetPlanId);
+      if (quote.quoteFingerprint !== quoteFingerprint) {
+        return jsonResponse({
+          error: "The plan price or renewal timing changed. Review the refreshed terms before confirming.",
+          code: "STALE_UPGRADE_QUOTE",
+          quote,
+        }, 409);
+      }
+
+      const { data: change, error: changeError } = await admin.rpc(
+        "confirm_subscription_upgrade",
+        {
+          p_store_id: storeId,
+          p_owner_user_id: authData.user.id,
+          p_from_plan_snapshot: quote.currentPlan,
+          p_to_plan_snapshot: quote.targetPlan,
+          p_current_amount_centavos: quote.currentPlan.priceCentavos,
+          p_target_amount_centavos: quote.targetPlan.priceCentavos,
+          p_target_period_start: quote.targetRenewal.periodStart,
+          p_target_period_end: quote.targetRenewal.periodEnd,
+          p_terms_version: quote.termsVersion,
+          p_quote_fingerprint: quote.quoteFingerprint,
+        },
+      );
+      if (changeError) {
+        if (["23505", "40001"].includes(String(changeError.code))) {
+          return jsonResponse({
+            error: "The subscription changed before confirmation. Request and review a new quote.",
+            code: "STALE_UPGRADE_QUOTE",
+          }, 409);
+        }
+        if (String(changeError.code) === "23514") {
+          return jsonResponse({
+            error: changeError.message || "The subscription is not currently eligible for an upgrade.",
+          }, 409);
+        }
+        throw changeError;
+      }
+
+      return jsonResponse({
+        updated: true,
+        change,
+        quote: {
+          fromPlanId: quote.currentPlan.id,
+          toPlanId: quote.targetPlan.id,
+          targetPeriodStart: quote.targetRenewal.periodStart,
+          termsVersion: quote.termsVersion,
+          quoteFingerprint: quote.quoteFingerprint,
+        },
+      });
+    }
+
+    if (action === "cancel_subscription_upgrade") {
+      if (cleanText(actor.role, 30) !== "store_owner") {
+        return jsonResponse({ error: "Store-owner access required." }, 403);
+      }
+      if (Deno.env.get("SUBSCRIPTION_UPGRADES_ENABLED") !== "true") {
+        return jsonResponse({
+          error: "Subscription upgrades are not available yet.",
+          code: "SUBSCRIPTION_UPGRADES_DISABLED",
+        }, 409);
+      }
+
+      const planChangeId = cleanText(body.planChangeId, 100);
+      if (!planChangeId) return jsonResponse({ error: "Scheduled upgrade is required." }, 400);
+      const { data: change, error: changeError } = await admin.rpc(
+        "cancel_subscription_upgrade",
+        {
+          p_plan_change_id: planChangeId,
+          p_owner_user_id: authData.user.id,
+          p_cancelled_by: authData.user.id,
+          p_reason: "Client cancelled the scheduled upgrade.",
+        },
+      );
+      if (changeError) {
+        const status = ["23514", "55000"].includes(String(changeError.code)) ? 409 : 500;
+        return jsonResponse({
+          error: changeError.message || "The scheduled upgrade could not be cancelled.",
+        }, status);
+      }
+      return jsonResponse({ updated: true, change });
+    }
+
+    if (action === "admin_cancel_subscription_upgrade") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      if (Deno.env.get("SUBSCRIPTION_UPGRADES_ENABLED") !== "true") {
+        return jsonResponse({
+          error: "Subscription upgrades are not available yet.",
+          code: "SUBSCRIPTION_UPGRADES_DISABLED",
+        }, 409);
+      }
+
+      const planChangeId = cleanText(body.planChangeId, 100);
+      const reason = cleanText(body.reason, 500);
+      if (!planChangeId || reason.length < 10) {
+        return jsonResponse({
+          error: "A scheduled upgrade and cancellation reason of at least 10 characters are required.",
+        }, 400);
+      }
+      const { data: existingChange, error: existingChangeError } = await admin
+        .from("subscription_plan_changes")
+        .select("id,owner_user_id")
+        .eq("id", planChangeId)
+        .maybeSingle();
+      if (existingChangeError) throw existingChangeError;
+      if (!existingChange) return jsonResponse({ error: "Scheduled upgrade was not found." }, 404);
+
+      const { data: change, error: changeError } = await admin.rpc(
+        "cancel_subscription_upgrade",
+        {
+          p_plan_change_id: planChangeId,
+          p_owner_user_id: existingChange.owner_user_id,
+          p_cancelled_by: authData.user.id,
+          p_reason: reason,
+        },
+      );
+      if (changeError) {
+        const status = ["23514", "55000"].includes(String(changeError.code)) ? 409 : 500;
+        return jsonResponse({
+          error: changeError.message || "The scheduled upgrade could not be cancelled.",
+        }, status);
+      }
+      return jsonResponse({ updated: true, change, reason });
     }
 
     if (action === "sync_subscription_billing") {
@@ -3019,7 +3250,7 @@ Deno.serve(async (req) => {
       action,
       entityType,
       entityId,
-      metadata: mutationAuditMetadata(action, body),
+      metadata: mutationAuditMetadata(action, body, responseBody),
     });
   } catch (auditError) {
     console.error("Could not audit successful admin-backend mutation", auditError);
@@ -3360,6 +3591,11 @@ const mutationEntityType = (action: string) => {
   if (["sync_subscription_billing", "cancel_subscription_auto_renewal", "update_subscription_access"].includes(action)) {
     return "billing_subscription";
   }
+  if ([
+    "confirm_subscription_upgrade",
+    "cancel_subscription_upgrade",
+    "admin_cancel_subscription_upgrade",
+  ].includes(action)) return "subscription_plan_change";
   if (["retry_billing_invoice"].includes(action)) return "billing_invoice";
   if (["update_account_restriction", "create_store", "create_branch", "delete_store", "delete_store_group"].includes(action)) {
     return "store";
@@ -3379,6 +3615,15 @@ const mutationEntityId = (
   if (action === "update_public_feedback") return cleanText(body.feedbackId, 160);
   if (action === "update_error_report") return cleanText(body.reportId, 160);
   if (action === "retry_billing_invoice") return cleanText(body.invoiceId, 160);
+  if (["cancel_subscription_upgrade", "admin_cancel_subscription_upgrade"].includes(action)) {
+    return cleanText(body.planChangeId, 160);
+  }
+  if (action === "confirm_subscription_upgrade") {
+    const change = responseBody.change && typeof responseBody.change === "object"
+      ? responseBody.change as Record<string, unknown>
+      : {};
+    return cleanText(change.id, 160);
+  }
   if (action === "decide_branch_request") return cleanText(body.requestId, 160);
   if (action === "reject_application") return cleanText(body.applicationId, 160);
   if (["reset_password", "complete_first_login_password_change"].includes(action)) {
@@ -3393,7 +3638,11 @@ const mutationEntityId = (
   return cleanText(responseStore.id || responseBody.storeId, 160);
 };
 
-const mutationAuditMetadata = (action: string, body: Record<string, unknown>) => {
+const mutationAuditMetadata = (
+  action: string,
+  body: Record<string, unknown>,
+  responseBody: Record<string, unknown>,
+) => {
   const metadata: Record<string, unknown> = {};
   const status = cleanText(body.status, 40);
   if (status) metadata.status = status;
@@ -3416,6 +3665,19 @@ const mutationAuditMetadata = (action: string, body: Record<string, unknown>) =>
       ? body.accountRestriction as Record<string, unknown>
       : {};
     metadata.status = cleanText(restriction.status, 40) || null;
+  }
+  if (action === "confirm_subscription_upgrade") {
+    const quote = responseBody.quote && typeof responseBody.quote === "object"
+      ? responseBody.quote as Record<string, unknown>
+      : {};
+    metadata.fromPlanId = cleanText(quote.fromPlanId, 80) || null;
+    metadata.toPlanId = cleanText(quote.toPlanId, 80) || null;
+    metadata.targetPeriodStart = cleanText(quote.targetPeriodStart, 100) || null;
+    metadata.termsVersion = cleanText(quote.termsVersion, 80) || null;
+    metadata.quoteFingerprint = cleanText(quote.quoteFingerprint, 128) || null;
+  }
+  if (action === "admin_cancel_subscription_upgrade") {
+    metadata.reason = cleanText(body.reason, 500) || null;
   }
   return metadata;
 };
@@ -3476,6 +3738,193 @@ const getPrimaryStoreForOwner = async (admin: any, ownerId: string) => {
     stores[0] ||
     null;
 };
+
+type SubscriptionUpgradeState = {
+  storeId: string;
+  subscription: {
+    id: string;
+    planId: string;
+    amountCentavos: number;
+    intervalDays: number;
+    currentPeriodEnd: string;
+    renewalMode: "automatic" | "manual";
+  };
+  plans: PlanSnapshot[];
+  currentPlan: PlanSnapshot | null;
+  eligiblePlans: PlanSnapshot[];
+  currentRenewalInvoice: RenewalInvoiceState | null;
+  pendingChange: Record<string, unknown> | null;
+  planCatalogUpdatedAt: string;
+  blockedReason: string | null;
+};
+
+const mapSubscriptionPlanChange = (row: any) => row
+  ? {
+    id: String(row.id),
+    status: String(row.status),
+    fromPlan: row.from_plan_snapshot,
+    toPlan: row.to_plan_snapshot,
+    targetPeriodStart: row.target_period_start,
+    targetAmountCentavos: Number(row.target_amount_centavos),
+    renewalInvoiceId: row.renewal_invoice_id || null,
+    requestedAt: row.requested_at,
+    lockedAt: row.locked_at || null,
+    appliedAt: row.applied_at || null,
+  }
+  : null;
+
+const loadSubscriptionUpgradeState = async (
+  admin: any,
+  storeId: string,
+  ownerUserId: string,
+): Promise<SubscriptionUpgradeState> => {
+  const { data: ownedStore, error: ownedStoreError } = await admin
+    .from("stores")
+    .select("id,data")
+    .eq("id", storeId)
+    .eq("data->>ownerId", ownerUserId)
+    .maybeSingle();
+  if (ownedStoreError) throw ownedStoreError;
+  if (!ownedStore) throw new Error("The primary store was not found for this owner.");
+
+  const primaryStore = await getPrimaryStoreForOwner(admin, ownerUserId);
+  if (!primaryStore || primaryStore.id !== ownedStore.id) {
+    throw new Error("Subscription upgrades can only be managed from the primary store.");
+  }
+
+  const [settingsResult, subscriptionResult] = await Promise.all([
+    admin.from("settings")
+      .select("data,updated_at")
+      .eq("id", "subscriptions")
+      .maybeSingle(),
+    admin.from("billing_subscriptions")
+      .select("id,store_id,owner_user_id,plan_id,amount_centavos,interval_days,current_period_end,renewal_mode,status,initial_payment_required")
+      .eq("store_id", ownedStore.id)
+      .eq("owner_user_id", ownerUserId)
+      .maybeSingle(),
+  ]);
+  if (settingsResult.error) throw settingsResult.error;
+  if (subscriptionResult.error) throw subscriptionResult.error;
+  if (!subscriptionResult.data) throw new Error("Billing subscription was not found.");
+
+  const subscriptionRow = subscriptionResult.data;
+  const now = new Date().toISOString();
+  const [currentInvoiceResult, overdueInvoiceResult, changeResult] = await Promise.all([
+    admin.from("billing_invoices")
+      .select("id,status,due_at,period_start,period_end,amount_centavos,created_at")
+      .eq("subscription_id", subscriptionRow.id)
+      .eq("invoice_type", "renewal")
+      .eq("period_start", subscriptionRow.current_period_end)
+      .in("status", ["pending", "link_created", "failed"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    admin.from("billing_invoices")
+      .select("id")
+      .eq("subscription_id", subscriptionRow.id)
+      .eq("invoice_type", "renewal")
+      .in("status", ["pending", "link_created", "failed"])
+      .lt("due_at", now)
+      .limit(1)
+      .maybeSingle(),
+    admin.from("subscription_plan_changes")
+      .select("id,status,from_plan_snapshot,to_plan_snapshot,target_period_start,target_amount_centavos,renewal_invoice_id,requested_at,locked_at,applied_at")
+      .eq("subscription_id", subscriptionRow.id)
+      .in("status", ["scheduled", "locked"])
+      .order("requested_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  if (currentInvoiceResult.error) throw currentInvoiceResult.error;
+  if (overdueInvoiceResult.error) throw overdueInvoiceResult.error;
+  if (changeResult.error) throw changeResult.error;
+
+  const plans = normalizePlanCatalog(settingsResult.data?.data || {});
+  const catalogCurrentPlan = findPlan(plans, String(subscriptionRow.plan_id || ""));
+  const intervalDays = Math.trunc(Number(subscriptionRow.interval_days));
+  const amountCentavos = Math.trunc(Number(subscriptionRow.amount_centavos));
+  const currentPlan = catalogCurrentPlan
+    ? {
+      ...catalogCurrentPlan,
+      priceCentavos: amountCentavos,
+      intervalDays,
+    }
+    : null;
+  const eligiblePlans = catalogCurrentPlan
+    ? listEligibleUpgradePlans(plans, catalogCurrentPlan.id)
+      .filter((plan) => plan.priceCentavos > amountCentavos)
+      .map((plan) => ({ ...plan, intervalDays }))
+    : [];
+  const invoice = currentInvoiceResult.data;
+  const currentRenewalInvoice: RenewalInvoiceState | null = invoice
+    ? {
+      id: String(invoice.id),
+      status: String(invoice.status),
+      dueAt: String(invoice.due_at),
+      periodStart: String(invoice.period_start),
+      periodEnd: String(invoice.period_end),
+      amountCentavos: Number(invoice.amount_centavos),
+    }
+    : null;
+  const renewalMode = subscriptionRow.renewal_mode === "manual"
+    ? "manual"
+    : "automatic";
+  const eligibleStatus = subscriptionRow.status === "active"
+    || (subscriptionRow.status === "cancelled" && renewalMode === "manual");
+  const pendingChange = mapSubscriptionPlanChange(changeResult.data);
+  const accessStatus = cleanText(ownedStore.data?.subscriptionAccess?.status, 20).toLowerCase();
+  const restrictionStatus = cleanText(ownedStore.data?.accountRestriction?.status, 20).toLowerCase();
+  let blockedReason: string | null = null;
+  if (subscriptionRow.initial_payment_required === true) {
+    blockedReason = "Complete the initial subscription payment before upgrading.";
+  } else if (restrictionStatus === "suspended") {
+    blockedReason = "Contact PerkUp support to restore this store before upgrading.";
+  } else if (accessStatus === "frozen") {
+    blockedReason = "Restore subscription access before scheduling an upgrade.";
+  } else if (!eligibleStatus) {
+    blockedReason = "Resolve the subscription status before scheduling an upgrade.";
+  } else if (overdueInvoiceResult.data) {
+    blockedReason = "Resolve the overdue renewal before scheduling an upgrade.";
+  } else if (!catalogCurrentPlan) {
+    blockedReason = "The active plan is not available in the current plan catalog.";
+  } else if (pendingChange) {
+    blockedReason = "A subscription upgrade is already scheduled.";
+  } else if (!eligiblePlans.length) {
+    blockedReason = "There is no higher-priced compatible plan available.";
+  }
+
+  return {
+    storeId: ownedStore.id,
+    subscription: {
+      id: String(subscriptionRow.id),
+      planId: String(subscriptionRow.plan_id),
+      amountCentavos,
+      intervalDays,
+      currentPeriodEnd: String(subscriptionRow.current_period_end),
+      renewalMode,
+    },
+    plans,
+    currentPlan,
+    eligiblePlans,
+    currentRenewalInvoice,
+    pendingChange,
+    planCatalogUpdatedAt: String(settingsResult.data?.updated_at || ""),
+    blockedReason,
+  };
+};
+
+const quoteSubscriptionUpgrade = (
+  state: SubscriptionUpgradeState,
+  targetPlanId: string,
+): Promise<UpgradeQuote> =>
+  buildSubscriptionUpgradeQuote({
+    storeId: state.storeId,
+    subscription: state.subscription,
+    plans: state.plans,
+    targetPlanId,
+    currentRenewalInvoice: state.currentRenewalInvoice,
+    planCatalogUpdatedAt: state.planCatalogUpdatedAt,
+  });
 
 const syncBillingSubscription = async (admin: any, primaryStore: { id: string; data: Record<string, any> }) => {
   const store = primaryStore.data || {};

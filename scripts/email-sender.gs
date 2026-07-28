@@ -459,6 +459,86 @@ function sendSubscriptionBillingFailureEmail(recipientEmail, userName, invoice) 
   });
 }
 
+function sendSubscriptionUpgradeScheduledEmail(recipientEmail, userName, upgrade) {
+  return sendSubscriptionUpgradeEmail_(recipientEmail, userName, upgrade, "scheduled");
+}
+
+function sendSubscriptionUpgradeAppliedEmail(recipientEmail, userName, upgrade) {
+  return sendSubscriptionUpgradeEmail_(recipientEmail, userName, upgrade, "applied");
+}
+
+function sendSubscriptionUpgradeCancelledEmail(recipientEmail, userName, upgrade) {
+  return sendSubscriptionUpgradeEmail_(recipientEmail, userName, upgrade, "cancelled");
+}
+
+function sendSubscriptionUpgradeEmail_(recipientEmail, userName, upgrade, status) {
+  validateEmailInput_(recipientEmail, userName);
+  upgrade = upgrade || {};
+  var currentAmount = Number(upgrade.currentAmountCentavos || 0);
+  var targetAmount = Number(upgrade.targetAmountCentavos || 0);
+  var difference = Number(upgrade.differenceCentavos || 0);
+  if (!isFinite(currentAmount) || currentAmount < 0) throw new Error("A valid current plan amount is required.");
+  if (!isFinite(targetAmount) || targetAmount <= currentAmount) throw new Error("A valid target plan amount is required.");
+  if (!isFinite(difference) || difference !== targetAmount - currentAmount) throw new Error("The upgrade difference is invalid.");
+
+  var currentPlan = String(upgrade.fromPlanName || "Current plan").trim();
+  var targetPlan = String(upgrade.toPlanName || "Upgrade plan").trim();
+  var targetDate = formatPhilippineDateTime_(upgrade.targetPeriodStart);
+  var currentPrice = "PHP " + (currentAmount / 100).toFixed(2);
+  var targetPrice = "PHP " + (targetAmount / 100).toFixed(2);
+  var differencePrice = "PHP " + (difference / 100).toFixed(2);
+  var ownerLink = EMAIL_CONFIG.websiteLink.replace(/\/+$/, "") + "/owner/subscription";
+  var automatic = String(upgrade.renewalMode || "automatic") === "automatic";
+  var cancellationReason = String(upgrade.cancellationReason || "").trim();
+  var statusCopy = status === "applied"
+    ? {
+      subject: "Your PerkUp subscription upgrade is active",
+      heading: "Your " + targetPlan + " upgrade is now active.",
+      intro: "PerkUp verified payment of the matching renewal invoice and applied your new plan.",
+      secondary: "Your upgraded features and limits are now available. The paid renewal amount was " + targetPrice + "."
+    }
+    : status === "cancelled"
+    ? {
+      subject: "Your PerkUp subscription upgrade was cancelled",
+      heading: "Your scheduled upgrade was cancelled.",
+      intro: "The planned change from " + currentPlan + " to " + targetPlan + " will not be attached to a future renewal.",
+      secondary: "Your current plan and ordinary renewal settings remain unchanged." +
+        (cancellationReason ? " Reason: " + cancellationReason : "")
+    }
+    : {
+      subject: "Your PerkUp subscription upgrade is scheduled",
+      heading: "Your " + targetPlan + " upgrade is scheduled.",
+      intro: "PHP 0.00 was charged today. Your current " + currentPlan + " plan remains active until PerkUp verifies payment of the target renewal.",
+      secondary: "The target renewal is " + targetDate + " at " + targetPrice + " (" + differencePrice + " more than your current recurring price)."
+    };
+
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: statusCopy.subject,
+    userName: userName,
+    heading: statusCopy.heading,
+    introText: statusCopy.intro,
+    secondaryText: statusCopy.secondary + " Renewal mode remains " + (automatic ? "automatic." : "manual."),
+    buttonText: "Review Subscription",
+    buttonLink: ownerLink,
+    showButton: true,
+    plainText:
+      statusCopy.heading + "\n" +
+      "Status: " + status + "\n" +
+      "Current plan: " + currentPlan + " (" + currentPrice + ")\n" +
+      "Target plan: " + targetPlan + " (" + targetPrice + ")\n" +
+      "Difference: " + differencePrice + "\n" +
+      "Charged when scheduled: PHP 0.00\n" +
+      "Target renewal: " + targetDate + "\n" +
+      (status === "cancelled"
+        ? "The upgrade will not be activated.\n"
+        : "Activation occurs only after verified renewal payment.\n") +
+      (cancellationReason ? "Cancellation reason: " + cancellationReason + "\n" : "") +
+      "Terms: " + String(upgrade.termsVersion || "") + "\n" +
+      "Review: " + ownerLink
+  });
+}
+
 function getSubscriptionDocumentNumber_(invoice) {
   var rawId = String(invoice.invoiceId || invoice.referenceNumber || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
   return "PU-" + (rawId.substring(0, 12) || Utilities.getUuid().replace(/-/g, "").substring(0, 12).toUpperCase());
