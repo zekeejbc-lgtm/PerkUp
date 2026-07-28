@@ -29,6 +29,8 @@ create table public.subscription_plan_changes (
   applied_at timestamptz,
   cancelled_at timestamptz,
   cancelled_by text,
+  cancellation_reason text
+    check (cancellation_reason is null or char_length(cancellation_reason) between 10 and 500),
   failure_reason text check (failure_reason is null or char_length(failure_reason) <= 1000),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -367,6 +369,7 @@ create or replace function public.cancel_subscription_upgrade(
   p_plan_change_id uuid,
   p_owner_user_id text,
   p_cancelled_by text,
+  p_reason text default null,
   p_now timestamptz default now()
 )
 returns jsonb
@@ -403,6 +406,7 @@ begin
   set status = 'cancelled',
       cancelled_at = effective_cancelled_at,
       cancelled_by = nullif(btrim(p_cancelled_by), ''),
+      cancellation_reason = nullif(btrim(p_reason), ''),
       updated_at = effective_cancelled_at
   where id = change_row.id;
 
@@ -430,10 +434,10 @@ end;
 $$;
 
 revoke all on function public.cancel_subscription_upgrade(
-  uuid, text, text, timestamptz
+  uuid, text, text, text, timestamptz
 ) from public, anon, authenticated;
 grant execute on function public.cancel_subscription_upgrade(
-  uuid, text, text, timestamptz
+  uuid, text, text, text, timestamptz
 ) to service_role;
 
 create or replace function private.prepare_subscription_upgrade_invoice()

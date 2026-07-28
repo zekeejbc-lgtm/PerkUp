@@ -1,5 +1,20 @@
 {
   "version": "5",
+  "specifiers": {
+    "jsr:@std/assert@1": "1.0.19",
+    "jsr:@std/internal@^1.0.12": "1.0.14"
+  },
+  "jsr": {
+    "@std/assert@1.0.19": {
+      "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/internal@1.0.14": {
+      "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
+    }
+  },
   "remote": {
     "https://esm.sh/@supabase/supabase-js@2.106.2": "239a7bd494d2521e29f1b25f00b2dfb595a6b8eb4694543db239073eaecf8d32"
   },
@@ -8,6 +23,9 @@
       "dependencies": [
         "npm:@supabase/supabase-js@^2.106.2",
         "npm:@tailwindcss/vite@^4.1.14",
+        "npm:@testing-library/jest-dom@^6.9.1",
+        "npm:@testing-library/react@^16.3.2",
+        "npm:@testing-library/user-event@^14.6.1",
         "npm:@types/leaflet@^1.9.21",
         "npm:@types/node@^22.14.0",
         "npm:@types/react-dom@^19.2.3",
@@ -19,6 +37,7 @@
         "npm:clsx@^2.1.1",
         "npm:date-fns@^4.1.0",
         "npm:eslint@^10.3.0",
+        "npm:jsdom@^26.1.0",
         "npm:jspdf@^4.2.1",
         "npm:leaflet@^1.9.4",
         "npm:lucide-react@^1.14.0",
@@ -28,10 +47,12 @@
         "npm:react-leaflet@5",
         "npm:react-router-dom@^7.15.0",
         "npm:react@^19.0.1",
+        "npm:supabase@^2.110.0",
         "npm:tailwind-merge@^3.5.0",
         "npm:tailwindcss@^4.1.14",
         "npm:typescript@~5.8.2",
         "npm:vite@^6.2.3",
+        "npm:vitest@^3.2.7",
         "npm:zxing-wasm@^2.2.4"
       ]
     }

@@ -345,6 +345,7 @@ select lives_ok(
     ),
     '00000000-0000-0000-0000-0000000000b1',
     '00000000-0000-0000-0000-0000000000b1',
+    'Client cancelled the scheduled upgrade.',
     '2026-07-21T00:00:00Z'
   )$$,
   'an owner can cancel an upgrade before it is attached to an invoice'
