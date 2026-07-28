@@ -2,6 +2,7 @@ export type SubscriptionPlan = {
   id?: string;
   name?: string;
   price?: number | string;
+  tierRank?: number | string;
   interval?: string;
   features?: string[];
   dependencies?: SubscriptionDependencies;
@@ -31,6 +32,7 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     id: "standard",
     name: "Standard",
     price: 99,
+    tierRank: 10,
     interval: "month",
     features: ["Up to 1,000 customers", "Basic analytics", "Standard support", "1 Staff Account"],
     dependencies: { customerLimit: 1000, staffLimit: 1, branchLimit: 1, galleryPhotoLimit: 3 },
@@ -39,6 +41,7 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     id: "premium",
     name: "Premium",
     price: 199,
+    tierRank: 20,
     interval: "month",
     features: ["Up to 10,000 customers", "Advanced analytics", "Priority support", "5 Staff Accounts", "Custom promotions"],
     dependencies: { customerLimit: 10000, staffLimit: 5, branchLimit: 3, galleryPhotoLimit: 6 },
@@ -47,11 +50,98 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     id: "enterprise",
     name: "Enterprise",
     price: 499,
+    tierRank: 30,
     interval: "month",
     features: ["Unlimited customers", "Custom reporting", "24/7 Dedicated support", "Unlimited Staff Accounts", "White-label options"],
     dependencies: { customerLimit: 0, staffLimit: 0, branchLimit: 0, galleryPhotoLimit: 10 },
   },
 ];
+
+const hasConfiguredTierRank = (plan: SubscriptionPlan) =>
+  plan.tierRank !== undefined && plan.tierRank !== null && plan.tierRank !== "";
+
+const numericTierRank = (plan: SubscriptionPlan) => Number(plan.tierRank);
+
+export function normalizeSubscriptionTierHierarchy(plans: SubscriptionPlan[]) {
+  const catalog = plans.map((plan, originalIndex) => ({ ...plan, originalIndex }));
+  const configuredRanks = catalog.filter(hasConfiguredTierRank);
+
+  if (configuredRanks.length === 0) {
+    return catalog
+      .sort((left, right) => {
+        const priceDifference = Number(left.price) - Number(right.price);
+        return Number.isFinite(priceDifference) && priceDifference !== 0
+          ? priceDifference
+          : left.originalIndex - right.originalIndex;
+      })
+      .map(({ originalIndex: _originalIndex, ...plan }, index) => ({
+        ...plan,
+        tierRank: index * 10,
+      }));
+  }
+
+  return catalog
+    .sort((left, right) => {
+      const leftRank = numericTierRank(left);
+      const rightRank = numericTierRank(right);
+      const leftIsValid = Number.isInteger(leftRank) && leftRank >= 0;
+      const rightIsValid = Number.isInteger(rightRank) && rightRank >= 0;
+      if (leftIsValid && rightIsValid && leftRank !== rightRank) return leftRank - rightRank;
+      if (leftIsValid !== rightIsValid) return leftIsValid ? -1 : 1;
+      return left.originalIndex - right.originalIndex;
+    })
+    .map(({ originalIndex: _originalIndex, ...plan }) => plan);
+}
+
+export function validateSubscriptionTierHierarchy(plans: SubscriptionPlan[]) {
+  const errors: string[] = [];
+  const ids = plans.map((plan) => String(plan.id || "").trim().toLocaleLowerCase());
+  const names = plans.map((plan) => String(plan.name || "").trim());
+  const prices = plans.map((plan) => Number(plan.price));
+  const ranks = plans.map(numericTierRank);
+
+  if (ids.some((id) => !id) || new Set(ids).size !== ids.length) {
+    errors.push("Every plan must have a unique ID.");
+  }
+  if (names.some((name) => !name)) {
+    errors.push("Every plan must have a name.");
+  }
+  if (prices.some((price) => !Number.isFinite(price) || price <= 0)) {
+    errors.push("Every plan price must be greater than zero.");
+  }
+  if (ranks.some((rank) => !Number.isInteger(rank) || rank < 0)) {
+    errors.push("Tier ranks must be non-negative whole numbers.");
+  }
+  if (new Set(ranks).size !== ranks.length) {
+    errors.push("Tier ranks must be unique.");
+  }
+
+  return errors;
+}
+
+export function moveSubscriptionPlanTier(
+  plans: SubscriptionPlan[],
+  planId: string,
+  direction: "lower" | "higher",
+) {
+  const orderedPlans = normalizeSubscriptionTierHierarchy(plans);
+  const currentIndex = orderedPlans.findIndex((plan) => String(plan.id) === planId);
+  const targetIndex = direction === "lower" ? currentIndex - 1 : currentIndex + 1;
+  if (
+    currentIndex < 0
+    || targetIndex < 0
+    || targetIndex >= orderedPlans.length
+  ) {
+    return plans;
+  }
+
+  const reordered = [...orderedPlans];
+  [reordered[currentIndex], reordered[targetIndex]] = [
+    reordered[targetIndex],
+    reordered[currentIndex],
+  ];
+  return reordered.map((plan, index) => ({ ...plan, tierRank: index * 10 }));
+}
 
 export const PAYMENT_SCHEDULE_OPTIONS = [
   { value: "every_30_days", label: "Every fixed billing interval from subscription start" },
