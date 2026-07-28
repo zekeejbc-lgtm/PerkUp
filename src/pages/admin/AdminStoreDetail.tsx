@@ -36,6 +36,10 @@ import { StoreBranchesMap } from "../../components/StoreBranchesMap";
 import { PasswordVisibilityButton } from "../../components/PasswordVisibilityButton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { TemporaryPasswordField } from "../../components/TemporaryPasswordField";
+import {
+  AdminSubscriptionPlanChanges,
+  type AdminSubscriptionPlanChange,
+} from "../../components/AdminSubscriptionPlanChanges";
 
 const ACTIVITY_LOGS_PER_PAGE = 8;
 type SubscriptionAccessAction = "active" | "warning" | "grace" | "frozen";
@@ -110,6 +114,13 @@ export default function AdminStoreDetail({
   const [billingInvoices, setBillingInvoices] = useState<any[]>([]);
   const [billingInvoicesLoading, setBillingInvoicesLoading] = useState(false);
   const [billingRetryId, setBillingRetryId] = useState("");
+  const [subscriptionPlanChanges, setSubscriptionPlanChanges] = useState<AdminSubscriptionPlanChange[]>([]);
+  const [subscriptionPlanChangesLoading, setSubscriptionPlanChangesLoading] = useState(false);
+  const [subscriptionPlanChangeMessage, setSubscriptionPlanChangeMessage] = useState("");
+  const [subscriptionPlanChangeError, setSubscriptionPlanChangeError] = useState("");
+  const [planChangeCancelTarget, setPlanChangeCancelTarget] = useState<AdminSubscriptionPlanChange | null>(null);
+  const [planChangeCancelReason, setPlanChangeCancelReason] = useState("");
+  const [planChangeCancelBusy, setPlanChangeCancelBusy] = useState(false);
   const [manualPaymentInvoiceId, setManualPaymentInvoiceId] = useState("");
   const [manualPaymentForm, setManualPaymentForm] = useState({
     paymentMethod: "bank_transfer",
@@ -424,15 +435,75 @@ export default function AdminStoreDetail({
     }
   };
 
+  const loadSubscriptionPlanChanges = async () => {
+    if (!subscriptionStore?.id) {
+      setSubscriptionPlanChanges([]);
+      return;
+    }
+    setSubscriptionPlanChangesLoading(true);
+    setSubscriptionPlanChangeError("");
+    try {
+      const { data, error } = await supabase.from("subscription_plan_changes")
+        .select("id,status,from_plan_snapshot,to_plan_snapshot,current_amount_centavos,target_amount_centavos,difference_centavos,amount_due_today_centavos,target_period_start,target_period_end,renewal_invoice_id,terms_version,terms_accepted_at,terms_accepted_by,requested_at,cancelled_at,cancelled_by,cancellation_reason,failure_reason")
+        .eq("store_id", subscriptionStore.id)
+        .order("requested_at", { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      setSubscriptionPlanChanges((data || []) as AdminSubscriptionPlanChange[]);
+    } catch (error) {
+      console.error("Could not load admin subscription plan changes", error);
+      setSubscriptionPlanChanges([]);
+      setSubscriptionPlanChangeError("Subscription plan-change history could not be loaded.");
+    } finally {
+      setSubscriptionPlanChangesLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadBillingInvoices();
+    void loadSubscriptionPlanChanges();
   }, [subscriptionStore?.id]);
 
   useEffect(() => {
     setSubscriptionAccessMessage("");
     setSubscriptionAccessError("");
     setPendingSubscriptionAccessAction(null);
+    setSubscriptionPlanChangeMessage("");
+    setSubscriptionPlanChangeError("");
+    setPlanChangeCancelTarget(null);
+    setPlanChangeCancelReason("");
   }, [storeId]);
+
+  const requestPlanChangeCancellation = (change: AdminSubscriptionPlanChange) => {
+    if (change.status !== "scheduled" || change.renewal_invoice_id) return;
+    setSubscriptionPlanChangeMessage("");
+    setSubscriptionPlanChangeError("");
+    setPlanChangeCancelReason("");
+    setPlanChangeCancelTarget(change);
+  };
+
+  const cancelScheduledPlanChange = async () => {
+    const reason = planChangeCancelReason.trim();
+    if (!planChangeCancelTarget || reason.length < 10 || reason.length > 500) return;
+    setPlanChangeCancelBusy(true);
+    setSubscriptionPlanChangeMessage("");
+    setSubscriptionPlanChangeError("");
+    try {
+      await invokeAdminBackend({
+        action: "admin_cancel_subscription_upgrade",
+        planChangeId: planChangeCancelTarget.id,
+        reason,
+      });
+      setPlanChangeCancelTarget(null);
+      setPlanChangeCancelReason("");
+      setSubscriptionPlanChangeMessage("The scheduled upgrade was cancelled. No invoice or PayMongo payment was changed.");
+      await loadSubscriptionPlanChanges();
+    } catch (error) {
+      setSubscriptionPlanChangeError((error as Error).message);
+    } finally {
+      setPlanChangeCancelBusy(false);
+    }
+  };
 
   const updateSubscriptionAccess = async (status: SubscriptionAccessAction) => {
     if (!subscriptionStore || !canEditSubscription) return false;
@@ -1225,6 +1296,16 @@ export default function AdminStoreDetail({
               </div>
             </div>
 
+            <AdminSubscriptionPlanChanges
+              changes={subscriptionPlanChanges}
+              loading={subscriptionPlanChangesLoading}
+              error={subscriptionPlanChangeError}
+              message={subscriptionPlanChangeMessage}
+              busy={planChangeCancelBusy}
+              onRefresh={() => void loadSubscriptionPlanChanges()}
+              onRequestCancel={requestPlanChangeCancellation}
+            />
+
             <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 shadow-sm dark:border-gray-800 dark:bg-gray-800/50 sm:p-7">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -1845,6 +1926,99 @@ export default function AdminStoreDetail({
           </div>
         )}
       </div>
+
+      {planChangeCancelTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4 backdrop-blur-sm animate-in fade-in duration-200 dark:bg-black/70"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cancel-plan-change-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !planChangeCancelBusy) {
+              setPlanChangeCancelTarget(null);
+              setPlanChangeCancelReason("");
+            }
+          }}
+        >
+          <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
+            <div className="p-6 sm:p-7">
+              <div className="flex items-start gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400">
+                  <AlertTriangle className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 id="cancel-plan-change-title" className="text-lg font-bold text-gray-900 dark:text-white">
+                    Cancel this scheduled upgrade?
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
+                    {planChangeCancelTarget.from_plan_snapshot?.name || "Current plan"} to{" "}
+                    {planChangeCancelTarget.to_plan_snapshot?.name || "target plan"} is scheduled for the renewal starting{" "}
+                    {formatBillingDate(planChangeCancelTarget.target_period_start)}.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300">
+                Only the unattached scheduled change will be cancelled. No renewal invoice, PayMongo payment, or existing subscription access will be changed. An owner notification will be queued.
+              </div>
+
+              <div className="mt-5">
+                <label htmlFor="plan-change-cancellation-reason" className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                  Cancellation reason
+                </label>
+                <textarea
+                  id="plan-change-cancellation-reason"
+                  autoFocus
+                  rows={4}
+                  maxLength={500}
+                  value={planChangeCancelReason}
+                  onChange={(event) => {
+                    setPlanChangeCancelReason(event.target.value);
+                    if (subscriptionPlanChangeError) setSubscriptionPlanChangeError("");
+                  }}
+                  disabled={planChangeCancelBusy}
+                  placeholder="Explain why this scheduled upgrade is being cancelled (10–500 characters)."
+                  className="mt-2 w-full resize-y rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 outline-none transition-colors focus:border-red-300 focus:ring-2 focus:ring-red-200 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:border-red-700 dark:focus:ring-red-900/40"
+                />
+                <div className="mt-1 flex items-center justify-between gap-3 text-xs text-gray-500">
+                  <span>Required for the audit trail and owner notification.</span>
+                  <span>{planChangeCancelReason.trim().length}/500</span>
+                </div>
+              </div>
+
+              {subscriptionPlanChangeError && (
+                <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                  {subscriptionPlanChangeError}
+                </p>
+              )}
+
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  disabled={planChangeCancelBusy}
+                  onClick={() => {
+                    setPlanChangeCancelTarget(null);
+                    setPlanChangeCancelReason("");
+                    setSubscriptionPlanChangeError("");
+                  }}
+                  className="rounded-xl bg-gray-100 px-5 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                >
+                  Keep scheduled upgrade
+                </button>
+                <button
+                  type="button"
+                  disabled={planChangeCancelBusy || planChangeCancelReason.trim().length < 10 || planChangeCancelReason.trim().length > 500}
+                  onClick={() => void cancelScheduledPlanChange()}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {planChangeCancelBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {planChangeCancelBusy ? "Cancelling..." : "Confirm cancellation"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmationModal
         isOpen={pendingRestrictionAction !== null}

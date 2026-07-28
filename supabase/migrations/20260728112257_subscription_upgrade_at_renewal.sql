@@ -675,7 +675,8 @@ returns table (
   terms_version text,
   renewal_mode text,
   store_id text,
-  owner_user_id text
+  owner_user_id text,
+  cancellation_reason text
 )
 language plpgsql
 security invoker
@@ -716,7 +717,8 @@ begin
     change.terms_version,
     subscription.renewal_mode,
     change.store_id,
-    change.owner_user_id
+    change.owner_user_id,
+    change.cancellation_reason
   from claimed
   join public.subscription_plan_changes change
     on change.id = claimed.plan_change_id

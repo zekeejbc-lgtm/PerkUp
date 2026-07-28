@@ -31,6 +31,25 @@ type BillingNotification = {
   attempt_count: number;
 };
 
+type SubscriptionUpgradeNotification = {
+  notification_id: string;
+  plan_change_id: string;
+  notification_type: "scheduled" | "applied" | "cancelled";
+  recipient: string;
+  attempt_count: number;
+  from_plan_snapshot: { name?: string; id?: string };
+  to_plan_snapshot: { name?: string; id?: string };
+  current_amount_centavos: number;
+  target_amount_centavos: number;
+  difference_centavos: number;
+  target_period_start: string;
+  terms_version: string;
+  renewal_mode: "automatic" | "manual";
+  store_id: string;
+  owner_user_id: string;
+  cancellation_reason: string | null;
+};
+
 class GasEmailError extends Error {
   code: string;
   remainingDailyRecipientQuota: number | null;
@@ -281,6 +300,7 @@ Deno.serve(async (req) => {
       emailsSent: 0,
       remindersSent: 0,
       receiptsSent: 0,
+      upgradeNotificationsSent: 0,
       emailsDeferred: 0,
       reconciled: 0,
       expiredAccountsDeleted: 0,
@@ -591,6 +611,100 @@ Deno.serve(async (req) => {
         } else {
           console.error("Billing lifecycle notification failed", { notificationId: notification.id, error: message });
         }
+      }
+    }
+
+    const { data: upgradeNotifications, error: upgradeNotificationClaimError } =
+      await supabase.rpc("claim_subscription_upgrade_notifications", { p_limit: 50 });
+    if (upgradeNotificationClaimError) throw upgradeNotificationClaimError;
+
+    for (const notification of (upgradeNotifications || []) as SubscriptionUpgradeNotification[]) {
+      const attemptCount = Math.max(1, Number(notification.attempt_count || 1));
+      if (emailQuotaExhausted) {
+        const { error: deferError } = await supabase
+          .from("subscription_plan_change_notifications")
+          .update({
+            status: "pending",
+            attempt_count: Math.max(0, attemptCount - 1),
+            last_error: "Waiting for Google Apps Script email recipient quota to become available.",
+            next_attempt_at: deferredUntil,
+          })
+          .eq("id", notification.notification_id);
+        if (deferError) throw deferError;
+        results.emailsDeferred += 1;
+        continue;
+      }
+
+      try {
+        const { data: ownerRow, error: ownerError } = await supabase
+          .from("users")
+          .select("data")
+          .eq("id", notification.owner_user_id)
+          .maybeSingle();
+        if (ownerError) throw ownerError;
+        const userName = String(ownerRow?.data?.name || "Store owner").trim();
+        await sendGasRequest({
+          action: `subscription_upgrade_${notification.notification_type}`,
+          recipientEmail: notification.recipient,
+          userName,
+          upgrade: {
+            fromPlanName: String(
+              notification.from_plan_snapshot?.name
+                || notification.from_plan_snapshot?.id
+                || "Current plan",
+            ),
+            toPlanName: String(
+              notification.to_plan_snapshot?.name
+                || notification.to_plan_snapshot?.id
+                || "Upgrade plan",
+            ),
+            amountDueTodayCentavos: 0,
+            currentAmountCentavos: notification.current_amount_centavos,
+            targetAmountCentavos: notification.target_amount_centavos,
+            differenceCentavos: notification.difference_centavos,
+            targetPeriodStart: notification.target_period_start,
+            termsVersion: notification.terms_version,
+            renewalMode: notification.renewal_mode,
+            cancellationReason: notification.cancellation_reason,
+          },
+        });
+
+        const { error: sentError } = await supabase
+          .from("subscription_plan_change_notifications")
+          .update({
+            status: "sent",
+            sent_at: new Date().toISOString(),
+            last_error: null,
+            next_attempt_at: new Date().toISOString(),
+          })
+          .eq("id", notification.notification_id);
+        if (sentError) throw sentError;
+        results.upgradeNotificationsSent += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Subscription upgrade notification failed.";
+        const quotaExhausted = error instanceof GasEmailError
+          && error.code === "EMAIL_QUOTA_EXHAUSTED";
+        if (quotaExhausted) {
+          emailQuotaExhausted = true;
+          results.emailsDeferred += 1;
+        } else {
+          results.failed += 1;
+        }
+        const { error: failureUpdateError } = await supabase
+          .from("subscription_plan_change_notifications")
+          .update({
+            status: quotaExhausted ? "pending" : "failed",
+            attempt_count: quotaExhausted ? Math.max(0, attemptCount - 1) : attemptCount,
+            last_error: message.slice(0, 1000),
+            next_attempt_at: quotaExhausted ? deferredUntil : retryAt(attemptCount),
+          })
+          .eq("id", notification.notification_id);
+        if (failureUpdateError) throw failureUpdateError;
+        console.error("Subscription upgrade notification failed", {
+          notificationId: notification.notification_id,
+          planChangeId: notification.plan_change_id,
+          error: message,
+        });
       }
     }
 
