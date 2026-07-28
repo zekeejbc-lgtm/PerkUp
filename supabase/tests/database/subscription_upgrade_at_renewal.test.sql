@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(28);
+select plan(31);
 
 select has_table('public', 'subscription_plan_changes');
 select has_table('public', 'subscription_plan_change_notifications');
@@ -336,6 +336,16 @@ select is(
   'the future upgrade remains unattached until its target invoice is created'
 );
 
+select is(
+  (
+    select subscription_plan_change_id
+    from public.billing_invoices
+    where id = '20000000-0000-0000-0000-000000000002'
+  ),
+  null::uuid,
+  'the already-issued renewal is never retroactively attached to the upgrade'
+);
+
 select lives_ok(
   $$select public.cancel_subscription_upgrade(
     (
@@ -359,6 +369,54 @@ select is(
   ),
   'cancelled',
   'cancellation records the terminal plan-change status'
+);
+
+insert into public.billing_invoices(
+  id,
+  subscription_id,
+  store_id,
+  owner_user_id,
+  invoice_type,
+  period_start,
+  period_end,
+  due_at,
+  amount_centavos,
+  currency,
+  status,
+  livemode
+) values (
+  '20000000-0000-0000-0000-000000000003',
+  '10000000-0000-0000-0000-000000000001',
+  'upgrade-test-store-a',
+  '00000000-0000-0000-0000-0000000000a1',
+  'renewal',
+  '2026-08-30T00:00:00Z',
+  '2026-09-29T00:00:00Z',
+  '2026-08-30T00:00:00Z',
+  199900,
+  'PHP',
+  'pending',
+  false
+);
+
+select is(
+  (
+    select amount_centavos
+    from public.billing_invoices
+    where id = '20000000-0000-0000-0000-000000000003'
+  ),
+  199900,
+  'a renewal without a scheduled change keeps the ordinary subscription amount'
+);
+
+select is(
+  (
+    select subscription_plan_change_id
+    from public.billing_invoices
+    where id = '20000000-0000-0000-0000-000000000003'
+  ),
+  null::uuid,
+  'a renewal without a scheduled change remains outside the upgrade ledger'
 );
 
 set local role authenticated;

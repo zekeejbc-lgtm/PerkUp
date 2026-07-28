@@ -170,14 +170,14 @@ const permanentlyDeleteDriveFile = async (fileId: string) => {
 };
 
 const deleteExpiredInitialAccount = async (
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   storeId: string,
   ownerUserId: string,
 ) => {
   const { data: storeRows, error: storesError } = await supabase.from("stores")
     .select("id,data").eq("data->>ownerId", ownerUserId);
   if (storesError) throw storesError;
-  const stores = storeRows || [];
+  const stores = (storeRows || []) as Array<{ id: string }>;
   if (!stores.some((row) => String(row.id) === storeId)) return false;
   const storeIds = stores.map((row) => String(row.id));
 
@@ -195,7 +195,10 @@ const deleteExpiredInitialAccount = async (
   const { data: staffRows, error: staffError } = await supabase.from("users")
     .select("id").in("data->>storeId", storeIds).eq("data->>role", "staff");
   if (staffError) throw staffError;
-  const userIds = Array.from(new Set([ownerUserId, ...(staffRows || []).map((row) => String(row.id))]));
+  const userIds = Array.from(new Set([
+    ownerUserId,
+    ...((staffRows || []) as Array<{ id: string }>).map((row) => String(row.id)),
+  ]));
 
   const { data: ownedFiles, error: filesError } = await supabase.from("drive_files")
     .select("file_id").in("owner_id", userIds);
@@ -223,7 +226,8 @@ const deleteExpiredInitialAccount = async (
   const { data: applicationRows, error: applicationReadError } = await supabase.from("applications")
     .select("id").in("data->>approvedStoreId", storeIds);
   if (applicationReadError) throw applicationReadError;
-  const applicationIds = (applicationRows || []).map((row) => String(row.id));
+  const applicationIds = ((applicationRows || []) as Array<{ id: string }>)
+    .map((row) => String(row.id));
   if (applicationIds.length) {
     const { error } = await supabase.from("applications").delete().in("id", applicationIds);
     if (error) throw error;
@@ -475,7 +479,7 @@ Deno.serve(async (req) => {
       try {
         const { data: invoice, error: invoiceError } = await supabase
           .from("billing_invoices")
-          .select("id,store_id,owner_user_id,invoice_type,period_start,period_end,due_at,amount_centavos,currency,status,paymongo_reference_number,manual_payment_reference,payment_url,livemode,paid_at,payment_method,gross_amount_centavos,fee_centavos,net_amount_centavos,last_error,subscription_id")
+          .select("id,store_id,owner_user_id,invoice_type,period_start,period_end,due_at,amount_centavos,currency,status,paymongo_reference_number,manual_payment_reference,payment_url,livemode,paid_at,payment_method,gross_amount_centavos,fee_centavos,net_amount_centavos,last_error,subscription_id,plan_id_snapshot,plan_name_snapshot")
           .eq("id", notification.invoice_id)
           .maybeSingle();
         if (invoiceError) throw invoiceError;
@@ -517,7 +521,8 @@ Deno.serve(async (req) => {
           invoiceId: invoice.id,
           subscriberName: userName,
           storeName,
-          planName: subscription.plan_id,
+          planName: invoice.plan_name_snapshot || invoice.plan_id_snapshot ||
+            subscription.plan_id,
           intervalDays: subscription.interval_days,
           amountCentavos: invoice.amount_centavos,
           grossAmountCentavos: invoice.gross_amount_centavos,
