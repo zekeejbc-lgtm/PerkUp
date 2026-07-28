@@ -3,6 +3,7 @@ import { CheckCircle2, Clock3, Loader2, Search, Store, X, XCircle } from "lucide
 import { PartnerApplicationStatus, trackPartnerApplication } from "../lib/partnerApplication";
 import { getDisplayImageUrl } from "../lib/imageStorage";
 import { formatApplicationTrackingCode } from "../lib/applicationTracking";
+import { ApplicationReviewFlow } from "./ApplicationReviewFlow";
 
 interface PartnerApplicationTrackingModalProps {
   isOpen: boolean;
@@ -181,6 +182,7 @@ export function PartnerApplicationTrackingModal({
                 {statusMeta.label}
               </div>
               <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">{statusMeta.description}</p>
+              <ApplicationReviewFlow status={application.status} />
               <dl className="mt-5 grid gap-3 text-sm">
                 <div>
                   <dt className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Submitted</dt>
