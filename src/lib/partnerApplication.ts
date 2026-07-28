@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import type { PartnerApplicationAvailability } from "./partnerApplicationAvailability";
 
 const fileToDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -23,6 +24,37 @@ export interface PartnerApplicationInput {
   businessWebsiteUrl?: string;
 }
 
+const getFunctionErrorMessage = async (error: unknown, fallback: string) => {
+  if (!error || typeof error !== "object") return fallback;
+  const context = (error as {
+    context?: { json?: () => Promise<{ error?: string }> };
+    message?: string;
+  }).context;
+  if (context?.json) {
+    try {
+      const body = await context.json();
+      if (body.error) return body.error;
+    } catch {
+      // Use the SDK message when the function response is not JSON.
+    }
+  }
+  return (error as { message?: string }).message || fallback;
+};
+
+export async function checkPartnerApplicationAvailability(
+  email: string,
+  phoneNumber: string,
+): Promise<PartnerApplicationAvailability> {
+  const { data, error } = await supabase.functions.invoke<PartnerApplicationAvailability>(
+    "partner-application",
+    { body: { action: "check_availability", email, phoneNumber } },
+  );
+  if (error || !data) {
+    throw new Error(await getFunctionErrorMessage(error, "Could not check contact availability."));
+  }
+  return data;
+}
+
 export async function submitPartnerApplication(
   application: PartnerApplicationInput,
   logoFile: File | null,
@@ -37,7 +69,7 @@ export async function submitPartnerApplication(
     "partner-application",
     { body: { ...application, logo } },
   );
-  if (error) throw new Error(error.message || "Application submission failed.");
+  if (error) throw new Error(await getFunctionErrorMessage(error, "Application submission failed."));
   if (!data?.submitted) throw new Error(data?.error || "Application submission failed.");
   return data;
 }

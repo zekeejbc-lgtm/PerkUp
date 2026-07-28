@@ -1,5 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
+import {
+  checkPartnerContactAvailability,
+  getPartnerApplicationDatabaseError,
+  getPartnerContactConflict,
+  getPartnerContactValidationError,
+  normalizePartnerEmail,
+  normalizePartnerPhone,
+} from "../_shared/partner-contact.ts";
 import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
@@ -108,6 +116,62 @@ const extractFileId = (url: string) =>
   url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ||
   "";
 
+const createPartnerContactLookup = (admin: any) => {
+  let applicationContactsPromise: Promise<Record<string, unknown>[]> | null = null;
+  const getApplicationContacts = () => {
+    if (!applicationContactsPromise) {
+      applicationContactsPromise = (async () => {
+        const contacts: Record<string, unknown>[] = [];
+        const pageSize = 1000;
+        for (let from = 0; ; from += pageSize) {
+          const { data, error } = await admin
+            .from("applications")
+            .select("data")
+            .range(from, from + pageSize - 1);
+          if (error) throw error;
+          const rows = (data || []) as Array<{ data?: Record<string, unknown> }>;
+          contacts.push(...rows.map((row) => row.data || {}));
+          if (rows.length < pageSize) break;
+        }
+        return contacts;
+      })();
+    }
+    return applicationContactsPromise;
+  };
+
+  return {
+    isAuthEmailUsed: async (email: string) => {
+      const perPage = 1000;
+      for (let page = 1; ; page += 1) {
+        const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+        if (error) throw error;
+        if (data.users.some((user: { email?: string }) => normalizePartnerEmail(user.email) === email)) {
+          return true;
+        }
+        if (data.users.length < perPage) return false;
+      }
+    },
+    isCustomerPhoneUsed: async (phone: string) => {
+      const { data, error } = await admin
+        .from("customer_phones")
+        .select("phone")
+        .eq("phone", phone)
+        .limit(1);
+      if (error) throw error;
+      return Boolean(data?.length);
+    },
+    isApplicationEmailUsed: async (email: string) =>
+      (await getApplicationContacts()).some((data) => normalizePartnerEmail(data.email) === email),
+    isApplicationPhoneUsed: async (phone: string) =>
+      (await getApplicationContacts()).some((data) => normalizePartnerPhone(data.phoneNumber) === phone),
+  };
+};
+
+const getContactInput = (body: Record<string, unknown>) => ({
+  email: normalizePartnerEmail(body.email).slice(0, 254),
+  phone: normalizePartnerPhone(body.phoneNumber),
+});
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse();
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
@@ -121,6 +185,19 @@ Deno.serve(async (req) => {
     if (runtime.mode === "maintenance") return jsonResponse(maintenanceError(runtime), 503);
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const action = cleanText(body.action, 40).toLowerCase();
+
+    if (action === "check_availability") {
+      const { email, phone } = getContactInput(body);
+      const validationError = getPartnerContactValidationError(email, phone);
+      if (validationError) return jsonResponse({ error: validationError }, 400);
+
+      const availability = await checkPartnerContactAvailability(
+        email,
+        phone,
+        createPartnerContactLookup(admin),
+      );
+      return jsonResponse(availability);
+    }
 
     if (action === "track") {
       const trackingNumber = cleanText(body.trackingNumber, 120);
@@ -216,8 +293,8 @@ Deno.serve(async (req) => {
     const businessName = cleanText(body.businessName, 120);
     const category = cleanText(body.category, 120);
     const applicantName = cleanText(body.applicantName, 80);
-    const email = cleanText(body.email, 254).toLowerCase();
-    const phoneNumber = cleanText(body.phoneNumber, 40);
+    const { email, phone } = getContactInput(body);
+    const phoneNumber = `+${phone}`;
     const description = cleanText(body.description, 1000);
     const address = cleanText(body.address, 300);
     const subscriptionLevel = cleanText(body.subscriptionLevel, 80);
@@ -226,9 +303,8 @@ Deno.serve(async (req) => {
     if (!businessName || !category || !applicantName || !email || !phoneNumber || !description || !address) {
       return jsonResponse({ error: "All required application fields must be completed." }, 400);
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return jsonResponse({ error: "A valid email address is required." }, 400);
-    }
+    const contactValidationError = getPartnerContactValidationError(email, phone);
+    if (contactValidationError) return jsonResponse({ error: contactValidationError }, 400);
     if (coordinates.length !== 2 || !Number.isFinite(coordinates[0]) || !Number.isFinite(coordinates[1]) ||
       coordinates[0] < -90 || coordinates[0] > 90 || coordinates[1] < -180 || coordinates[1] > 180) {
       return jsonResponse({ error: "A valid map location is required." }, 400);
@@ -236,6 +312,18 @@ Deno.serve(async (req) => {
     const personalFacebookUrl = cleanOptionalUrl(body.personalFacebookUrl, "Personal Facebook URL", true);
     const businessFacebookUrl = cleanOptionalUrl(body.businessFacebookUrl, "Business Facebook URL", true);
     const businessWebsiteUrl = cleanOptionalUrl(body.businessWebsiteUrl, "Business website URL");
+    const availability = await checkPartnerContactAvailability(
+      email,
+      phone,
+      createPartnerContactLookup(admin),
+    );
+    const contactConflict = getPartnerContactConflict(
+      availability.emailAvailable,
+      availability.phoneAvailable,
+    );
+    if (contactConflict) {
+      return jsonResponse({ error: contactConflict.message, code: contactConflict.code }, 409);
+    }
 
     let logoUrl = "";
     const logo = body.logo && typeof body.logo === "object" ? body.logo as Record<string, unknown> : null;
@@ -334,7 +422,8 @@ Deno.serve(async (req) => {
     if (error instanceof ApplicationValidationError) {
       return jsonResponse({ error: error.message }, 400);
     }
-    console.error("partner-application failed", error);
-    return jsonResponse({ error: error instanceof Error ? error.message : "Application submission failed." }, 500);
+    const publicError = getPartnerApplicationDatabaseError(error);
+    if (publicError.status === 500) console.error("partner-application failed", error);
+    return jsonResponse({ error: publicError.error, code: publicError.code }, publicError.status);
   }
 });
