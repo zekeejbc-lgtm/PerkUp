@@ -2,7 +2,6 @@ import { FormEvent, useState } from "react";
 import { CheckCircle2, Clock3, Loader2, Search, Store, X, XCircle } from "lucide-react";
 import { PartnerApplicationStatus, trackPartnerApplication } from "../lib/partnerApplication";
 import { getDisplayImageUrl } from "../lib/imageStorage";
-import { formatApplicationTrackingCode } from "../lib/applicationTracking";
 
 interface PartnerApplicationTrackingModalProps {
   isOpen: boolean;
@@ -93,11 +92,7 @@ export function PartnerApplicationTrackingModal({
 
   const statusMeta = application ? getStatusMeta(application.status) : null;
   const StatusIcon = statusMeta?.icon;
-  const applicationCode = application
-    ? application.trackingNumber.startsWith("PKUP-")
-      ? application.trackingNumber
-      : formatApplicationTrackingCode(application.applicationId || application.trackingNumber, application.businessName)
-    : "";
+  const applicationCode = application?.trackingNumber || "";
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm transition-colors dark:bg-black/60">
@@ -134,7 +129,7 @@ export function PartnerApplicationTrackingModal({
                   value={trackingNumber}
                   onChange={(event) => setTrackingNumber(event.target.value)}
                   className="block w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  placeholder="PKUP-SHOP-1234-ABCD"
+                  placeholder="APP-ABCDEFGH"
                 />
               </div>
             </div>
