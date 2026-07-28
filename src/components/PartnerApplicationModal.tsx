@@ -14,6 +14,7 @@ import { formatApplicationTrackingCode } from '../lib/applicationTracking';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { CategoryInput } from './CategoryInput';
 import { FEATURED_STORE_CATEGORIES } from '../lib/storeDirectory';
+import { getPreferredSubscriptionPlan, type SubscriptionPlan } from '../lib/subscriptionBilling';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -63,7 +64,7 @@ interface PartnerApplicationModalProps {
 export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationModalProps) {
   const { formatCurrency } = useCurrency();
   const [step, setStep] = useState(1);
-  const [plans, setPlans] = useState<any[]>([]);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
 
   // Form states
   const [businessName, setBusinessName] = useState('');
@@ -95,11 +96,10 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     async function loadPlans() {
       const docRef = doc(db, "settings", "subscriptions");
       const docSnap = await getDoc(docRef);
-      if (docSnap.exists() && docSnap.data().plans) {
-        setPlans(docSnap.data().plans);
-        if (docSnap.data().plans.length > 0) {
-           setSelectedPlanId(docSnap.data().plans[0].name);
-        }
+      if (docSnap.exists() && Array.isArray(docSnap.data().plans)) {
+        const loadedPlans = docSnap.data().plans as SubscriptionPlan[];
+        setPlans(loadedPlans);
+        setSelectedPlanId(getPreferredSubscriptionPlan(loadedPlans)?.name || "");
       }
     }
     if (isOpen) {
@@ -260,6 +260,8 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
       setIsSubmitting(false);
     }
   };
+
+  const preferredPlan = getPreferredSubscriptionPlan(plans);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 pointer-events-auto">
@@ -558,17 +560,29 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                     {plans.map((plan) => {
                       const isSelected = selectedPlanId === plan.name;
+                      const isPreferred = plan === preferredPlan;
                       return (
                       <button
                         key={plan.id}
                         type="button"
-                        onClick={() => setSelectedPlanId(plan.name)}
-                        className={`relative cursor-pointer rounded-2xl p-5 border-2 text-left transition-all focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-gray-900 ${isSelected ? 'border-green-500 bg-green-50 text-green-950 shadow-sm ring-1 ring-green-500/40 dark:border-green-400 dark:bg-green-500/15 dark:text-green-50' : 'border-gray-200 bg-white text-gray-900 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-800/50 dark:text-white dark:hover:border-gray-500'}`}
+                        onClick={() => setSelectedPlanId(plan.name || "")}
+                        className={`relative cursor-pointer rounded-2xl p-5 border-2 text-left transition-all focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-gray-900 ${
+                          isSelected
+                            ? 'border-green-500 bg-green-50 text-green-950 shadow-sm ring-1 ring-green-500/40 dark:border-green-400 dark:bg-green-500/15 dark:text-green-50'
+                            : isPreferred
+                              ? 'border-green-400 bg-green-50/50 text-gray-900 ring-1 ring-green-500/20 dark:border-green-500 dark:bg-green-500/10 dark:text-white'
+                              : 'border-gray-200 bg-white text-gray-900 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-800/50 dark:text-white dark:hover:border-gray-500'
+                        }`}
                         aria-pressed={isSelected}
                       >
                          {isSelected && (
                            <span className="absolute right-4 top-4 inline-flex h-6 w-6 items-center justify-center rounded-full bg-green-500 text-white">
                              <Check className="h-4 w-4" />
+                           </span>
+                         )}
+                         {isPreferred && (
+                           <span className="mb-3 inline-flex rounded-full bg-green-600 px-3 py-1 text-xs font-semibold text-white dark:bg-green-500 dark:text-green-950">
+                             Preferred
                            </span>
                          )}
                          <h4 className={`pr-8 font-bold ${isSelected ? 'text-green-950 dark:text-green-50' : 'text-gray-900 dark:text-white'}`}>{plan.name}</h4>
@@ -577,7 +591,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                            <span className={`text-sm ${isSelected ? 'text-green-700 dark:text-green-200' : 'text-gray-500'}`}>/{plan.interval}</span>
                          </div>
                          <ul className={`space-y-2 text-sm ${isSelected ? 'text-green-900 dark:text-green-100' : 'text-gray-600 dark:text-gray-300'}`}>
-                           {plan.features.map((f: string, i: number) => (
+                           {(plan.features || []).map((f: string, i: number) => (
                              <li key={i} className="flex gap-2">
                                <Check className={`w-4 h-4 shrink-0 mt-0.5 ${isSelected ? 'text-green-600 dark:text-green-300' : 'text-green-500'}`} />
                                <span>{f}</span>
