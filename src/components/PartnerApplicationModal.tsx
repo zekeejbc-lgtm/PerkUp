@@ -14,6 +14,7 @@ import { formatApplicationTrackingCode } from '../lib/applicationTracking';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { CategoryInput } from './CategoryInput';
 import { FEATURED_STORE_CATEGORIES } from '../lib/storeDirectory';
+import { ApplicationReviewFlow } from './ApplicationReviewFlow';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -292,6 +293,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
             </div>
             <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Application Received!</h3>
             <p className="text-gray-500 dark:text-gray-400">We'll review your details and contact you shortly to complete the setup process.</p>
+            <ApplicationReviewFlow />
             {trackingNumber && (
               <div className="mx-auto mt-6 max-w-md rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left dark:border-gray-700 dark:bg-gray-800">
                 <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">Application code</p>
