@@ -5,14 +5,50 @@ set search_path = public, extensions;
 
 select plan(33);
 
-select has_table('public', 'subscription_plan_changes');
-select has_table('public', 'subscription_plan_change_notifications');
-select has_column('public', 'billing_invoices', 'subscription_plan_change_id');
-select has_column('public', 'billing_invoices', 'plan_id_snapshot');
-select has_column('public', 'billing_invoices', 'plan_name_snapshot');
-select has_column('public', 'billing_invoices', 'plan_snapshot');
-select has_function('public', 'confirm_subscription_upgrade');
-select has_function('public', 'cancel_subscription_upgrade');
+select has_table(
+  'public',
+  'subscription_plan_changes',
+  'subscription plan changes table exists'
+);
+select has_table(
+  'public',
+  'subscription_plan_change_notifications',
+  'subscription plan change notification queue exists'
+);
+select has_column(
+  'public',
+  'billing_invoices',
+  'subscription_plan_change_id',
+  'billing invoices reference their scheduled plan change'
+);
+select has_column(
+  'public',
+  'billing_invoices',
+  'plan_id_snapshot',
+  'billing invoices snapshot the plan id'
+);
+select has_column(
+  'public',
+  'billing_invoices',
+  'plan_name_snapshot',
+  'billing invoices snapshot the plan name'
+);
+select has_column(
+  'public',
+  'billing_invoices',
+  'plan_snapshot',
+  'billing invoices snapshot the full plan'
+);
+select has_function(
+  'public',
+  'confirm_subscription_upgrade',
+  'subscription upgrades require an explicit confirmation function'
+);
+select has_function(
+  'public',
+  'cancel_subscription_upgrade',
+  'pending subscription upgrades can be cancelled'
+);
 
 select policies_are(
   'public',
@@ -263,7 +299,7 @@ select is(
     from public.stores
     where id = 'upgrade-test-store-a'
   ),
-  'premium',
+  'Premium',
   'paid target renewal mirrors the active plan into the store'
 );
 
