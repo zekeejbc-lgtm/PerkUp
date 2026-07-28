@@ -137,8 +137,19 @@ export function normalizePlanCatalog(settingsData: unknown): PlanSnapshot[] {
     ? settingsData as Record<string, unknown>
     : {};
   const plans = Array.isArray(settings.plans) ? settings.plans : [];
+  const configuredTierRankCount = plans.filter((entry) => {
+    const source = entry && typeof entry === "object"
+      ? entry as Record<string, unknown>
+      : {};
+    return source.tierRank !== undefined
+      && source.tierRank !== null
+      && source.tierRank !== "";
+  }).length;
+  if (configuredTierRankCount > 0 && configuredTierRankCount !== plans.length) {
+    throw new Error("Every subscription plan must declare a tier rank.");
+  }
 
-  return plans.map((entry, order) => {
+  const normalized = plans.map((entry, catalogIndex) => {
     const source = entry && typeof entry === "object"
       ? entry as Record<string, unknown>
       : {};
@@ -155,13 +166,15 @@ export function normalizePlanCatalog(settingsData: unknown): PlanSnapshot[] {
       : {};
 
     if (!id || !name || !Number.isFinite(price) || !Number.isInteger(priceCentavos) || priceCentavos < 100) {
-      throw new Error(`Subscription plan ${order + 1} has an invalid id, name, or price.`);
+      throw new Error(`Subscription plan ${catalogIndex + 1} has an invalid id, name, or price.`);
     }
 
     return {
       id,
       name,
-      order,
+      order: configuredTierRankCount === plans.length
+        ? Number(source.tierRank)
+        : 0,
       priceCentavos,
       interval,
       intervalDays: intervalDaysFor(interval),
@@ -175,8 +188,30 @@ export function normalizePlanCatalog(settingsData: unknown): PlanSnapshot[] {
           Math.min(10, normalizeLimit(dependencies.galleryPhotoLimit, 3, 10)),
         ),
       },
+      catalogIndex,
     };
   });
+
+  if (configuredTierRankCount === plans.length) {
+    if (normalized.some((plan) => !Number.isInteger(plan.order) || plan.order < 0)) {
+      throw new Error("Tier ranks must be non-negative whole numbers.");
+    }
+    if (new Set(normalized.map((plan) => plan.order)).size !== normalized.length) {
+      throw new Error("Tier ranks must be unique.");
+    }
+  } else {
+    normalized.sort((left, right) =>
+      left.priceCentavos - right.priceCentavos
+      || left.catalogIndex - right.catalogIndex
+    );
+    normalized.forEach((plan, index) => {
+      plan.order = index * 10;
+    });
+  }
+
+  return normalized
+    .sort((left, right) => left.order - right.order || left.catalogIndex - right.catalogIndex)
+    .map(({ catalogIndex: _catalogIndex, ...plan }) => plan);
 }
 
 const matchesPlan = (plan: PlanSnapshot, idOrName: string) => {
