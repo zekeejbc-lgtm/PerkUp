@@ -9,11 +9,14 @@ import {
   DEFAULT_SUBSCRIPTION_PLANS,
   SubscriptionPlan,
   formatSubscriptionLimit,
+  getPreferredSubscriptionPlanIndex,
   getSubscriptionGalleryPhotoLimit,
   getNextPaymentDate,
   getSubscriptionDependencies,
   getSubscriptionOwedAmount,
+  normalizePreferredSubscriptionPlans,
   normalizeSubscriptionDependencies,
+  setPreferredSubscriptionPlan,
 } from "../../lib/subscriptionBilling";
 
 export default function AdminSubscriptions() {
@@ -48,9 +51,14 @@ export default function AdminSubscriptions() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const normalizedPlans = normalizePreferredSubscriptionPlans(plans);
       const storeSnap = await getDocs(collection(db, "stores"));
       const stores = storeSnap.docs.map((storeDoc) => ({ id: storeDoc.id, ...storeDoc.data() }));
-      await setDoc(doc(db, "settings", "subscriptions"), { plans, updatedAt: serverTimestamp() }, { merge: true });
+      await setDoc(
+        doc(db, "settings", "subscriptions"),
+        { plans: normalizedPlans, updatedAt: serverTimestamp() },
+        { merge: true },
+      );
 
       await Promise.all(stores.map(async (store) => {
         if (store.isPrimaryBranch === false) {
@@ -70,8 +78,8 @@ export default function AdminSubscriptions() {
 
         const subscriptionLevel = String(store.subscriptionLevel || "");
         const previousAmount = getSubscriptionOwedAmount(originalPlans, subscriptionLevel, Number(store.owedAmount || 0));
-        const nextAmount = getSubscriptionOwedAmount(plans, subscriptionLevel, previousAmount);
-        const dependencies = getSubscriptionDependencies(plans, subscriptionLevel);
+        const nextAmount = getSubscriptionOwedAmount(normalizedPlans, subscriptionLevel, previousAmount);
+        const dependencies = getSubscriptionDependencies(normalizedPlans, subscriptionLevel);
         const nextPaymentDate = getNextPaymentDate(store.paymentSchedule, store.subscriptionStart, store.subscriptionEnd);
         const currentAmount = Number(store.owedAmount);
         const updates: Record<string, unknown> = {
@@ -105,7 +113,8 @@ export default function AdminSubscriptions() {
           await invokeAdminBackend({ action: "sync_subscription_billing", storeId: store.id });
         }
       }));
-      setOriginalPlans(plans);
+      setPlans(normalizedPlans);
+      setOriginalPlans(normalizedPlans);
       setIsEditing(false);
       alert("Subscription plans saved successfully.");
     } catch (error) {
@@ -129,6 +138,7 @@ export default function AdminSubscriptions() {
         name: "New Plan",
         price: 0,
         interval: "month",
+        preferred: plans.length === 0,
         features: ["New feature"],
         dependencies: { customerLimit: 0, staffLimit: 1, branchLimit: 1, galleryPhotoLimit: 3 },
       },
@@ -136,9 +146,13 @@ export default function AdminSubscriptions() {
   };
 
   const handleRemovePlan = (index: number) => {
-    const newPlans = [...plans];
-    newPlans.splice(index, 1);
-    setPlans(newPlans);
+    setPlans((current) =>
+      normalizePreferredSubscriptionPlans(current.filter((_, planIndex) => planIndex !== index)),
+    );
+  };
+
+  const handlePreferredPlanChange = (index: number) => {
+    setPlans((current) => setPreferredSubscriptionPlan(current, index));
   };
 
   const handlePlanChange = (index: number, field: string, value: unknown) => {
@@ -236,9 +250,17 @@ export default function AdminSubscriptions() {
             const dependenciesId = `plan-dependencies-${planKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
             const dependenciesOpen = Boolean(expandedDependencies[planKey]);
             const dependencies = normalizeSubscriptionDependencies(plan.dependencies);
+            const isPreferred = getPreferredSubscriptionPlanIndex(plans) === planIndex;
 
             return (
-              <div key={planKey} className="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-0.5 hover:border-gray-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800/50 dark:hover:border-gray-600">
+              <div
+                key={planKey}
+                className={`group relative overflow-hidden rounded-2xl border bg-white shadow-sm transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-0.5 hover:shadow-md dark:bg-gray-800/50 ${
+                  isPreferred
+                    ? "border-green-500 ring-1 ring-green-500/30 dark:border-green-400"
+                    : "border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600"
+                }`}
+              >
                 {isEditing && (
                   <button onClick={() => handleRemovePlan(planIndex)} aria-label={`Remove ${plan.name || "plan"}`} className="absolute right-4 top-4 z-[1] rounded-lg bg-gray-100 p-2 text-red-500 transition-colors hover:bg-red-50 dark:bg-gray-800 dark:hover:bg-red-500/10">
                     <Trash2 className="h-4 w-4" />
@@ -246,6 +268,13 @@ export default function AdminSubscriptions() {
                 )}
 
                 <div className="space-y-4 border-b border-gray-100 p-6 dark:border-gray-800">
+                  <div className="flex min-h-6 items-center pr-10">
+                    {isPreferred && (
+                      <span className="rounded-full bg-green-600 px-3 py-1 text-xs font-semibold text-white dark:bg-green-500 dark:text-green-950">
+                        Preferred
+                      </span>
+                    )}
+                  </div>
                   {isEditing ? (
                     <>
                       <div className="pr-10">
@@ -273,6 +302,26 @@ export default function AdminSubscriptions() {
                           />
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-label={`Preferred plan: ${plan.name || "Untitled plan"}`}
+                        aria-checked={isPreferred}
+                        onClick={() => handlePreferredPlanChange(planIndex)}
+                        className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
+                          isPreferred
+                            ? "border-green-500 bg-green-50 text-green-800 dark:bg-green-500/15 dark:text-green-200"
+                            : "border-gray-200 text-gray-600 hover:border-green-400 dark:border-gray-700 dark:text-gray-300"
+                        }`}
+                      >
+                        <span>Preferred plan</span>
+                        <span
+                          aria-hidden="true"
+                          className={`h-4 w-4 rounded-full border-4 ${
+                            isPreferred ? "border-green-600 bg-white" : "border-gray-300 bg-white"
+                          }`}
+                        />
+                      </button>
                     </>
                   ) : (
                     <div className="py-2 text-center">
