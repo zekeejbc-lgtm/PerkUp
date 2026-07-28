@@ -6,7 +6,8 @@ import 'leaflet/dist/leaflet.css';
 // @ts-ignore
 import { MapContainer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { submitPartnerApplication } from '../lib/partnerApplication';
+import { checkPartnerApplicationAvailability, submitPartnerApplication } from '../lib/partnerApplication';
+import { getPartnerApplicationAvailabilityError } from '../lib/partnerApplicationAvailability';
 import { MapBaseLayers } from './MapBaseLayers';
 import { ImageCropEditor } from './ImageCropEditor';
 import { formatApplicationTrackingCode } from '../lib/applicationTracking';
@@ -83,7 +84,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
   const [isSearchingLocation, setIsSearchingLocation] = useState(false);
   const [locationSearchError, setLocationSearchError] = useState('');
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
-  const skipNextLocationSearch = useRef(false);
+  const locationSearchController = useRef<AbortController | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -112,57 +113,51 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     if (logoPreview) URL.revokeObjectURL(logoPreview);
   }, [logoPreview]);
 
-  useEffect(() => {
-    if (!isOpen) return;
+  useEffect(() => () => locationSearchController.current?.abort(), []);
 
+  const searchLocations = async () => {
     const query = address.trim();
-    if (skipNextLocationSearch.current) {
-      skipNextLocationSearch.current = false;
-      return;
-    }
     if (query.length < 3) {
       setLocationSuggestions([]);
-      setLocationSearchError('');
+      setLocationSearchError('Enter at least 3 characters to search.');
       setIsSearchingLocation(false);
       return;
     }
 
+    locationSearchController.current?.abort();
     const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setIsSearchingLocation(true);
-      setLocationSearchError('');
+    locationSearchController.current = controller;
+    setIsSearchingLocation(true);
+    setLocationSearchError('');
 
-      try {
-        const params = new URLSearchParams({
-          q: query,
-          format: 'jsonv2',
-          addressdetails: '1',
-          limit: '5',
-        });
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
-          signal: controller.signal,
-          headers: { Accept: 'application/json' },
-        });
-        if (!response.ok) throw new Error('Location search failed');
+    try {
+      const params = new URLSearchParams({
+        q: query,
+        format: 'jsonv2',
+        addressdetails: '1',
+        limit: '5',
+      });
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) throw new Error('Location search failed');
 
-        const results = await response.json() as LocationSuggestion[];
-        setLocationSuggestions(results);
-        setShowLocationSuggestions(true);
-      } catch (error) {
-        if ((error as Error).name !== 'AbortError') {
-          setLocationSuggestions([]);
-          setLocationSearchError('Unable to search locations. Please try again.');
-        }
-      } finally {
+      const results = await response.json() as LocationSuggestion[];
+      setLocationSuggestions(results);
+      setShowLocationSuggestions(true);
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        setLocationSuggestions([]);
+        setLocationSearchError('Unable to search locations. Please try again.');
+      }
+    } finally {
+      if (locationSearchController.current === controller) {
+        locationSearchController.current = null;
         if (!controller.signal.aborted) setIsSearchingLocation(false);
       }
-    }, 400);
-
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [address, isOpen]);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -197,7 +192,6 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     const lng = Number(suggestion.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-    skipNextLocationSearch.current = true;
     setAddress(suggestion.display_name);
     setCoordinates([lat, lng]);
     setLocationSuggestions([]);
@@ -226,8 +220,21 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (step === 1) {
-       setStep(2);
-       return;
+      setIsSubmitting(true);
+      try {
+        const availability = await checkPartnerApplicationAvailability(email, `+63${phoneNumber}`);
+        const availabilityError = getPartnerApplicationAvailabilityError(availability);
+        if (availabilityError) {
+          alert(availabilityError);
+          return;
+        }
+        setStep(2);
+      } catch (error) {
+        alert(error instanceof Error ? error.message : "Could not check contact availability.");
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
     }
     setIsSubmitting(true);
     try {
@@ -415,22 +422,41 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                           required
                           value={address}
                           onChange={(e) => {
+                            locationSearchController.current?.abort();
+                            locationSearchController.current = null;
                             setAddress(e.target.value);
-                            setShowLocationSuggestions(true);
+                            setLocationSuggestions([]);
+                            setLocationSearchError('');
+                            setIsSearchingLocation(false);
+                            setShowLocationSuggestions(false);
                           }}
-                          onFocus={() => setShowLocationSuggestions(true)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              void searchLocations();
+                            }
+                          }}
+                          onFocus={() => setShowLocationSuggestions(locationSuggestions.length > 0)}
                           onBlur={() => window.setTimeout(() => setShowLocationSuggestions(false), 150)}
                           autoComplete="off"
                           role="combobox"
                           aria-autocomplete="list"
                           aria-expanded={showLocationSuggestions && locationSuggestions.length > 0}
                           aria-controls="location-suggestions"
-                          className="block w-full pl-10 pr-10 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none text-sm"
+                          className="block w-full pl-10 pr-24 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none text-sm"
                           placeholder="Search for a business address"
                         />
-                        {isSearchingLocation && (
-                          <LoaderCircle className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-gray-400" />
-                        )}
+                        <button
+                          type="button"
+                          aria-label="Search address"
+                          disabled={isSearchingLocation}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => void searchLocations()}
+                          className="absolute right-1.5 top-1/2 inline-flex h-7 -translate-y-1/2 items-center gap-1 rounded-lg bg-[#1b1b1b] px-2.5 text-xs font-semibold text-white transition-colors hover:bg-black disabled:cursor-wait disabled:opacity-70 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
+                        >
+                          {isSearchingLocation && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+                          Search
+                        </button>
                         {showLocationSuggestions && locationSuggestions.length > 0 && (
                           <div
                             id="location-suggestions"
