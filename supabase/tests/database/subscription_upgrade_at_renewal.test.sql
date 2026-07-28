@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(31);
+select plan(33);
 
 select has_table('public', 'subscription_plan_changes');
 select has_table('public', 'subscription_plan_change_notifications');
@@ -85,6 +85,52 @@ insert into public.billing_subscriptions(
     'automatic',
     false
   );
+
+select throws_ok(
+  $$select public.confirm_subscription_upgrade(
+    'upgrade-test-store-b',
+    '00000000-0000-0000-0000-0000000000b1',
+    '{"id":"standard","name":"Standard","order":0,"priceCentavos":99900,"interval":"month","intervalDays":30,"features":["Basic analytics"],"dependencies":{"customerLimit":1000,"staffLimit":1,"branchLimit":1,"galleryPhotoLimit":3}}',
+    '{"id":"premium","name":"Premium","order":1,"priceCentavos":99900,"interval":"month","intervalDays":30,"features":["Basic analytics","Priority support"],"dependencies":{"customerLimit":10000,"staffLimit":5,"branchLimit":3,"galleryPhotoLimit":6}}',
+    99900,
+    99900,
+    '2026-07-31T00:00:00Z',
+    '2026-08-30T00:00:00Z',
+    'subscription-upgrade-v1',
+    'fingerprint-equal-price-0001',
+    '2026-07-20T00:00:00Z'
+  )$$,
+  '22023',
+  null,
+  'a plan change must increase the recurring price'
+);
+
+update public.stores
+set data = jsonb_set(data, '{subscriptionAccess}', '{"status":"frozen"}', true)
+where id = 'upgrade-test-store-b';
+
+select throws_ok(
+  $$select public.confirm_subscription_upgrade(
+    'upgrade-test-store-b',
+    '00000000-0000-0000-0000-0000000000b1',
+    '{"id":"standard","name":"Standard","order":0,"priceCentavos":99900,"interval":"month","intervalDays":30,"features":["Basic analytics"],"dependencies":{"customerLimit":1000,"staffLimit":1,"branchLimit":1,"galleryPhotoLimit":3}}',
+    '{"id":"premium","name":"Premium","order":1,"priceCentavos":199900,"interval":"month","intervalDays":30,"features":["Basic analytics","Priority support"],"dependencies":{"customerLimit":10000,"staffLimit":5,"branchLimit":3,"galleryPhotoLimit":6}}',
+    99900,
+    199900,
+    '2026-07-31T00:00:00Z',
+    '2026-08-30T00:00:00Z',
+    'subscription-upgrade-v1',
+    'fingerprint-frozen-store-0001',
+    '2026-07-20T00:00:00Z'
+  )$$,
+  '23514',
+  null,
+  'a frozen store cannot schedule an upgrade'
+);
+
+update public.stores
+set data = jsonb_set(data, '{subscriptionAccess,status}', '"active"', true)
+where id = 'upgrade-test-store-b';
 
 select lives_ok(
   $$select public.confirm_subscription_upgrade(

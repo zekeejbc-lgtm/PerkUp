@@ -14,7 +14,7 @@ create table public.subscription_plan_changes (
     check (current_amount_centavos between 100 and 999999999),
   target_amount_centavos integer not null
     check (target_amount_centavos between 100 and 999999999),
-  difference_centavos integer not null check (difference_centavos >= 0),
+  difference_centavos integer not null check (difference_centavos > 0),
   amount_due_today_centavos integer not null default 0
     check (amount_due_today_centavos = 0),
   target_period_start timestamptz not null,
@@ -36,7 +36,7 @@ create table public.subscription_plan_changes (
   updated_at timestamptz not null default now(),
   check (target_period_end > target_period_start),
   check (from_plan_id <> to_plan_id),
-  check (target_amount_centavos >= current_amount_centavos),
+  check (target_amount_centavos > current_amount_centavos),
   check (difference_centavos = target_amount_centavos - current_amount_centavos)
 );
 
@@ -141,6 +141,7 @@ set search_path = ''
 as $$
 declare
   subscription_row public.billing_subscriptions%rowtype;
+  store_row public.stores%rowtype;
   renewal_row public.billing_invoices%rowtype;
   inserted_change public.subscription_plan_changes%rowtype;
   expected_start timestamptz;
@@ -190,7 +191,7 @@ begin
     raise exception 'The selected plan is not an upgrade.' using errcode = '22023';
   end if;
   if (p_to_plan_snapshot->>'priceCentavos')::integer is distinct from p_target_amount_centavos
-    or p_target_amount_centavos < p_current_amount_centavos
+    or p_target_amount_centavos <= p_current_amount_centavos
     or p_current_amount_centavos < 100
   then
     raise exception 'The upgrade price is invalid.' using errcode = '22023';
@@ -229,6 +230,21 @@ begin
   if subscription_row.amount_centavos is distinct from p_current_amount_centavos then
     raise exception 'The subscription amount changed. Request a new quote.'
       using errcode = '40001';
+  end if;
+
+  select *
+  into store_row
+  from public.stores
+  where id = subscription_row.store_id
+  for update;
+  if not found then
+    raise exception 'Subscription store was not found.' using errcode = 'P0002';
+  end if;
+  if lower(coalesce(store_row.data->'subscriptionAccess'->>'status', 'active')) = 'frozen'
+    or lower(coalesce(store_row.data->'accountRestriction'->>'status', 'active')) = 'suspended'
+  then
+    raise exception 'Restore store access before scheduling an upgrade.'
+      using errcode = '23514';
   end if;
   if exists (
     select 1
@@ -399,8 +415,7 @@ begin
   select *
   into subscription_row
   from public.billing_subscriptions
-  where id = change_row.subscription_id
-  for update;
+  where id = change_row.subscription_id;
 
   update public.subscription_plan_changes
   set status = 'cancelled',

@@ -1536,6 +1536,11 @@ const handleAdminRequest = async (req: Request) => {
             code: "STALE_UPGRADE_QUOTE",
           }, 409);
         }
+        if (String(changeError.code) === "23514") {
+          return jsonResponse({
+            error: changeError.message || "The subscription is not currently eligible for an upgrade.",
+          }, 409);
+        }
         throw changeError;
       }
 
@@ -3867,9 +3872,15 @@ const loadSubscriptionUpgradeState = async (
   const eligibleStatus = subscriptionRow.status === "active"
     || (subscriptionRow.status === "cancelled" && renewalMode === "manual");
   const pendingChange = mapSubscriptionPlanChange(changeResult.data);
+  const accessStatus = cleanText(ownedStore.data?.subscriptionAccess?.status, 20).toLowerCase();
+  const restrictionStatus = cleanText(ownedStore.data?.accountRestriction?.status, 20).toLowerCase();
   let blockedReason: string | null = null;
   if (subscriptionRow.initial_payment_required === true) {
     blockedReason = "Complete the initial subscription payment before upgrading.";
+  } else if (restrictionStatus === "suspended") {
+    blockedReason = "Contact PerkUp support to restore this store before upgrading.";
+  } else if (accessStatus === "frozen") {
+    blockedReason = "Restore subscription access before scheduling an upgrade.";
   } else if (!eligibleStatus) {
     blockedReason = "Resolve the subscription status before scheduling an upgrade.";
   } else if (overdueInvoiceResult.data) {
