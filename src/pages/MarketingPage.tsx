@@ -4,7 +4,11 @@ import { Check, QrCode, ScanLine, Store, Users } from "lucide-react";
 import { PublicPageShell } from "../components/PublicPageShell";
 import { db } from "../lib/backend";
 import { doc, getDoc } from "../lib/dataCompat";
-import { DEFAULT_SUBSCRIPTION_PLANS, SubscriptionPlan } from "../lib/subscriptionBilling";
+import {
+  DEFAULT_SUBSCRIPTION_PLANS,
+  SubscriptionPlan,
+  getPreferredSubscriptionPlanIndex,
+} from "../lib/subscriptionBilling";
 import { useCurrency } from "../contexts/CurrencyContext";
 import { SkeletonBlock } from "../components/LoadingSkeleton";
 
@@ -97,16 +101,32 @@ export function PricingPage() {
         </div>
       ) : (
         <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {plans.map((plan) => (
-            <section key={plan.id || plan.name} className="flex flex-col rounded-3xl border border-black/10 p-6 dark:border-white/10">
-              <h2 className="text-xl font-bold">{plan.name}</h2>
-              <p className="mt-4"><span className="text-4xl font-bold">{formatCurrency(Number(plan.price || 0), { maximumFractionDigits: 2 })}</span><span className="text-gray-500"> / {plan.interval || "month"}</span></p>
-              <ul className="mt-6 flex-1 space-y-3 text-sm text-gray-600 dark:text-gray-300">
-                {(plan as SubscriptionPlan & { features?: string[] }).features?.map((feature) => <li key={feature} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0" />{feature}</li>)}
-              </ul>
-              <Link to="/?partner=true" className="mt-8 rounded-full bg-[#1b1b1b] px-5 py-3 text-center text-sm font-semibold text-white dark:bg-white dark:text-[#1b1b1b]">Apply with this plan</Link>
-            </section>
-          ))}
+          {plans.map((plan, planIndex) => {
+            const isPreferred = getPreferredSubscriptionPlanIndex(plans) === planIndex;
+
+            return (
+              <section
+                key={plan.id || plan.name}
+                className={`relative flex flex-col rounded-3xl border p-6 ${
+                  isPreferred
+                    ? "border-green-500 ring-1 ring-green-500/30 dark:border-green-400"
+                    : "border-black/10 dark:border-white/10"
+                }`}
+              >
+                {isPreferred && (
+                  <span className="absolute right-5 top-5 rounded-full bg-green-600 px-3 py-1 text-xs font-semibold text-white dark:bg-green-500 dark:text-green-950">
+                    Preferred
+                  </span>
+                )}
+                <h2 className="pr-24 text-xl font-bold">{plan.name}</h2>
+                <p className="mt-4"><span className="text-4xl font-bold">{formatCurrency(Number(plan.price || 0), { maximumFractionDigits: 2 })}</span><span className="text-gray-500"> / {plan.interval || "month"}</span></p>
+                <ul className="mt-6 flex-1 space-y-3 text-sm text-gray-600 dark:text-gray-300">
+                  {(plan as SubscriptionPlan & { features?: string[] }).features?.map((feature) => <li key={feature} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0" />{feature}</li>)}
+                </ul>
+                <Link to="/?partner=true" className="mt-8 rounded-full bg-[#1b1b1b] px-5 py-3 text-center text-sm font-semibold text-white dark:bg-white dark:text-[#1b1b1b]">Apply with this plan</Link>
+              </section>
+            );
+          })}
         </div>
       )}
     </PublicPageShell>
