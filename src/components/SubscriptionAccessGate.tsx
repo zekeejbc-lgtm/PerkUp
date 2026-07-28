@@ -146,9 +146,9 @@ export function AccountSuspendedScreen({ store, role = "store_owner" }: { store:
         <div className="space-y-5 p-6 sm:p-8">
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-700 dark:bg-gray-800/60">
             <p className="font-bold text-gray-900 dark:text-white">Administrative review</p>
-            <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">Payments cannot remove this restriction. Only a PerkUp administrator can restore access after the review is complete.</p>
+            <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">Payments cannot remove this restriction. Only a Perk administrator can restore access after the review is complete.</p>
           </div>
-          {role === "store_owner" && <a href={`mailto:${contact}`} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 px-5 py-3 text-sm font-bold text-gray-800 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800"><Mail className="h-4 w-4" /> Contact PerkUp Support</a>}
+          {role === "store_owner" && <a href={`mailto:${contact}`} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 px-5 py-3 text-sm font-bold text-gray-800 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800"><Mail className="h-4 w-4" /> Contact Perk Support</a>}
           <button type="button" onClick={async () => { await signOut(); window.location.assign("/"); }} className="mx-auto flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white"><LogOut className="h-4 w-4" /> Log out</button>
         </div>
       </section>
@@ -345,7 +345,7 @@ export function SubscriptionFrozenScreen({
         }
         const verifiedUrl = safePaymentLink(data.paymentUrl);
         if (!verifiedUrl) {
-          setLinkPreparationError("PayMongo returned an invalid payment link. PerkUp will retry automatically.");
+          setLinkPreparationError("PayMongo returned an invalid payment link. Perk will retry automatically.");
           return;
         }
         setLinkPreparationError("");
@@ -403,14 +403,14 @@ export function SubscriptionFrozenScreen({
               <Info label="Access period" value={`${Number(store?.billingIntervalDays || 30)} days after payment`} />
               <Info label="Payment deadline" value={initialPaymentDeletionAt ? `${initialPaymentDeletionAt.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })} (automatic deletion)` : "15 days after creation"} />
             </> : <>
-              <Info label="Subscription ended" value={subscriptionEnd ? subscriptionEnd.toLocaleDateString("en-PH", { dateStyle: "long" }) : "Contact PerkUp"} />
+              <Info label="Subscription ended" value={subscriptionEnd ? subscriptionEnd.toLocaleDateString("en-PH", { dateStyle: "long" }) : "Contact Perk"} />
               <Info label="Grace period ended" value={graceEnd ? graceEnd.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "Not applicable"} />
             </>}
           </div>}
 
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-700 dark:bg-gray-800/60">
             <div className="flex items-center gap-2 font-bold text-gray-900 dark:text-white"><CreditCard className="h-5 w-5" /> How to restore access</div>
-            <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-600 dark:text-gray-300">{role === "staff" ? "Contact your store owner. Only the store owner can open the payment page." : paymentLink ? `Open the official PayMongo payment page and confirm that it shows exactly ${formatPhp(amountDue)} before paying. Complete payment using an available method such as QR Ph. You do not need to send proof; signed PayMongo confirmation ${initialPaymentRequired ? "activates the store" : "restores access"} automatically.` : paymentLookupComplete ? "A secure PayMongo payment link is not available yet. PerkUp is preparing it automatically; please contact support if it does not appear shortly." : "Checking for your secure PayMongo payment link..."}</p>
+            <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-600 dark:text-gray-300">{role === "staff" ? "Contact your store owner. Only the store owner can open the payment page." : paymentLink ? `Open the official PayMongo payment page and confirm that it shows exactly ${formatPhp(amountDue)} before paying. Complete payment using an available method such as QR Ph. You do not need to send proof; signed PayMongo confirmation ${initialPaymentRequired ? "activates the store" : "restores access"} automatically.` : paymentLookupComplete ? "A secure PayMongo payment link is not available yet. Perk is preparing it automatically; please contact support if it does not appear shortly." : "Checking for your secure PayMongo payment link..."}</p>
             {role === "store_owner" && !paymentLink && (
               <div className="mt-4 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-950 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-100" role="status" aria-live="polite">
                 <LoaderCircle className="mt-0.5 h-5 w-5 shrink-0 animate-spin" />
@@ -432,7 +432,7 @@ export function SubscriptionFrozenScreen({
                 <LoaderCircle className="mt-0.5 h-5 w-5 shrink-0 animate-spin" />
                 <div className="text-sm">
                   <p className="font-bold">Waiting for PayMongo confirmation</p>
-                  <p className="mt-1 text-blue-800 dark:text-blue-200">You can safely close this PerkUp or PayMongo tab and come back later. Payment processing continues securely, and we will resume checking when you return.</p>
+                  <p className="mt-1 text-blue-800 dark:text-blue-200">You can safely close this Perk or PayMongo tab and come back later. Payment processing continues securely, and we will resume checking when you return.</p>
                 </div>
               </div>
             )}

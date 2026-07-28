@@ -1292,7 +1292,7 @@ Mock `subscriptionUpgradeApi` and verify:
 - HTTP 409 `STALE_UPGRADE_QUOTE` fetches a fresh quote and requires re-acknowledgement;
 - pending scheduled change can be cancelled;
 - locked change has no owner cancellation button;
-- `Need a lower plan? Contact PerkUp support.` is visible.
+- `Need a lower plan? Contact Perk support.` is visible.
 
 - [ ] **Step 2: Run and verify failure**
 

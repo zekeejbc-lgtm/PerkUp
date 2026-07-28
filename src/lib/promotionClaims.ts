@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-export const PROMOTION_REDEEM_QR_PREFIX = "perkup:redeem:v1:";
+export const PROMOTION_REDEEM_QR_PREFIX = "perk:redeem:v1:";
 
 export type PromotionClaim = {
   id: string;

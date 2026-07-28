@@ -78,7 +78,7 @@ export default function LandingPage() {
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [config, setConfig] = useState<any>({
     heroHeadline: "Reward your \nbest customers.",
-    heroSubheadline: "Ditch the paper punch cards. PerkUp is a minimal, fast, and secure digital loyalty system that runs right in your browser. No apps to install.",
+    heroSubheadline: "Ditch the paper punch cards. Perk is a minimal, fast, and secure digital loyalty system that runs right in your browser. No apps to install.",
     heroImageUrl: DEFAULT_HERO_IMAGE_URL,
     trustedBusinesses: [],
     usePartnerStores: false,
@@ -562,7 +562,7 @@ export default function LandingPage() {
             </div>
           </div>
           <div className="border-t border-gray-100 dark:border-gray-800 pt-8 flex justify-center text-xs text-gray-500 dark:text-gray-400 transition-colors">
-            <p>&copy; {new Date().getFullYear()} PerkUp. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} Perk. All rights reserved.</p>
           </div>
         </div>
       </footer>

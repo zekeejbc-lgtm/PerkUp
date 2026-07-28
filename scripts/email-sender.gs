@@ -1,9 +1,9 @@
 var EMAIL_CONFIG = {
-  systemName: "PerkUp",
-  senderName: "PerkUp",
+  systemName: "Perk",
+  senderName: "Perk",
   websiteLink: "https://www.perktoday.com/",
   // The opaque badge stays readable when Gmail force-converts the email to dark mode.
-  logoUrl: "https://www.perktoday.com/icons/perkup-wordmark-email-safe.png?v=20260726-email-theme",
+  logoUrl: "https://www.perktoday.com/icons/perk-wordmark-email-safe.png?v=20260726-email-theme",
   contactEmail: "perkup.shop@youthserviceph.org",
   contactPhone: "0962 232 8290",
   contactPhoneLink: "+639622328290",
@@ -14,7 +14,7 @@ var EMAIL_OTP_TTL_SECONDS = 10 * 60;
 var EMAIL_OTP_MAX_ATTEMPTS = 5;
 
 function requestEmailOtp(recipientEmail, userName, purpose) {
-  validateEmailInput_(recipientEmail, userName || "PerkUp user");
+  validateEmailInput_(recipientEmail, userName || "Perk user");
 
   var normalizedPurpose = normalizeEmailOtpPurpose_(purpose);
   var otpCode = generateOtpCode_();
@@ -33,7 +33,7 @@ function requestEmailOtp(recipientEmail, userName, purpose) {
     EMAIL_OTP_TTL_SECONDS
   );
 
-  var emailResult = sendOtpEmail(recipientEmail, userName || "PerkUp user", otpCode);
+  var emailResult = sendOtpEmail(recipientEmail, userName || "Perk user", otpCode);
 
   return {
     otpToken: otpToken,
@@ -91,15 +91,15 @@ function sendOtpEmail(recipientEmail, userName, otpCode) {
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: "Your PerkUp OTP Code",
+    subject: "Your Perk OTP Code",
     userName: userName,
     heading: "Hello " + userName + ",",
     introText: "Use the one-time password below to continue verifying your account.",
     secondaryText: "This code is time-sensitive. If you did not request it, you can safely ignore this email.",
     otpCode: otpCode,
-    buttonText: "Open PerkUp",
+    buttonText: "Open Perk",
     showButton: true,
-    plainText: "Your PerkUp OTP code is: " + otpCode
+    plainText: "Your Perk OTP code is: " + otpCode
   });
 }
 
@@ -112,10 +112,10 @@ function sendConfirmationEmail(recipientEmail, userName, confirmationLink) {
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: "Confirm your PerkUp email",
+    subject: "Confirm your Perk email",
     userName: userName,
     heading: "Hello " + userName + ",",
-    introText: "Please confirm your email address to finish setting up your PerkUp account.",
+    introText: "Please confirm your email address to finish setting up your Perk account.",
     secondaryText: "Confirming your email helps us keep your account secure and ready for rewards updates.",
     buttonText: "Confirm Email",
     buttonLink: confirmationLink,
@@ -139,20 +139,20 @@ function sendStoreCreatedEmail(recipientEmail, userName, store, loginLink, requi
   var amountDue = Number(store.amountDue || 0);
   var formattedAmountDue = "PHP " + (amountDue > 0 ? amountDue : 0).toFixed(2);
   var passwordMessage = requirePasswordChange
-    ? "This secure button can be used once. After signing you in, PerkUp will require you to create a private password before opening the store portal."
+    ? "This secure button can be used once. After signing you in, Perk will require you to create a private password before opening the store portal."
     : "This secure button can be used once to sign in. Afterward, use the regular store portal login with your account credentials.";
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: initialPaymentRequired ? "Payment required to activate " + storeName : storeName + " is ready on PerkUp",
+    subject: initialPaymentRequired ? "Payment required to activate " + storeName : storeName + " is ready on Perk",
     userName: userName,
     heading: initialPaymentRequired ? "Your store was created. Payment is now due." : "Your store is ready, " + userName + "!",
     introText: initialPaymentRequired
       ? "Your first subscription payment of " + formattedAmountDue + " must be paid through PayMongo before " + storeName + " can be accessed or shown publicly."
-      : "Your PerkUp store account has been created successfully. Here are the details currently registered for your store.",
+      : "Your Perk store account has been created successfully. Here are the details currently registered for your store.",
     secondaryText: initialPaymentRequired
       ? "Open the store portal to use the secure PayMongo payment link. Your " + String(Number(store.billingIntervalDays || 30)) + "-day subscription starts only after payment is confirmed. " + passwordMessage
-      : (initialPaymentPaid ? "The initial payment was marked paid by a PerkUp administrator. A separate invoice receipt has also been sent. " : "") + passwordMessage,
+      : (initialPaymentPaid ? "The initial payment was marked paid by a Perk administrator. A separate invoice receipt has also been sent. " : "") + passwordMessage,
     store: {
       name: storeName,
       location: String(store.location || "").trim(),
@@ -166,7 +166,7 @@ function sendStoreCreatedEmail(recipientEmail, userName, store, loginLink, requi
     buttonLink: safeLoginLink,
     showButton: true,
     plainText:
-      storeName + " is ready on PerkUp.\n" +
+      storeName + " is ready on Perk.\n" +
       (store.location ? "Location: " + store.location + "\n" : "") +
       (store.subscriptionLevel ? "Subscription: " + store.subscriptionLevel + "\n" : "") +
       (initialPaymentRequired ? "PAYMENT DUE: " + formattedAmountDue + ". Store access and public listing remain disabled until payment is confirmed.\n" : "") +
@@ -181,7 +181,7 @@ function sendStaffCreatedEmail(recipientEmail, userName, storeName, loginLink, r
   var normalizedStoreName = String(storeName || "your store").trim();
   var safeLoginLink = getStaffLoginLink_(loginLink);
   var passwordMessage = requirePasswordChange
-    ? "This secure button can be used once. After signing you in, PerkUp will require you to create a private password before opening the staff portal."
+    ? "This secure button can be used once. After signing you in, Perk will require you to create a private password before opening the staff portal."
     : "This secure button can be used once to sign in. Afterward, use the regular staff portal login with your account credentials.";
 
   return sendSystemEmail_({
@@ -189,13 +189,13 @@ function sendStaffCreatedEmail(recipientEmail, userName, storeName, loginLink, r
     subject: "Your " + normalizedStoreName + " staff account is ready",
     userName: userName,
     heading: "Your staff account is ready, " + userName + "!",
-    introText: "You now have PerkUp staff access for " + normalizedStoreName + ".",
+    introText: "You now have Perk staff access for " + normalizedStoreName + ".",
     secondaryText: passwordMessage,
     buttonText: "Open Staff Portal",
     buttonLink: safeLoginLink,
     showButton: true,
     plainText:
-      "Your PerkUp staff account for " + normalizedStoreName + " is ready.\n" +
+      "Your Perk staff account for " + normalizedStoreName + " is ready.\n" +
       passwordMessage + "\nLog in: " + safeLoginLink
   });
 }
@@ -215,10 +215,10 @@ function sendApplicationReceivedEmail(recipientEmail, userName, application) {
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: "We received your PerkUp partner application",
+    subject: "We received your Perk partner application",
     userName: userName,
     heading: "Application received, " + userName + ".",
-    introText: "Thanks for applying to add " + businessName + " as a PerkUp partner store. Keep this application code for status updates.",
+    introText: "Thanks for applying to add " + businessName + " as a Perk partner store. Keep this application code for status updates.",
     secondaryText: "We will review your application and contact you through this email when there is an update.",
     application: {
       trackingNumber: trackingNumber,
@@ -229,7 +229,7 @@ function sendApplicationReceivedEmail(recipientEmail, userName, application) {
     buttonLink: trackingLink,
     showButton: true,
     plainText:
-      "We received your PerkUp partner application for " + businessName + ".\n" +
+      "We received your Perk partner application for " + businessName + ".\n" +
       "Application code: " + trackingNumber + "\n" +
       (subscriptionLevel ? "Subscription: " + subscriptionLevel + "\n" : "") +
       "Track your application: " + trackingLink
@@ -251,10 +251,10 @@ function sendFeedbackReceivedEmail(recipientEmail, userName, feedback) {
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: "We received your PerkUp feedback",
+    subject: "We received your Perk feedback",
     userName: userName,
     heading: "Feedback received, " + userName + ".",
-    introText: "Thank you for helping us improve PerkUp. Keep this reference number to follow our progress.",
+    introText: "Thank you for helping us improve Perk. Keep this reference number to follow our progress.",
     secondaryText: "You can use the feedback lookup tool at any time to see its current status and our public response.",
     feedback: {
       referenceNumber: referenceNumber,
@@ -265,7 +265,7 @@ function sendFeedbackReceivedEmail(recipientEmail, userName, feedback) {
     buttonLink: trackingLink,
     showButton: true,
     plainText:
-      "We received your PerkUp feedback.\n" +
+      "We received your Perk feedback.\n" +
       "Reference number: " + referenceNumber + "\n" +
       "Type: " + category + "\n" +
       "Track your feedback: " + trackingLink
@@ -293,7 +293,7 @@ function sendSubscriptionPaymentDueEmail(recipientEmail, userName, invoice) {
     status: "Payment due",
     subscriberName: String(invoice.subscriberName || userName || "Store owner").trim(),
     storeName: String(invoice.storeName || "Your store").trim(),
-    planName: String(invoice.planName || "PerkUp subscription").trim(),
+    planName: String(invoice.planName || "Perk subscription").trim(),
     amount: formattedAmount,
     dueDate: dueDate,
     referenceNumber: referenceNumber
@@ -301,21 +301,21 @@ function sendSubscriptionPaymentDueEmail(recipientEmail, userName, invoice) {
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: "Your PerkUp payment link is ready",
+    subject: "Your Perk payment link is ready",
     userName: userName,
     heading: "Your secure payment link is ready, " + userName + ".",
     introText: initialPayment
-      ? "Your first subscription payment is due and must be paid before your PerkUp store can be accessed or shown publicly. Use the secure PayMongo page below to complete payment."
-      : "A secure PayMongo payment page is ready for your next PerkUp subscription cycle. Open it and select QR Ph to complete payment.",
+      ? "Your first subscription payment is due and must be paid before your Perk store can be accessed or shown publicly. Use the secure PayMongo page below to complete payment."
+      : "A secure PayMongo payment page is ready for your next Perk subscription cycle. Open it and select QR Ph to complete payment.",
     secondaryText: initialPayment
-      ? "Once PayMongo confirms payment, your " + String(Number(invoice.intervalDays || 30)) + "-day subscription begins and PerkUp automatically activates your portal access."
-      : "Once PayMongo confirms payment, PerkUp automatically extends your portal access for another " + String(Number(invoice.intervalDays || 30)) + " days.",
+      ? "Once PayMongo confirms payment, your " + String(Number(invoice.intervalDays || 30)) + "-day subscription begins and Perk automatically activates your portal access."
+      : "Once PayMongo confirms payment, Perk automatically extends your portal access for another " + String(Number(invoice.intervalDays || 30)) + " days.",
     invoice: invoiceDetails,
     buttonText: "Pay with PayMongo",
     buttonLink: paymentLink,
     showButton: true,
     plainText:
-      "Your PerkUp subscription payment is due.\n" +
+      "Your Perk subscription payment is due.\n" +
       "Store: " + String(invoice.storeName || "Your store") + "\n" +
       "Amount: " + formattedAmount + "\n" +
       "Due: " + dueDate + "\n" +
@@ -346,7 +346,7 @@ function sendSubscriptionPaymentReminderEmail(recipientEmail, userName, invoice)
     status: initialReminder ? "Activation pending - payment outstanding" : frozen ? "Access frozen - payment outstanding" : "Overdue - grace period active",
     subscriberName: String(invoice.subscriberName || userName || "Store owner").trim(),
     storeName: String(invoice.storeName || "Your store").trim(),
-    planName: String(invoice.planName || "PerkUp subscription").trim(),
+    planName: String(invoice.planName || "Perk subscription").trim(),
     amount: formattedAmount,
     dueDate: formatPhilippineDateTime_(invoice.dueAt),
     graceEndsAt: formatPhilippineDateTime_(invoice.graceEndsAt),
@@ -355,9 +355,9 @@ function sendSubscriptionPaymentReminderEmail(recipientEmail, userName, invoice)
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: deletionWarning ? "Final notice: pay to keep your PerkUp store" : initialReminder ? "Reminder: payment required to activate your PerkUp store" : frozen ? "PerkUp access frozen - payment required" : "PerkUp payment overdue - grace period active",
+    subject: deletionWarning ? "Final notice: pay to keep your Perk store" : initialReminder ? "Reminder: payment required to activate your Perk store" : frozen ? "Perk access frozen - payment required" : "Perk payment overdue - grace period active",
     userName: userName,
-    heading: frozen ? "Your PerkUp access is temporarily frozen." : "Your PerkUp payment is overdue.",
+    heading: frozen ? "Your Perk access is temporarily frozen." : "Your Perk payment is overdue.",
     introText: deletionWarning
       ? "Your store has not received its first subscription payment. Pay now to activate it; unpaid stores are automatically deleted 15 days after creation."
       : initialReminder
@@ -365,13 +365,13 @@ function sendSubscriptionPaymentReminderEmail(recipientEmail, userName, invoice)
       : frozen
       ? "Your grace period has ended. Use the secure PayMongo page below to settle the outstanding subscription invoice."
       : "Your subscription is now in its grace period. Please settle the invoice before the grace period ends to avoid an interruption.",
-    secondaryText: "PayMongo will notify PerkUp after a successful payment, and access will reactivate automatically.",
+    secondaryText: "PayMongo will notify Perk after a successful payment, and access will reactivate automatically.",
     invoice: invoiceDetails,
     buttonText: "Pay and Restore Access",
     buttonLink: paymentLink,
     showButton: true,
     plainText:
-      (frozen ? "Your PerkUp access is frozen.\n" : "Your PerkUp payment is overdue.\n") +
+      (frozen ? "Your Perk access is frozen.\n" : "Your Perk payment is overdue.\n") +
       "Store: " + invoiceDetails.storeName + "\n" +
       "Amount: " + formattedAmount + "\n" +
       "Due: " + invoiceDetails.dueDate + "\n" +
@@ -394,7 +394,7 @@ function sendSubscriptionPaymentReceivedEmail(recipientEmail, userName, invoice)
     status: "Paid",
     subscriberName: String(invoice.subscriberName || userName || "Store owner").trim(),
     storeName: String(invoice.storeName || "Your store").trim(),
-    planName: String(invoice.planName || "PerkUp subscription").trim(),
+    planName: String(invoice.planName || "Perk subscription").trim(),
     amount: formattedAmount,
     dueDate: formatPhilippineDateTime_(invoice.dueAt),
     paidAt: formatPhilippineDateTime_(invoice.paidAt),
@@ -405,15 +405,15 @@ function sendSubscriptionPaymentReceivedEmail(recipientEmail, userName, invoice)
 
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: "PerkUp payment receipt - subscription active",
+    subject: "Perk payment receipt - subscription active",
     userName: userName,
     heading: "Payment received. Your access is active.",
     introText: adminConfirmed
-      ? "A PerkUp administrator confirmed your subscription payment. Your subscription is active from the paid date shown on the attached receipt."
-      : "PayMongo confirmed your subscription payment and PerkUp automatically renewed your access.",
-    secondaryText: "Keep the attached receipt for your records. You can also review payment history from your PerkUp subscription page.",
+      ? "A Perk administrator confirmed your subscription payment. Your subscription is active from the paid date shown on the attached receipt."
+      : "PayMongo confirmed your subscription payment and Perk automatically renewed your access.",
+    secondaryText: "Keep the attached receipt for your records. You can also review payment history from your Perk subscription page.",
     invoice: invoiceDetails,
-    buttonText: "Open PerkUp",
+    buttonText: "Open Perk",
     buttonLink: EMAIL_CONFIG.websiteLink.replace(/\/+$/, "") + "/owner/subscription",
     showButton: true,
     plainText:
@@ -435,24 +435,24 @@ function sendSubscriptionBillingFailureEmail(recipientEmail, userName, invoice) 
     status: "Automation needs attention",
     subscriberName: String(invoice.subscriberName || userName || "Store owner").trim(),
     storeName: String(invoice.storeName || "Unknown store").trim(),
-    planName: String(invoice.planName || "PerkUp subscription").trim(),
+    planName: String(invoice.planName || "Perk subscription").trim(),
     amount: String(invoice.currency || "PHP").toUpperCase() + " " + (Number(invoice.amountCentavos || 0) / 100).toFixed(2),
     dueDate: formatPhilippineDateTime_(invoice.dueAt),
     referenceNumber: String(invoice.referenceNumber || "Not yet created").trim()
   };
   return sendSystemEmail_({
     recipientEmail: recipientEmail,
-    subject: "PerkUp billing automation requires attention",
+    subject: "Perk billing automation requires attention",
     userName: userName,
     heading: "A subscription billing task repeatedly failed.",
-    introText: "PerkUp could not complete a billing operation after several attempts. Review the invoice in the admin store subscription screen and use Retry after resolving the cause.",
+    introText: "Perk could not complete a billing operation after several attempts. Review the invoice in the admin store subscription screen and use Retry after resolving the cause.",
     secondaryText: "Latest error: " + String(invoice.failureReason || "No error detail was recorded.").slice(0, 500),
     invoice: invoiceDetails,
-    buttonText: "Open PerkUp Admin",
+    buttonText: "Open Perk Admin",
     buttonLink: EMAIL_CONFIG.websiteLink.replace(/\/+$/, "") + "/admin",
     showButton: true,
     plainText:
-      "PerkUp billing automation requires attention.\n" +
+      "Perk billing automation requires attention.\n" +
       "Store: " + invoiceDetails.storeName + "\n" +
       "Invoice: " + invoiceDetails.documentNumber + "\n" +
       "Latest error: " + String(invoice.failureReason || "No error detail was recorded.").slice(0, 500)
@@ -492,23 +492,23 @@ function sendSubscriptionUpgradeEmail_(recipientEmail, userName, upgrade, status
   var cancellationReason = String(upgrade.cancellationReason || "").trim();
   var statusCopy = status === "applied"
     ? {
-      subject: "Your PerkUp subscription upgrade is active",
+          subject: "Your Perk subscription upgrade is active",
       heading: "Your " + targetPlan + " upgrade is now active.",
-      intro: "PerkUp verified payment of the matching renewal invoice and applied your new plan.",
+          intro: "Perk verified payment of the matching renewal invoice and applied your new plan.",
       secondary: "Your upgraded features and limits are now available. The paid renewal amount was " + targetPrice + "."
     }
     : status === "cancelled"
     ? {
-      subject: "Your PerkUp subscription upgrade was cancelled",
+          subject: "Your Perk subscription upgrade was cancelled",
       heading: "Your scheduled upgrade was cancelled.",
       intro: "The planned change from " + currentPlan + " to " + targetPlan + " will not be attached to a future renewal.",
       secondary: "Your current plan and ordinary renewal settings remain unchanged." +
         (cancellationReason ? " Reason: " + cancellationReason : "")
     }
     : {
-      subject: "Your PerkUp subscription upgrade is scheduled",
+          subject: "Your Perk subscription upgrade is scheduled",
       heading: "Your " + targetPlan + " upgrade is scheduled.",
-      intro: "PHP 0.00 was charged today. Your current " + currentPlan + " plan remains active until PerkUp verifies payment of the target renewal.",
+          intro: "PHP 0.00 was charged today. Your current " + currentPlan + " plan remains active until Perk verifies payment of the target renewal.",
       secondary: "The target renewal is " + targetDate + " at " + targetPrice + " (" + differencePrice + " more than your current recurring price)."
     };
 
@@ -546,7 +546,8 @@ function getSubscriptionDocumentNumber_(invoice) {
 
 function createSubscriptionDocumentPdf_(invoice, documentType) {
   var isReceipt = documentType === "receipt";
-  var title = isReceipt ? "RECEIPT" : "INVOICE";
+  var title = isReceipt ? "ACKNOWLEDGEMENT RECEIPT" : "INVOICE";
+  var numberLabel = isReceipt ? "RECEIPT" : "INVOICE";
   var paidOrDueLabel = isReceipt ? "PAID" : "DUE DATE";
   var paidOrDueValue = isReceipt ? invoice.paidAt : invoice.dueDate;
   var note = isReceipt
@@ -564,10 +565,10 @@ function createSubscriptionDocumentPdf_(invoice, documentType) {
     ".summary{display:table;width:100%;margin-top:24px}.notes,.totals{display:table-cell;vertical-align:top}.notes{width:58%;padding-right:28px}.notes-title{font-size:10px;font-weight:700;color:#6b6b6b;margin-bottom:8px}.totals{width:42%}.total-row{padding:7px 10px;border-bottom:1px solid #e2e2e2}.total-row span:last-child{float:right}.grand-total{padding:11px 10px;background:#1b1b1b;color:#fff;font-weight:700;font-size:14px}" +
     ".details{display:table;width:100%;margin-top:26px;padding:14px;background:#f7f7f7;border-radius:8px}.detail{display:table-cell;width:50%}.detail-label{color:#6b6b6b;font-size:9px;font-weight:700;text-transform:uppercase}.detail-value{margin-top:5px;font-weight:700}" +
     ".footer{position:absolute;left:42px;right:42px;bottom:34px;border-top:1px solid #e2e2e2;padding-top:11px;color:#6b6b6b;font-size:9px;line-height:1.45}.footer-right{float:right;text-align:right}</style></head><body>" +
-    "<div class='top'><div class='brand'><img src='" + escapeHtml_(EMAIL_CONFIG.logoUrl) + "' alt='PerkUp'></div><div class='document'><h1>" + title + "</h1><div class='number'>" + escapeHtml_(invoice.documentNumber) + "</div></div></div>" +
-    "<div class='company'><div class='from'><strong>PerkUp</strong><div class='muted'>Tagum City, Davao del Norte, Philippines<br>" + escapeHtml_(EMAIL_CONFIG.contactEmail) + "<br>www.perktoday.com</div></div>" +
+    "<div class='top'><div class='brand'><img src='" + escapeHtml_(EMAIL_CONFIG.logoUrl) + "' alt='Perk'></div><div class='document'><h1>" + title + "</h1><div class='number'>" + escapeHtml_(invoice.documentNumber) + "</div></div></div>" +
+    "<div class='company'><div class='from'><strong>Perk</strong><div class='muted'>Tagum City, Davao del Norte, Philippines<br>" + escapeHtml_(EMAIL_CONFIG.contactEmail) + "<br>www.perktoday.com</div></div>" +
     "<div class='meta'><div class='meta-row'><span class='meta-label'>DATE</span><span class='meta-value'>" + escapeHtml_(formatPhilippineDateTime_(new Date())) + "</span></div>" +
-    "<div class='meta-row'><span class='meta-label'>" + title + " #</span><span class='meta-value'>" + escapeHtml_(invoice.documentNumber) + "</span></div>" +
+    "<div class='meta-row'><span class='meta-label'>" + numberLabel + " #</span><span class='meta-value'>" + escapeHtml_(invoice.documentNumber) + "</span></div>" +
     "<div class='meta-row'><span class='meta-label'>" + paidOrDueLabel + "</span><span class='meta-value'>" + escapeHtml_(paidOrDueValue) + "</span></div></div></div>" +
     "<div class='bill'><div class='section-title'>BILL TO</div><div class='bill-body'><div class='bill-name'>" + escapeHtml_(invoice.subscriberName || invoice.storeName) + "</div><div class='muted'>" + escapeHtml_(invoice.storeName) + "</div></div></div>" +
     "<div class='status'>" + escapeHtml_(invoice.status || (isReceipt ? "Paid" : "Payment due")) + "</div>" +
@@ -576,9 +577,13 @@ function createSubscriptionDocumentPdf_(invoice, documentType) {
     "<div class='totals'><div class='total-row'><span>Subtotal</span><span>" + escapeHtml_(invoice.amount) + "</span></div><div class='grand-total'><span>" + (isReceipt ? "TOTAL PAID" : "TOTAL DUE") + "</span><span style='float:right'>" + escapeHtml_(invoice.amount) + "</span></div></div></div>" +
     "<div class='details'><div class='detail'><div class='detail-label'>Subscription plan</div><div class='detail-value'>" + escapeHtml_(invoice.planName) + "</div></div>" +
     "<div class='detail'><div class='detail-label'>Payment reference</div><div class='detail-value'>" + escapeHtml_(invoice.referenceNumber || "Pending") + "</div></div></div>" +
-    "<div class='footer'><div class='footer-right'>www.perktoday.com<br>" + escapeHtml_(invoice.documentNumber) + "</div>This system-generated billing statement records a PerkUp charge or payment.<br>It is not a VAT official receipt or tax invoice. For questions, contact " + escapeHtml_(EMAIL_CONFIG.contactEmail) + ".</div>" +
+    "<div class='footer'><div class='footer-right'>www.perktoday.com<br>" + escapeHtml_(invoice.documentNumber) + "</div>" +
+    (isReceipt
+      ? "This system-generated acknowledgement receipt records a Perk payment.<br>Official Receipt will be provided upon request. For questions, contact "
+      : "This system-generated billing statement records a Perk charge or payment.<br>It is not a VAT official receipt or tax invoice. For questions, contact ") +
+    escapeHtml_(EMAIL_CONFIG.contactEmail) + ".</div>" +
     "</body></html>";
-  var filename = (isReceipt ? "PerkUp-Receipt-" : "PerkUp-Invoice-") + invoice.documentNumber + ".pdf";
+  var filename = (isReceipt ? "Perk-Receipt-" : "Perk-Invoice-") + invoice.documentNumber + ".pdf";
   return HtmlService.createHtmlOutput(html).getBlob().getAs(MimeType.PDF).setName(filename);
 }
 

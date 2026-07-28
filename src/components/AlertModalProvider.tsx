@@ -78,7 +78,7 @@ export function AlertModalProvider({ children }: { children: ReactNode }) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-start justify-between gap-3">
                   <h2 id="app-alert-title" className="text-lg font-bold text-gray-950 dark:text-white">
-                    PerkUp notification
+                    Perk notification
                   </h2>
                   <button
                     type="button"

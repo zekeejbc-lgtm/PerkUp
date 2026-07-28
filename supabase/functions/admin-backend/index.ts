@@ -1,7 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { sessionNeedsMfa } from "../_shared/auth.ts";
-import { createPayMongoPaymentLink } from "../_shared/paymongo.ts";
+import {
+  archivePayMongoInvoiceLinks,
+  archivePayMongoPaymentLink,
+  createPayMongoPaymentLink,
+} from "../_shared/paymongo.ts";
 import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 import {
   buildSubscriptionUpgradeQuote,
@@ -179,7 +183,7 @@ const handleAdminRequest = async (req: Request) => {
     const actor = (actorRow?.data || {}) as UserProfile;
     const actorStatus = cleanText(actor.accountStatus || "active", 20).toLowerCase();
     if (actorStatus === "suspended" || actorStatus === "banned") {
-      return jsonResponse({ error: `This account is ${actorStatus}. Contact a PerkUp administrator.` }, 403);
+      return jsonResponse({ error: `This account is ${actorStatus}. Contact a Perk administrator.` }, 403);
     }
     const actorIsAdmin = PRIVILEGED_ROLES.has(cleanText(actor.role, 30));
     const actorHasMaintenanceAccess = actorIsAdmin && actor.isDemo !== true;
@@ -1388,7 +1392,7 @@ const handleAdminRequest = async (req: Request) => {
           return {
             ...invoice,
             business: {
-              name: cleanText(store.businessName || store.name, 160) || "PerkUp merchant",
+              name: cleanText(store.businessName || store.name, 160) || "Perk merchant",
               address: cleanText(store.address || store.location, 300) || null,
               contact: cleanText(store.contact || store.contactNumber || store.phone, 100) || null,
             },
@@ -1698,34 +1702,38 @@ const handleAdminRequest = async (req: Request) => {
       const invoiceId = cleanText(body.invoiceId, 100);
       if (!invoiceId) return jsonResponse({ error: "Invoice ID is required." }, 400);
 
-      const { data: invoice, error: invoiceError } = await admin
-        .from("billing_invoices")
-        .select("id,status,paymongo_link_id")
-        .eq("id", invoiceId)
-        .maybeSingle();
-      if (invoiceError) throw invoiceError;
-      if (!invoice) return jsonResponse({ error: "Billing invoice was not found." }, 404);
-      if (["paid", "void", "expired"].includes(String(invoice.status))) {
+      const now = new Date().toISOString();
+      const { data: retryResult, error: retryError } = await admin.rpc(
+        "retry_billing_invoice_safely",
+        { p_invoice_id: invoiceId, p_now: now },
+      );
+      if (retryError) throw retryError;
+      const result = retryResult as {
+        result?: string;
+        invoice_id?: string;
+        status?: string;
+      } | null;
+      if (result?.result === "not_found") {
+        return jsonResponse({ error: "Billing invoice was not found." }, 404);
+      }
+      if (result?.result === "closed") {
         return jsonResponse({ error: "This invoice is already closed and cannot be retried." }, 400);
       }
-
-      const nextStatus = invoice.paymongo_link_id ? "link_created" : "pending";
-      const now = new Date().toISOString();
-      const { error: retryError } = await admin.from("billing_invoices").update({
-        status: nextStatus,
-        next_attempt_at: now,
-        last_error: null,
-      }).eq("id", invoice.id);
-      if (retryError) throw retryError;
+      if (result?.result === "in_progress") {
+        return jsonResponse({ error: "Payment-link creation is already in progress. Retry shortly." }, 409);
+      }
+      if (result?.result !== "updated" || !result.invoice_id || !result.status) {
+        throw new Error("Billing invoice retry returned an unexpected result.");
+      }
 
       const { error: notificationRetryError } = await admin.from("billing_notifications").update({
         status: "pending",
         next_attempt_at: now,
         last_error: null,
-      }).eq("invoice_id", invoice.id).eq("status", "failed");
+      }).eq("invoice_id", result.invoice_id).eq("status", "failed");
       if (notificationRetryError) throw notificationRetryError;
 
-      return jsonResponse({ updated: true, invoiceId: invoice.id, status: nextStatus });
+      return jsonResponse({ updated: true, invoiceId: result.invoice_id, status: result.status });
     }
 
     if (action === "record_manual_invoice_payment") {
@@ -1835,11 +1843,11 @@ const handleAdminRequest = async (req: Request) => {
       const subscriptionAccess = {
         ...existingAccess,
         status,
-        warningMessage: cleanText(input.warningMessage, 500) || "Your PerkUp subscription is almost ending. Please settle your balance to avoid an interruption.",
+        warningMessage: cleanText(input.warningMessage, 500) || "Your Perk subscription is almost ending. Please settle your balance to avoid an interruption.",
         gracePeriodDays,
         graceStartedAt: status === "grace" ? now.toISOString() : "",
         graceEndsAt: status === "grace" ? new Date(now.getTime() + gracePeriodDays * 86_400_000).toISOString() : "",
-        paymentInstructions: cleanText(input.paymentInstructions, 2000) || "Contact PerkUp support for payment instructions and send your proof of payment for verification.",
+        paymentInstructions: cleanText(input.paymentInstructions, 2000) || "Contact Perk support for payment instructions and send your proof of payment for verification.",
         paymentLink: cleanText(input.paymentLink, 2000),
         paymentContact: cleanText(input.paymentContact, 254) || "perkup.shop@youthserviceph.org",
         automationEnabled: input.automationEnabled === true,
@@ -2032,7 +2040,21 @@ const handleAdminRequest = async (req: Request) => {
             if (invoiceError) throw invoiceError;
 
             let linkPersisted = false;
+            let createdLink: Awaited<ReturnType<typeof createPayMongoPaymentLink>> | null = null;
+            let creationMarker: string | null = null;
+            let creationLeaseSuperseded = false;
             try {
+              const creationToken = crypto.randomUUID();
+              const { data: linkCreationStarted, error: linkCreationStartError } = await admin
+                .rpc("begin_paymongo_link_creation", {
+                  p_invoice_id: invoiceId,
+                  p_creation_token: creationToken,
+                });
+              if (linkCreationStartError) throw linkCreationStartError;
+              if (linkCreationStarted !== true) {
+                throw new Error("The initial PayMongo link is no longer eligible for creation.");
+              }
+              creationMarker = `PAYMONGO_LINK_CREATION_IN_PROGRESS:${creationToken}`;
               const link = await createPayMongoPaymentLink({
                 id: invoiceId,
                 subscriptionId: billingSubscription.id,
@@ -2041,6 +2063,7 @@ const handleAdminRequest = async (req: Request) => {
                 currency: billingSubscription.currency,
                 planId: cleanText(store.subscriptionLevel, 80),
               }, requiredEnv("PAYMONGO_SECRET_KEY"));
+              createdLink = link;
               const mode = (Deno.env.get("PAYMONGO_MODE") || "test").toLowerCase();
               if (mode !== "test" && mode !== "live") {
                 throw new Error("PAYMONGO_MODE must be test or live.");
@@ -2049,7 +2072,7 @@ const handleAdminRequest = async (req: Request) => {
                 throw new Error("PayMongo payment mode does not match the configured billing mode.");
               }
 
-              const { error: linkUpdateError } = await admin.from("billing_invoices").update({
+              const { data: persistedInvoice, error: linkUpdateError } = await admin.from("billing_invoices").update({
                 status: "link_created",
                 paymongo_link_id: link.id,
                 paymongo_reference_number: link.referenceNumber,
@@ -2058,9 +2081,14 @@ const handleAdminRequest = async (req: Request) => {
                 attempt_count: 1,
                 next_attempt_at: dueAt,
                 last_error: null,
-              }).eq("id", invoiceId);
+              }).eq("id", invoiceId).eq("last_error", creationMarker).select("id").maybeSingle();
               if (linkUpdateError) throw linkUpdateError;
+              if (!persistedInvoice) {
+                creationLeaseSuperseded = true;
+                throw new Error("The PayMongo link-creation lease changed before the link could be saved.");
+              }
               linkPersisted = true;
+              creationMarker = null;
 
               const existingAccess = store.subscriptionAccess && typeof store.subscriptionAccess === "object"
                 ? store.subscriptionAccess as Record<string, unknown>
@@ -2075,12 +2103,35 @@ const handleAdminRequest = async (req: Request) => {
               if (storeLinkError) throw storeLinkError;
             } catch (linkError) {
               const message = linkError instanceof Error ? linkError.message : "PayMongo link creation failed.";
-              await admin.from("billing_invoices").update({
-                status: linkPersisted ? "link_created" : "failed",
-                attempt_count: 1,
-                next_attempt_at: new Date(Date.now() + 10_000).toISOString(),
-                last_error: message.slice(0, 1000),
-              }).eq("id", invoiceId);
+              let preserveCreationMarker = false;
+              if (createdLink && !linkPersisted && !creationLeaseSuperseded) {
+                try {
+                  await archivePayMongoPaymentLink(
+                    createdLink.id,
+                    requiredEnv("PAYMONGO_SECRET_KEY"),
+                  );
+                } catch (archiveError) {
+                  preserveCreationMarker = true;
+                  console.error("Unpersisted initial PayMongo link could not be archived", {
+                    invoiceId,
+                    storeId,
+                    linkId: createdLink.id,
+                    error: archiveError instanceof Error ? archiveError.message : archiveError,
+                  });
+                }
+              }
+              if (!preserveCreationMarker) {
+                let failureUpdate = admin.from("billing_invoices").update({
+                  status: linkPersisted ? "link_created" : "failed",
+                  attempt_count: 1,
+                  next_attempt_at: new Date(Date.now() + 10_000).toISOString(),
+                  last_error: message.slice(0, 1000),
+                }).eq("id", invoiceId);
+                if (creationMarker) {
+                  failureUpdate = failureUpdate.eq("last_error", creationMarker);
+                }
+                await failureUpdate;
+              }
               console.error("Initial PayMongo link could not be created immediately", {
                 invoiceId,
                 storeId,
@@ -2984,6 +3035,33 @@ const handleAdminRequest = async (req: Request) => {
         ? remainingStores.find((row: any) => row.data?.isPrimaryBranch === true) || remainingStores[0]
         : null;
       const primaryStoreId = retainedPrimaryStore ? String(retainedPrimaryStore.id) : null;
+      if (!primaryStoreId) {
+        const { error: billingDeletionLockError } = await admin
+          .rpc("begin_store_billing_deletion", { p_store_ids: storeIds });
+        if (billingDeletionLockError) throw billingDeletionLockError;
+
+        const { data: invoiceLinks, error: invoiceLinksError } = await admin
+          .from("billing_invoices")
+          .select("paymongo_link_id,status,livemode")
+          .in("store_id", storeIds)
+          .not("paymongo_link_id", "is", null);
+        if (invoiceLinksError) throw invoiceLinksError;
+
+        const payMongoMode = (Deno.env.get("PAYMONGO_MODE") || "test").toLowerCase();
+        if (payMongoMode !== "test" && payMongoMode !== "live") {
+          throw new Error("PAYMONGO_MODE must be test or live.");
+        }
+        const archiveResult = await archivePayMongoInvoiceLinks(invoiceLinks || [], {
+          mode: payMongoMode,
+          secretKey: Deno.env.get("PAYMONGO_SECRET_KEY") || "",
+        });
+        if (archiveResult.skippedTest > 0) {
+          console.info("Skipped test-mode PayMongo links during live store deletion", {
+            skipped: archiveResult.skippedTest,
+            storeIds,
+          });
+        }
+      }
       const { data: staffRows, error: usersError } = await admin
         .from("users")
         .select("id,data")
@@ -3878,7 +3956,7 @@ const loadSubscriptionUpgradeState = async (
   if (subscriptionRow.initial_payment_required === true) {
     blockedReason = "Complete the initial subscription payment before upgrading.";
   } else if (restrictionStatus === "suspended") {
-    blockedReason = "Contact PerkUp support to restore this store before upgrading.";
+          blockedReason = "Contact Perk support to restore this store before upgrading.";
   } else if (accessStatus === "frozen") {
     blockedReason = "Restore subscription access before scheduling an upgrade.";
   } else if (!eligibleStatus) {

@@ -367,9 +367,9 @@ declare
   request_id bigint;
 begin
   select decrypted_secret into worker_url from vault.decrypted_secrets
-    where name = 'perkup_billing_worker_url' limit 1;
+    where name = 'perk_billing_worker_url' limit 1;
   select decrypted_secret into cron_secret from vault.decrypted_secrets
-    where name = 'perkup_billing_cron_secret' limit 1;
+    where name = 'perk_billing_cron_secret' limit 1;
   if nullif(worker_url, '') is null or nullif(cron_secret, '') is null then
     return null;
   end if;
@@ -386,7 +386,7 @@ $$;
 revoke all on function private.invoke_subscription_billing_worker() from public, anon, authenticated;
 
 select cron.schedule(
-  'perkup-subscription-billing-hourly',
+  'perk-subscription-billing-hourly',
   '5 * * * *',
   'select private.invoke_subscription_billing_worker()'
 );

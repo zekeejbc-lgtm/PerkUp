@@ -7,7 +7,7 @@ const root = process.cwd();
 const distDirectory = path.join(root, "dist");
 const baseHtml = await readFile(path.join(distDirectory, "index.html"), "utf8");
 const siteUrl = "https://www.perktoday.com";
-const defaultImage = `${siteUrl}/icons/perkup-logo-source.png`;
+const defaultImage = `${siteUrl}/icons/perk-logo-source.png`;
 
 const escapeHtml = (value = "") => String(value)
   .replaceAll("&", "&amp;")
@@ -19,66 +19,66 @@ const escapeHtml = (value = "") => String(value)
 const pages = [
   {
     path: "/",
-    title: "PerkUp | Digital Loyalty for Local Businesses",
-    description: "Discover local partner stores and collect secure digital loyalty rewards with PerkUp—no paper cards or app download required.",
+    title: "Perk | Digital Loyalty for Local Businesses",
+    description: "Discover local partner stores and collect secure digital loyalty rewards with Perk—no paper cards or app download required.",
     heading: "Digital loyalty starts here.",
-    body: "Reward loyal customers, discover local partner stores, and leave paper punch cards behind with PerkUp.",
+    body: "Reward loyal customers, discover local partner stores, and leave paper punch cards behind with Perk.",
   },
   {
     path: "/stores",
-    title: "Local Partner Stores | PerkUp",
-    description: "Browse PerkUp partner stores, search by category, check opening hours, and discover local loyalty rewards.",
+    title: "Local Partner Stores | Perk",
+    description: "Browse Perk partner stores, search by category, check opening hours, and discover local loyalty rewards.",
     heading: "All affiliated stores",
-    body: "Browse active PerkUp partner stores and find loyalty rewards near you.",
+    body: "Browse active Perk partner stores and find loyalty rewards near you.",
   },
   {
     path: "/product",
-    title: "Digital Loyalty Platform | PerkUp",
+    title: "Digital Loyalty Platform | Perk",
     description: "Digital loyalty cards, fast QR check-ins, promotions, products, customer feedback, and store management in one platform.",
     heading: "Digital loyalty, without the paper cards.",
-    body: "PerkUp gives local businesses a simple loyalty system customers can use directly in their browser.",
+    body: "Perk gives local businesses a simple loyalty system customers can use directly in their browser.",
   },
   {
     path: "/customers",
-    title: "Loyalty Rewards for Customers | PerkUp",
-    description: "Discover nearby PerkUp stores, track visits, carry digital loyalty cards, and redeem local rewards from one account.",
+    title: "Loyalty Rewards for Customers | Perk",
+    description: "Discover nearby Perk stores, track visits, carry digital loyalty cards, and redeem local rewards from one account.",
     heading: "One place for every local reward.",
     body: "Discover nearby partner stores, track visits, and redeem rewards without installing another app.",
   },
   {
     path: "/businesses",
-    title: "Customer Loyalty for Local Businesses | PerkUp",
-    description: "Launch a branded digital loyalty experience, understand repeat visits, run promotions, and manage every branch with PerkUp.",
+    title: "Customer Loyalty for Local Businesses | Perk",
+    description: "Launch a branded digital loyalty experience, understand repeat visits, run promotions, and manage every branch with Perk.",
     heading: "Turn visits into lasting customer relationships.",
     body: "Launch a branded loyalty experience, understand repeat visits, and run promotions from a focused dashboard.",
   },
   {
     path: "/pricing",
-    title: "Plans and Pricing for Businesses | PerkUp",
-    description: "Compare PerkUp digital loyalty plans for local businesses and choose the tools that fit your store and team.",
+    title: "Plans and Pricing for Businesses | Perk",
+    description: "Compare Perk digital loyalty plans for local businesses and choose the tools that fit your store and team.",
     heading: "Plans for every local business.",
-    body: "Compare current PerkUp subscription plans for stores and growing teams.",
+    body: "Compare current Perk subscription plans for stores and growing teams.",
   },
   {
     path: "/privacy",
-    title: "Privacy Policy | PerkUp",
-    description: "Read how PerkUp collects, uses, protects, and manages personal information.",
+    title: "Privacy Policy | Perk",
+    description: "Read how Perk collects, uses, protects, and manages personal information.",
     heading: "Privacy Policy",
-    body: "Learn how PerkUp handles and protects personal information.",
+    body: "Learn how Perk handles and protects personal information.",
   },
   {
     path: "/terms",
-    title: "Terms of Service | PerkUp",
-    description: "Read the terms that govern access to and use of PerkUp services.",
+    title: "Terms of Service | Perk",
+    description: "Read the terms that govern access to and use of Perk services.",
     heading: "Terms of Service",
-    body: "Review the terms governing access to and use of PerkUp.",
+    body: "Review the terms governing access to and use of Perk.",
   },
   {
     path: "/data-deletion",
-    title: "Data Deletion | PerkUp",
-    description: "Learn how to request deletion of your PerkUp account and associated personal data.",
+    title: "Data Deletion | Perk",
+    description: "Learn how to request deletion of your Perk account and associated personal data.",
     heading: "Data Deletion",
-    body: "Learn how to request deletion of your PerkUp account and associated data.",
+    body: "Learn how to request deletion of your Perk account and associated data.",
   },
 ];
 
@@ -115,7 +115,7 @@ const replaceMeta = (html, attribute, key, content) => {
 
 const createFallback = (page, extra = "") => `
   <main id="seo-static-content" style="max-width:72rem;margin:0 auto;padding:4rem 1.5rem;font-family:Inter,system-ui,sans-serif;color:#1b1b1b">
-    <nav aria-label="Primary"><a href="/">PerkUp</a> · <a href="/stores">Stores</a> · <a href="/businesses">For Businesses</a> · <a href="/pricing">Pricing</a></nav>
+    <nav aria-label="Primary"><a href="/">Perk</a> · <a href="/stores">Stores</a> · <a href="/businesses">For Businesses</a> · <a href="/pricing">Pricing</a></nav>
     <article style="margin-top:4rem"><h1>${escapeHtml(page.heading)}</h1><p>${escapeHtml(page.body)}</p>${extra}</article>
   </main>`;
 
@@ -152,8 +152,8 @@ for (const page of pages) {
   const target = page.path === "/" ? path.join(distDirectory, "index.html") : path.join(distDirectory, page.path.slice(1), "index.html");
   await mkdir(path.dirname(target), { recursive: true });
   const jsonLd = page.path === "/" ? [
-    { "@context": "https://schema.org", "@type": "Organization", name: "PerkUp", url: siteUrl, logo: defaultImage },
-    { "@context": "https://schema.org", "@type": "WebSite", name: "PerkUp", url: siteUrl },
+    { "@context": "https://schema.org", "@type": "Organization", name: "Perk", url: siteUrl, logo: defaultImage },
+    { "@context": "https://schema.org", "@type": "WebSite", name: "Perk", url: siteUrl },
   ] : undefined;
   await writeFile(target, renderPage(page, { jsonLd, extra: page.path === "/stores" ? storeLinks : "" }));
 }
@@ -162,10 +162,10 @@ for (const store of stores) {
   const storePath = `/store/${encodeURIComponent(store.id)}`;
   const page = {
     path: storePath,
-    title: `${store.name || "Partner Store"} | PerkUp Partner Store`,
-    description: store.description || `View ${store.name || "this partner store"}'s details, products, promotions, and PerkUp loyalty rewards.`,
-    heading: store.name || "PerkUp Partner Store",
-    body: store.description || "View store details and current PerkUp loyalty rewards.",
+    title: `${store.name || "Partner Store"} | Perk Partner Store`,
+    description: store.description || `View ${store.name || "this partner store"}'s details, products, promotions, and Perk loyalty rewards.`,
+    heading: store.name || "Perk Partner Store",
+    body: store.description || "View store details and current Perk loyalty rewards.",
   };
   const image = new URL(store.logoUrl || defaultImage, siteUrl).toString();
   const target = path.join(distDirectory, "store", encodeURIComponent(store.id), "index.html");

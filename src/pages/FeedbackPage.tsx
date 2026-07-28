@@ -103,7 +103,7 @@ export default function FeedbackPage() {
   return (
     <PublicPageShell>
       <p className="text-sm font-semibold text-gray-500 dark:text-gray-400">Feedback</p>
-      <h1 className="mt-3 text-4xl font-bold tracking-tight sm:text-5xl">Help us improve PerkUp.</h1>
+      <h1 className="mt-3 text-4xl font-bold tracking-tight sm:text-5xl">Help us improve Perk.</h1>
       <p className="mt-6 max-w-3xl text-lg text-gray-600 dark:text-gray-300">Send feedback, keep your private reference number, and return here to follow its progress.</p>
 
       {submission ? (
@@ -177,7 +177,7 @@ export default function FeedbackPage() {
               <div><dt className="text-xs font-bold uppercase tracking-wider text-gray-500">Submitted</dt><dd className="mt-1 text-sm">{formatDate(trackedFeedback.createdAt)}</dd></div>
               <div><dt className="text-xs font-bold uppercase tracking-wider text-gray-500">Last updated</dt><dd className="mt-1 text-sm">{formatDate(trackedFeedback.updatedAt)}</dd></div>
               <div className="sm:col-span-2"><dt className="text-xs font-bold uppercase tracking-wider text-gray-500">Your feedback</dt><dd className="mt-2 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">{trackedFeedback.message}</dd></div>
-              <div className="rounded-2xl bg-gray-50 p-5 dark:bg-white/5 sm:col-span-2"><dt className="text-xs font-bold uppercase tracking-wider text-gray-500">PerkUp response</dt><dd className="mt-2 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">{trackedFeedback.response || "No public response yet. Check back for updates."}</dd></div>
+              <div className="rounded-2xl bg-gray-50 p-5 dark:bg-white/5 sm:col-span-2"><dt className="text-xs font-bold uppercase tracking-wider text-gray-500">Perk response</dt><dd className="mt-2 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">{trackedFeedback.response || "No public response yet. Check back for updates."}</dd></div>
             </dl>
           </div>
         )}

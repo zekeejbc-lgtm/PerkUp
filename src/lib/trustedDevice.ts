@@ -16,7 +16,7 @@ export type TrustedLoginProfile = {
   trustedLoginDevices?: TrustedLoginDevice[];
 };
 
-const DEVICE_ID_KEY = "perkup:trusted-login-device-id";
+const DEVICE_ID_KEY = "perk:trusted-login-device-id";
 const TRUST_DAYS = 30;
 
 const getLocalDeviceId = () => {

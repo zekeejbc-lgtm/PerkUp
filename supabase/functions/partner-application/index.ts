@@ -214,6 +214,7 @@ Deno.serve(async (req) => {
     if (rateWriteError) throw rateWriteError;
 
     const businessName = cleanText(body.businessName, 120);
+    const category = cleanText(body.category, 120);
     const applicantName = cleanText(body.applicantName, 80);
     const email = cleanText(body.email, 254).toLowerCase();
     const phoneNumber = cleanText(body.phoneNumber, 40);
@@ -222,7 +223,7 @@ Deno.serve(async (req) => {
     const subscriptionLevel = cleanText(body.subscriptionLevel, 80);
     const coordinates = Array.isArray(body.coordinates) ? body.coordinates.map(Number) : [];
 
-    if (!businessName || !applicantName || !email || !phoneNumber || !description || !address) {
+    if (!businessName || !category || !applicantName || !email || !phoneNumber || !description || !address) {
       return jsonResponse({ error: "All required application fields must be completed." }, 400);
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -263,6 +264,7 @@ Deno.serve(async (req) => {
     const trackingCode = formatApplicationTrackingCode(applicationId, businessName);
     const applicationData = {
       businessName,
+      category,
       applicantName,
       email,
       phoneNumber,

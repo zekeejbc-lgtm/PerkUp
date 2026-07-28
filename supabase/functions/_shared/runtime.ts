@@ -20,18 +20,18 @@ export const readRuntimeConfig = async (admin: any): Promise<RuntimeConfig> => {
     return {
       mode: "maintenance",
       maintenance_title: "System status unavailable",
-      maintenance_reason: "PerkUp cannot verify the current operating mode.",
+      maintenance_reason: "Perk cannot verify the current operating mode.",
     };
   }
   return data as RuntimeConfig;
 };
 
 export const maintenanceError = (config: RuntimeConfig) => ({
-  error: config.maintenance_reason || "PerkUp is currently under maintenance.",
+  error: config.maintenance_reason || "Perk is currently under maintenance.",
   code: "maintenance_mode",
   maintenance: {
     title: config.maintenance_title || "Scheduled maintenance",
-    reason: config.maintenance_reason || "PerkUp is currently under maintenance.",
+    reason: config.maintenance_reason || "Perk is currently under maintenance.",
     details: config.maintenance_details || "",
     startedAt: config.maintenance_started_at || null,
   },

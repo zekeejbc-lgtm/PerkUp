@@ -116,7 +116,7 @@ begin
     v_code := upper(substr(encode(gen_random_bytes(6), 'hex'), 1, 10));
     exit when not exists (select 1 from public.promotion_claims where redeem_code = v_code);
   end loop;
-  v_token := 'perkup:redeem:v1:' || gen_random_uuid()::text || ':' || encode(gen_random_bytes(18), 'hex');
+  v_token := 'perk:redeem:v1:' || gen_random_uuid()::text || ':' || encode(gen_random_bytes(18), 'hex');
 
   insert into public.promotion_claims (
     promotion_id, store_id, customer_id, card_id, redeem_code, qr_token, expires_at

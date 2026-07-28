@@ -3,7 +3,7 @@ import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { sessionNeedsMfa } from "../_shared/auth.ts";
 import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
-const EXPIRING_TOKEN_PREFIX = "perkup:v3:";
+const EXPIRING_TOKEN_PREFIX = "perk:v3:";
 const QR_TTL_SECONDS = 10 * 60;
 const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
 

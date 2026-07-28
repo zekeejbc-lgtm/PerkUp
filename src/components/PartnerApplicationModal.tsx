@@ -11,6 +11,8 @@ import { MapBaseLayers } from './MapBaseLayers';
 import { ImageCropEditor } from './ImageCropEditor';
 import { formatApplicationTrackingCode } from '../lib/applicationTracking';
 import { useCurrency } from '../contexts/CurrencyContext';
+import { CategoryInput } from './CategoryInput';
+import { FEATURED_STORE_CATEGORIES } from '../lib/storeDirectory';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -64,6 +66,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
 
   // Form states
   const [businessName, setBusinessName] = useState('');
+  const [category, setCategory] = useState('');
   const [applicantName, setApplicantName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -166,6 +169,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
   const resetForm = () => {
     setStep(1);
     setBusinessName('');
+    setCategory('');
     setApplicantName('');
     setEmail('');
     setPhoneNumber('');
@@ -229,6 +233,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     try {
       const result = await submitPartnerApplication({
         businessName,
+        category,
         applicantName,
         email,
         phoneNumber: `+63${phoneNumber}`,
@@ -320,6 +325,17 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Store className="h-4 w-4" /></div>
                         <input type="text" required value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="block w-full pl-10 pr-3 py-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-[#1b1b1b] outline-none text-sm" placeholder="e.g. My Coffee Shop" />
                       </div>
+                    </div>
+                    <div className="space-y-1 text-left">
+                      <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Business Category</label>
+                      <CategoryInput
+                        required
+                        value={category}
+                        onChange={setCategory}
+                        suggestions={FEATURED_STORE_CATEGORIES}
+                        placeholder="Coffee, Bakery, Retail..."
+                        className="block w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                      />
                     </div>
                     <div className="space-y-1 text-left">
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Your Name</label>

@@ -162,7 +162,7 @@ export default function StorePromotionsPage() {
   if (storeMissing || !store) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-white px-6 text-center dark:bg-[#1b1b1b]">
-        <Seo title="Store Not Found | PerkUp" canonicalPath={window.location.pathname} noIndex />
+        <Seo title="Store Not Found | Perk" canonicalPath={window.location.pathname} noIndex />
         <StoreIcon className="mb-4 h-10 w-10 text-gray-300 dark:text-gray-700" />
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Store not found</h1>
         <p className="mt-2 text-gray-500 dark:text-gray-400">This store does not exist or is no longer available.</p>
@@ -178,14 +178,14 @@ export default function StorePromotionsPage() {
   return (
     <div className="flex min-h-screen flex-col bg-white transition-colors dark:bg-[#1b1b1b]">
       <Seo
-        title={`${store.name} Promotions | PerkUp`}
-        description={`See current promotions and loyalty rewards from ${store.name} on PerkUp.`}
+        title={`${store.name} Promotions | Perk`}
+        description={`See current promotions and loyalty rewards from ${store.name} on Perk.`}
         canonicalPath={`/store/${store.id}/promotions`}
         image={store.logoUrl ? getDisplayImageUrl(store.logoUrl) : undefined}
       />
       <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/90 backdrop-blur-md dark:border-white/10 dark:bg-[#1b1b1b]/90">
         <nav className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-6">
-          <Link to="/" aria-label="PerkUp home"><BrandMark compact /></Link>
+          <Link to="/" aria-label="Perk home"><BrandMark compact /></Link>
           <div className="flex items-center gap-4">
             <ThemeToggle />
             <Link

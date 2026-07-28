@@ -3,8 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
 import { MapContainer, Marker, Popup } from "react-leaflet";
-import * as ReactDOMServer from "react-dom/server";
-import L from "leaflet";
 import {
   CalendarDays,
   ChevronDown,
@@ -23,7 +21,9 @@ import { AnimatePresence, motion } from "motion/react";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { DirectionsButton } from "../../components/DirectionsButton";
 import { MapBaseLayers } from "../../components/MapBaseLayers";
+import { createCustomerStoreMapPin } from "../../components/CustomerStoreMapPin";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
+import { groupCustomerMapLocations } from "../../lib/customerMapMarkers";
 import { getAvailableStoreCategories, isStoreOpenNow, isStorePubliclyVisible, storeMatchesCategorySearch } from "../../lib/storeDirectory";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
 
@@ -102,7 +102,11 @@ export default function CustomerStores() {
       ((!openNowOnly && !availableAt) || isStoreOpenNow(store.hours, availableAt || new Date()))
     );
   }, [availableAt, categories, openNowOnly, searchQuery, stores]);
-  const mappedStores = filteredStores.filter((store) => Number.isFinite(store.lat) && Number.isFinite(store.lng));
+  const mappedStores = useMemo(
+    () => filteredStores.filter((store) => Number.isFinite(store.lat) && Number.isFinite(store.lng)),
+    [filteredStores],
+  );
+  const storeGroups = useMemo(() => groupCustomerMapLocations(mappedStores), [mappedStores]);
   const hasActiveFilters = openNowOnly || Boolean(availabilityDate) || Boolean(availabilityTime);
 
   const clearFilters = () => {
@@ -273,33 +277,65 @@ export default function CustomerStores() {
                 style={{ height: "100%", width: "100%" }}
               >
                 <MapBaseLayers />
-                {mappedStores.map((store) => {
+                {storeGroups.map((group) => {
+                    const store = group.items[0];
+                    const isGroup = group.items.length > 1;
                     const logoUrl = getDisplayImageUrl(store.logoUrl || "");
-                    const iconHtml = ReactDOMServer.renderToString(
-                      <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-[#1b1b1b] text-white shadow-lg">
-                        {logoUrl ? (
-                          <img src={logoUrl} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <StoreIcon className="h-5 w-5" />
-                        )}
-                      </div>
-                    );
-                    const customIcon = L.divIcon({
-                      html: iconHtml,
-                      className: 'custom-leaflet-icon',
-                      iconSize: [40, 40],
-                      iconAnchor: [20, 40],
-                      popupAnchor: [0, -40],
-                    });
                     
                     return (
-                      <Marker key={store.id} position={[store.lat, store.lng]} icon={customIcon}>
+                      <Marker
+                        key={group.key}
+                        position={group.position}
+                        icon={createCustomerStoreMapPin(group)}
+                        title={isGroup ? `${group.items.length} shops at this location` : `${store.name} location`}
+                        alt={isGroup ? `${group.items.length} shops at this location` : `${store.name} location`}
+                      >
                         <Popup className="rounded-xl">
+                          {isGroup ? (
+                            <div className="w-64 p-1">
+                              <p className="mb-3 font-bold text-gray-900">{group.items.length} shops at this location</p>
+                              <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+                                {group.items.map((groupedStore) => {
+                                  const groupedLogoUrl = getDisplayImageUrl(groupedStore.logoUrl || "");
+                                  return (
+                                    <div key={groupedStore.id} className="rounded-xl border border-gray-200 p-3">
+                                      <div className="flex items-center gap-3">
+                                        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100 text-gray-700">
+                                          {groupedLogoUrl ? (
+                                            <img src={groupedLogoUrl} alt={`${groupedStore.name} logo`} className="h-full w-full object-contain" />
+                                          ) : (
+                                            <StoreIcon className="h-5 w-5" />
+                                          )}
+                                        </div>
+                                        <div className="min-w-0">
+                                          <p className="truncate font-semibold text-gray-900">{groupedStore.name}</p>
+                                          <p className="truncate text-xs text-gray-500">{groupedStore.category || "Retail"}</p>
+                                        </div>
+                                      </div>
+                                      <div className="mt-3 grid grid-cols-2 gap-2">
+                                        <Link
+                                          to={`/store/${groupedStore.id}`}
+                                          state={{ storesPath: "/customer/stores" }}
+                                          className="rounded-lg bg-gray-900 px-2 py-2 text-center text-xs font-medium text-white"
+                                        >
+                                          View details
+                                        </Link>
+                                        <DirectionsButton
+                                          destination={{ lat: groupedStore.lat, lng: groupedStore.lng, address: groupedStore.address, name: groupedStore.name }}
+                                          className="rounded-lg bg-gray-100 px-2 py-2 text-xs font-medium text-[#1b1b1b]"
+                                        />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : (
                           <div className="w-56 p-1">
                             <div className="flex items-center gap-3">
                               <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100 text-gray-700">
                                 {logoUrl ? (
-                                  <img src={logoUrl} alt={`${store.name} logo`} className="h-full w-full object-cover" />
+                                  <img src={logoUrl} alt={`${store.name} logo`} className="h-full w-full object-contain" />
                                 ) : (
                                   <StoreIcon className="h-5 w-5" />
                                 )}
@@ -325,6 +361,7 @@ export default function CustomerStores() {
                               />
                             </div>
                           </div>
+                          )}
                         </Popup>
                       </Marker>
                     );

@@ -1,6 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
-import { createPayMongoPaymentLink } from "../_shared/paymongo.ts";
+import {
+  archivePayMongoPaymentLink,
+  createPayMongoPaymentLink,
+} from "../_shared/paymongo.ts";
 import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
 const PAYMONGO_API = "https://api.paymongo.com/v1";
@@ -232,12 +235,15 @@ Deno.serve(async (req) => {
       return jsonResponse(maintenanceError(runtime), 503);
     }
     let subscriptionQuery = admin.from("billing_subscriptions")
-      .select("id,store_id,owner_user_id,billing_email,plan_id,amount_centavos,pending_amount_centavos,pending_amount_effective_at,currency,interval_days,current_period_end,renewal_mode,automation_enabled,initial_payment_required")
+      .select("id,store_id,owner_user_id,billing_email,plan_id,amount_centavos,pending_amount_centavos,pending_amount_effective_at,currency,interval_days,current_period_end,renewal_mode,automation_enabled,initial_payment_required,status")
       .eq("store_id", storeId);
     if (ownerUserId) subscriptionQuery = subscriptionQuery.eq("owner_user_id", ownerUserId);
     const { data: subscription, error: subscriptionError } = await subscriptionQuery.maybeSingle();
     if (subscriptionError) throw subscriptionError;
     if (!subscription) return jsonResponse({ paid: false, status: "pending" });
+    if (subscription.status === "paused") {
+      return jsonResponse({ error: "Subscription billing is paused while store deletion is pending." }, 409);
+    }
 
     const invoiceColumns = "id,subscription_id,store_id,owner_user_id,invoice_type,status,due_at,paymongo_link_id,payment_url,amount_centavos,currency,livemode,paid_at,period_end,paymongo_reference_number,plan_id_snapshot,plan_name_snapshot,subscription:billing_subscriptions(billing_email,plan_id,automation_enabled,renewal_mode)";
     let invoiceQuery = admin.from("billing_invoices")
@@ -318,29 +324,78 @@ Deno.serve(async (req) => {
     let paymentUrl = String(invoice.payment_url || "");
     let referenceNumber = String(invoice.paymongo_reference_number || "");
     if (!linkId || !paymentUrl || !referenceNumber) {
-      const link = await createPayMongoPaymentLink({
-        id: invoice.id,
-        subscriptionId: invoice.subscription_id,
-        storeId: invoice.store_id,
-        amountCentavos: invoice.amount_centavos,
-        currency: invoice.currency,
-        planId: invoice.plan_name_snapshot || invoice.plan_id_snapshot ||
-          invoiceSubscription?.plan_id,
-      }, requiredEnv("PAYMONGO_SECRET_KEY"));
-      const mode = (Deno.env.get("PAYMONGO_MODE") || "test").toLowerCase();
-      if (mode !== "test" && mode !== "live") throw new Error("PAYMONGO_MODE must be test or live.");
-      if ((mode === "live") !== link.livemode) throw new Error("PayMongo payment mode does not match the configured billing mode.");
+      const creationToken = crypto.randomUUID();
+      const { data: linkCreationStarted, error: linkCreationStartError } = await admin
+        .rpc("begin_paymongo_link_creation", {
+          p_invoice_id: invoice.id,
+          p_creation_token: creationToken,
+        });
+      if (linkCreationStartError) throw linkCreationStartError;
+      if (linkCreationStarted !== true) {
+        return jsonResponse({ error: "Payment-link creation is unavailable while store deletion is pending." }, 409);
+      }
 
-      const { error: linkUpdateError } = await admin.from("billing_invoices").update({
-        status: "link_created",
-        paymongo_link_id: link.id,
-        paymongo_reference_number: link.referenceNumber,
-        payment_url: link.url,
-        livemode: link.livemode,
-        last_error: null,
-      }).eq("id", invoice.id);
-      if (linkUpdateError) throw linkUpdateError;
+      let creationMarker: string | null = `PAYMONGO_LINK_CREATION_IN_PROGRESS:${creationToken}`;
+      let link: Awaited<ReturnType<typeof createPayMongoPaymentLink>> | null = null;
+      let creationLeaseSuperseded = false;
+      try {
+        link = await createPayMongoPaymentLink({
+          id: invoice.id,
+          subscriptionId: invoice.subscription_id,
+          storeId: invoice.store_id,
+          amountCentavos: invoice.amount_centavos,
+          currency: invoice.currency,
+          planId: invoice.plan_name_snapshot || invoice.plan_id_snapshot ||
+            invoiceSubscription?.plan_id,
+        }, requiredEnv("PAYMONGO_SECRET_KEY"));
+        const mode = (Deno.env.get("PAYMONGO_MODE") || "test").toLowerCase();
+        if (mode !== "test" && mode !== "live") throw new Error("PAYMONGO_MODE must be test or live.");
+        if ((mode === "live") !== link.livemode) throw new Error("PayMongo payment mode does not match the configured billing mode.");
 
+        const { data: persistedInvoice, error: linkUpdateError } = await admin.from("billing_invoices").update({
+          status: "link_created",
+          paymongo_link_id: link.id,
+          paymongo_reference_number: link.referenceNumber,
+          payment_url: link.url,
+          livemode: link.livemode,
+          last_error: null,
+        }).eq("id", invoice.id).eq("last_error", creationMarker).select("id").maybeSingle();
+        if (linkUpdateError) throw linkUpdateError;
+        if (!persistedInvoice) {
+          creationLeaseSuperseded = true;
+          throw new Error("The PayMongo link-creation lease changed before the link could be saved.");
+        }
+        creationMarker = null;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "PayMongo link creation failed.";
+        let preserveCreationMarker = false;
+        if (link && !creationLeaseSuperseded) {
+          try {
+            await archivePayMongoPaymentLink(link.id, requiredEnv("PAYMONGO_SECRET_KEY"));
+          } catch (archiveError) {
+            preserveCreationMarker = true;
+            console.error("Unpersisted owner PayMongo link could not be archived", {
+              invoiceId: invoice.id,
+              linkId: link.id,
+              error: archiveError instanceof Error ? archiveError.message : archiveError,
+            });
+          }
+        }
+        if (!preserveCreationMarker) {
+          let failureUpdate = admin.from("billing_invoices").update({
+            status: "failed",
+            last_error: message.slice(0, 1000),
+            next_attempt_at: new Date(Date.now() + 10_000).toISOString(),
+          }).eq("id", invoice.id);
+          if (creationMarker) {
+            failureUpdate = failureUpdate.eq("last_error", creationMarker);
+          }
+          await failureUpdate;
+        }
+        throw error;
+      }
+
+      if (!link) throw new Error("PayMongo link creation returned no link.");
       const { data: storeRow, error: storeError } = await admin.from("stores").select("data").eq("id", storeId).single();
       if (storeError) throw storeError;
       const existingAccess = storeRow.data?.subscriptionAccess && typeof storeRow.data.subscriptionAccess === "object"

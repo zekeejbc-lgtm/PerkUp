@@ -7,7 +7,7 @@ create table public.system_runtime_config (
     check (mode_before_maintenance in ('production', 'development')),
   maintenance_title text not null default 'Scheduled maintenance'
     check (char_length(maintenance_title) between 1 and 120),
-  maintenance_reason text not null default 'PerkUp is temporarily unavailable while maintenance is in progress.'
+  maintenance_reason text not null default 'Perk is temporarily unavailable while maintenance is in progress.'
     check (char_length(maintenance_reason) between 1 and 2000),
   maintenance_details text not null default ''
     check (char_length(maintenance_details) <= 4000),

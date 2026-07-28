@@ -10,6 +10,7 @@ const fileToDataUrl = (file: File) =>
 
 export interface PartnerApplicationInput {
   businessName: string;
+  category: string;
   applicantName: string;
   email: string;
   phoneNumber: string;

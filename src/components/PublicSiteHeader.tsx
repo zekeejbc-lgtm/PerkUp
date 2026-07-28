@@ -17,7 +17,7 @@ export function PublicSiteHeader({ onSignIn, onSignUp, onTrack }: PublicSiteHead
   return (
     <header className="sticky top-0 z-50 border-b border-[#1b1b1b]/10 bg-white/85 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#1b1b1b]/85">
       <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
-        <Link to="/" aria-label="PerkUp home">
+        <Link to="/" aria-label="Perk home">
           <BrandMark compact />
         </Link>
         <div className="flex items-center gap-4">

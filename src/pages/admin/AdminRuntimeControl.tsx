@@ -212,7 +212,7 @@ export default function AdminRuntimeControl() {
               </label>
               <label className="block text-xs font-semibold text-gray-800 dark:text-gray-200">
                 Reason
-                <textarea required minLength={1} maxLength={2000} rows={3} value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} className={`mt-1.5 ${INPUT_CLASSES}`} placeholder="Why PerkUp is temporarily unavailable" />
+                <textarea required minLength={1} maxLength={2000} rows={3} value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} className={`mt-1.5 ${INPUT_CLASSES}`} placeholder="Why Perk is temporarily unavailable" />
               </label>
               <label className="block text-xs font-semibold text-gray-800 dark:text-gray-200">
                 Additional details

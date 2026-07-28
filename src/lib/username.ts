@@ -1,5 +1,5 @@
 export const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
-export const RESERVED_USERNAMES = new Set(["admin", "administrator", "api", "help", "perkup", "staff", "store", "support"]);
+export const RESERVED_USERNAMES = new Set(["admin", "administrator", "api", "help", "perk", "staff", "store", "support"]);
 
 export const normalizeUsername = (value: string) => value.trim().toLowerCase();
 

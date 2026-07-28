@@ -45,14 +45,14 @@ const getStatusMeta = (status: string) => {
   if (normalized === "rejected") {
     return {
       label: "Rejected",
-      description: "Your application was not approved. Contact PerkUp support if you need more details.",
+      description: "Your application was not approved. Contact Perk support if you need more details.",
       icon: XCircle,
       className: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-200",
     };
   }
   return {
     label: "Pending Review",
-    description: "Your application is still being reviewed by the PerkUp team.",
+    description: "Your application is still being reviewed by the Perk team.",
     icon: Clock3,
     className: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200",
   };

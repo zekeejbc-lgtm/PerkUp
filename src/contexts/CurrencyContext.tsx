@@ -14,7 +14,7 @@ export const SUPPORTED_CURRENCIES = [
 export type CurrencyCode = (typeof SUPPORTED_CURRENCIES)[number];
 
 const CURRENCY_NAMES = new Intl.DisplayNames(["en"], { type: "currency" });
-const CACHE_KEY = "perkup:php-exchange-rates:v1";
+const CACHE_KEY = "perk:php-exchange-rates:v1";
 const CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 type RateCache = {

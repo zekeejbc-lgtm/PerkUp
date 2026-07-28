@@ -156,7 +156,7 @@ const sendReceipt = async ({
       action: "feedback_received",
       secret: requiredEnv("DRIVE_CRUD_SECRET"),
       recipientEmail: email,
-      userName: name || "PerkUp visitor",
+      userName: name || "Perk visitor",
       feedback: {
         referenceNumber,
         category,

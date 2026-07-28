@@ -1,5 +1,5 @@
-const RECOVERY_KEY = "perkup:chunk-recovery-version";
-const APP_CACHE_PREFIX = "perkup-";
+const RECOVERY_KEY = "perk:chunk-recovery-version";
+const APP_CACHE_PREFIX = "perk-";
 
 type VitePreloadErrorEvent = Event & {
   payload?: unknown;
@@ -42,7 +42,7 @@ async function clearAppCaches() {
 
 /**
  * Vite emits this event when a deployed page still references a code-split
- * chunk from an older release. Clear only PerkUp's caches and reload once so
+ * chunk from an older release. Clear only Perk's caches and reload once so
  * the browser obtains the current HTML and matching asset graph.
  */
 export function installChunkRecovery() {
@@ -54,7 +54,7 @@ export function installChunkRecovery() {
 
     event.preventDefault();
     rememberRetry(version);
-    console.warn("A newer PerkUp release is available. Reloading current assets.", event.payload);
+    console.warn("A newer Perk release is available. Reloading current assets.", event.payload);
 
     void clearAppCaches().finally(() => {
       if ("serviceWorker" in navigator) {

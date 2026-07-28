@@ -1,9 +1,9 @@
 import { supabase } from "./supabase";
 
-export const LEGACY_CUSTOMER_QR_PREFIX = "perkup:v1:";
-export const RETIRED_CUSTOMER_QR_PREFIX = "perkup:v2:";
-export const SECURE_CUSTOMER_QR_PREFIX = "perkup:v3:";
-export const CUSTOMER_PROFILE_QR_PREFIX = "perkup:user:v1:";
+export const LEGACY_CUSTOMER_QR_PREFIX = "perk:v1:";
+export const RETIRED_CUSTOMER_QR_PREFIX = "perk:v2:";
+export const SECURE_CUSTOMER_QR_PREFIX = "perk:v3:";
+export const CUSTOMER_PROFILE_QR_PREFIX = "perk:user:v1:";
 export const CUSTOMER_SCAN_PATH = "/scan";
 
 export type ParsedCustomerQr =

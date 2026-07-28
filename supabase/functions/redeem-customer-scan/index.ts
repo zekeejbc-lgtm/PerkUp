@@ -3,9 +3,9 @@ import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { sessionNeedsMfa } from "../_shared/auth.ts";
 import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
 
-const LEGACY_TOKEN_PREFIX = "perkup:v1:";
-const RETIRED_SIGNED_TOKEN_PREFIX = "perkup:v2:";
-const SIGNED_TOKEN_PREFIX = "perkup:v3:";
+const LEGACY_TOKEN_PREFIX = "perk:v1:";
+const RETIRED_SIGNED_TOKEN_PREFIX = "perk:v2:";
+const SIGNED_TOKEN_PREFIX = "perk:v3:";
 const MAX_POINTS_PER_SCAN = 100;
 const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
 const PHILIPPINE_UTC_OFFSET = "+08:00";
@@ -181,7 +181,7 @@ Deno.serve(async (req) => {
       || scanToken.startsWith(RETIRED_SIGNED_TOKEN_PREFIX);
     const isLegacyToken = scanToken.startsWith(LEGACY_TOKEN_PREFIX);
     if (!isManualLookup && !isSignedToken && !isLegacyToken) {
-      return jsonResponse({ error: "Invalid PerkUp QR code." }, 400);
+      return jsonResponse({ error: "Invalid Perk QR code." }, 400);
     }
     if (isManualLookup && !isValidUsername(manualUsername)) {
       return jsonResponse({ error: "Invalid: no customer found." }, 404);
@@ -370,7 +370,7 @@ Deno.serve(async (req) => {
       if (!customerId) return jsonResponse({ error: "Invalid: no customer found." }, 404);
     } else if (isSignedToken) {
       verifiedSignedToken = await verifySignedCustomerToken(scanToken, signingSecret);
-      if (!verifiedSignedToken) return jsonResponse({ error: "Invalid PerkUp QR code." }, 400);
+      if (!verifiedSignedToken) return jsonResponse({ error: "Invalid Perk QR code." }, 400);
       if (verifiedSignedToken.expired) return jsonResponse({ error: "QR is expired." }, 410);
 
       customerId = verifiedSignedToken.customerId;
@@ -382,7 +382,7 @@ Deno.serve(async (req) => {
         .eq("token_hash", tokenHash)
         .maybeSingle();
       if (tokenError) throw tokenError;
-      if (!tokenRow) return jsonResponse({ error: "QR code was not issued by PerkUp." }, 400);
+      if (!tokenRow) return jsonResponse({ error: "QR code was not issued by Perk." }, 400);
       if (tokenRow.used_at) return jsonResponse({ error: "QR code has already been used." }, 409);
       if (new Date(tokenRow.expires_at).getTime() <= Date.now()) {
         return jsonResponse({ error: "QR is expired. Ask the customer to refresh it." }, 410);

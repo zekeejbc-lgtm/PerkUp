@@ -4,7 +4,7 @@
 
 **Goal:** Archive unpaid PayMongo Payment Links before a store group or expired initial-payment account is deleted.
 
-**Architecture:** A shared, testable PayMongo module selects externally payable invoice links, enforces live/test-mode safety, and archives each link through PayMongo's documented PATCH endpoint. Both destructive Edge Function paths invoke that module before their first local deletion and fail closed on any archive error.
+**Architecture:** A shared, testable PayMongo module selects externally payable invoice links, enforces live/test-mode safety, archives links, and reconciles completed payments. Service-only database functions serialize payment-link creation against both destructive paths before local deletion begins.
 
 **Tech Stack:** TypeScript, Supabase Edge Functions, PayMongo Payment Links API, Node 22 test runner
 
@@ -13,7 +13,7 @@
 - Preserve all pre-existing uncommitted changes, including the current Perk branding edits in the three affected Edge Function files.
 - Archive external links before any irreversible local deletion.
 - Never allow an unarchived live-mode link to be orphaned.
-- Do not add a database migration or background queue.
+- Add only service-role coordination functions; do not add a billing table or background queue.
 - Do not deploy production Edge Functions without an explicit deployment request.
 
 ---
@@ -125,6 +125,8 @@ Confirm the existing `perk-invoice-*` idempotency key and `Perk` description rem
 
 **Files:**
 - Modify: `supabase/functions/admin-backend/index.ts`
+- Create through Supabase CLI: `supabase/migrations/20260728115356_coordinate_paymongo_link_archival.sql`
+- Create: `supabase/tests/database/paymongo_link_archival_coordination.test.sql`
 
 **Interfaces:**
 - Consumes: `archivePayMongoInvoiceLinks` from Task 1 and target-store invoice rows.
@@ -132,10 +134,11 @@ Confirm the existing `perk-invoice-*` idempotency key and `Perk` description rem
 
 - [ ] **Step 1: Add the shared helper import and invoice-link preflight**
 
-Immediately after target stores and the possible surviving primary are resolved:
+Add service-only `begin_paymongo_link_creation`, `begin_store_billing_deletion`, `retry_billing_invoice_safely`, and `begin_expired_initial_account_deletion` functions. Creation uses an attempt-specific compare-and-set token; retries cannot clear an active attempt; expired cleanup validates the invoice under the same lock. Immediately after target stores and the possible surviving primary are resolved, acquire the deletion lock before reading and archiving links:
 
 ```ts
 if (!primaryStoreId) {
+  await admin.rpc("begin_store_billing_deletion", { p_store_ids: storeIds });
   const { data: invoiceLinks, error: invoiceLinksError } = await admin
     .from("billing_invoices")
     .select("paymongo_link_id,status,livemode")
@@ -182,6 +185,7 @@ Confirm archival occurs before the first `.delete()` in the handler and existing
 
 **Files:**
 - Modify: `supabase/functions/subscription-billing-worker/index.ts`
+- Modify: `supabase/functions/subscription-payment-status/index.ts`
 
 **Interfaces:**
 - Consumes: `archivePayMongoInvoiceLinks`, the worker's validated `PAYMONGO_MODE`, and the expired initial invoice row.
@@ -189,7 +193,7 @@ Confirm archival occurs before the first `.delete()` in the handler and existing
 
 - [ ] **Step 1: Pass billing mode into expired-account cleanup**
 
-Import the shared helper, add a `mode: "test" | "live"` argument to `deleteExpiredInitialAccount`, and pass the already validated worker mode from the caller.
+Import the shared helper, add a `mode: "test" | "live"` argument to `deleteExpiredInitialAccount`, and pass the already validated worker mode from the caller. Require all worker, owner, and administrator payment-link creation paths to acquire `begin_paymongo_link_creation` with a unique token before making the external request and compare that token when persisting or clearing the attempt.
 
 - [ ] **Step 2: Archive the expired invoice before cleanup**
 
@@ -208,7 +212,9 @@ await archivePayMongoInvoiceLinks([unpaidInvoice], {
 });
 ```
 
-Place this call before reading/deleting staff, files, assets, invoices, subscriptions, stores, Auth accounts, or profiles. The existing database `next_attempt_at` value provides the one-hour retry.
+Call `begin_expired_initial_account_deletion` after finding the candidate invoice and before this archival call. It must revalidate that the invoice is still expired while holding the subscription and invoice locks. Place both calls before reading/deleting staff, files, assets, invoices, subscriptions, stores, Auth accounts, or profiles. The existing database `next_attempt_at` value provides the one-hour retry.
+
+Acquire `begin_store_billing_deletion` first so an in-flight creator either blocks cleanup or observes the paused subscription. After archival, retrieve paid payments from PayMongo and stop deletion if a completed payment exists.
 
 - [ ] **Step 3: Run focused and project verification**
 

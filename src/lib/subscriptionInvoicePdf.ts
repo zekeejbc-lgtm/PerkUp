@@ -136,7 +136,7 @@ const partyLines = (party: BillingParty) => [
 ].filter((line): line is string => Boolean(line?.trim()));
 
 /**
- * The single PerkUp invoice/receipt renderer. Other billing features should
+ * The single Perk invoice/receipt renderer. Other billing features should
  * normalize their data into this shape instead of creating a separate design.
  */
 export async function downloadBillingDocumentPdf(data: UniversalBillingDocumentData) {
@@ -145,18 +145,18 @@ export async function downloadBillingDocumentPdf(data: UniversalBillingDocumentD
   const { document, from, billTo, items, totals, payment } = data;
   const isReceipt = document.kind === "receipt";
   const currency = document.currency || "PHP";
-  const title = isReceipt ? "RECEIPT" : "INVOICE";
+  const title = isReceipt ? "ACKNOWLEDGEMENT RECEIPT" : "INVOICE";
 
   doc.setProperties({
-    title: `PerkUp ${titleCase(document.kind)} ${document.number}`,
+    title: `Perk ${titleCase(document.kind)} ${document.number}`,
     subject: `${titleCase(document.status)} billing document for ${billTo.name}`,
-    author: "PerkUp",
-    creator: "PerkUp Billing",
+    author: "Perk",
+    creator: "Perk Billing",
   });
 
   // Header: deliberately mirrors the current black-and-white web app.
   try {
-    const wordmark = await imageAsDataUrl("/icons/perkup-wordmark-light-transparent.png?v=20260722-theme");
+    const wordmark = await imageAsDataUrl("/icons/perk-wordmark-light-transparent.png?v=20260722-theme");
     doc.addImage(wordmark, "PNG", 14, 13, 33, 15, undefined, "FAST");
   } catch (error) {
     console.warn("Billing wordmark could not be embedded", error);
@@ -353,14 +353,15 @@ export async function downloadBillingDocumentPdf(data: UniversalBillingDocumentD
   doc.setTextColor(...BRAND.muted);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(6.8);
-  const disclaimer = data.disclaimer ||
-    "This system-generated billing statement records a PerkUp charge or payment. It is not a VAT official receipt or tax invoice. For billing assistance or an official tax document, contact perkup.shop@youthserviceph.org.";
+  const disclaimer = data.disclaimer || (isReceipt
+    ? "This system-generated acknowledgement receipt records a Perk payment. Official Receipt will be provided upon request. For billing assistance, contact perkup.shop@youthserviceph.org."
+    : "This system-generated billing statement records a Perk charge or payment. It is not a VAT official receipt or tax invoice. For billing assistance or an official tax document, contact perkup.shop@youthserviceph.org.");
   doc.text(doc.splitTextToSize(disclaimer, 150), 14, footerY + 5, { lineHeightFactor: 1.35 });
   doc.setFont("helvetica", "bold");
   doc.text("www.perktoday.com", 196, footerY + 5, { align: "right" });
   doc.text(document.number, 196, footerY + 10, { align: "right" });
 
-  const filename = data.filename || `PerkUp-${titleCase(document.kind)}-${document.number}.pdf`;
+  const filename = data.filename || `Perk-${titleCase(document.kind)}-${document.number}.pdf`;
   doc.save(filename);
 }
 
@@ -372,7 +373,7 @@ export async function downloadSubscriptionInvoicePdf(data: SubscriptionInvoicePd
   const documentNumber = invoice.publicId || invoiceNumber(invoice.id);
   const planName = subscription.planId
     ? `${titleCase(subscription.planId)} subscription`
-    : "PerkUp subscription";
+    : "Perk subscription";
   const totalCentavos = isPaid && invoice.grossAmountCentavos
     ? invoice.grossAmountCentavos
     : invoice.amountCentavos;
@@ -389,14 +390,14 @@ export async function downloadSubscriptionInvoicePdf(data: SubscriptionInvoicePd
       livemode: isManualPayment ? undefined : invoice.livemode,
     },
     from: {
-      name: "PerkUp",
+      name: "Perk",
       address: "Tagum City, Davao del Norte, Philippines",
       email: "perkup.shop@youthserviceph.org",
       phone: "0962 232 8290",
       website: "www.perktoday.com",
     },
     billTo: {
-      name: business.subscriberName || business.name || "PerkUp merchant",
+      name: business.subscriberName || business.name || "Perk merchant",
       company: business.subscriberName ? business.name : null,
       address: business.address || "Business address not provided",
       email: subscription.billingEmail || "Billing email not provided",
@@ -421,7 +422,7 @@ export async function downloadSubscriptionInvoicePdf(data: SubscriptionInvoicePd
     notes: isPaid
       ? [
         isManualPayment
-          ? "A PerkUp administrator recorded this payment from the paid date and reference shown."
+          ? "A Perk administrator recorded this payment from the paid date and reference shown."
           : "PayMongo confirmed this payment and subscription access updated automatically.",
         "Keep this receipt for your records.",
       ]
@@ -440,6 +441,6 @@ export async function downloadSubscriptionInvoicePdf(data: SubscriptionInvoicePd
         value: isPaid ? formatPdfDate(invoice.paidAt, true) : `${subscription.gracePeriodDays ?? 0} day(s)`,
       },
     ],
-    filename: `PerkUp-${isPaid ? "Receipt" : "Invoice"}-${documentNumber}.pdf`,
+    filename: `Perk-${isPaid ? "Receipt" : "Invoice"}-${documentNumber}.pdf`,
   });
 }

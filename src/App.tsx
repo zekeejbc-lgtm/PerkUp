@@ -36,7 +36,7 @@ const PricingPage = lazy(() => import("./pages/MarketingPage").then((module) => 
 const CustomerQrLandingPage = lazy(() => import("./pages/CustomerQrLandingPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 
-const SCROLL_POSITIONS_KEY = "perkup:scroll-positions";
+const SCROLL_POSITIONS_KEY = "perk:scroll-positions";
 
 function getSavedScrollPositions(): Record<string, number> {
   try {
@@ -209,15 +209,15 @@ function RestrictedAccountScreen({ status, reason }: { status: "suspended" | "ba
           Account {status}
         </p>
         <h1 className="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
-          Your PerkUp access is unavailable
+          Your Perk access is unavailable
         </h1>
         <p className="mt-3 leading-7 text-gray-600 dark:text-gray-300">
           {reason || (status === "banned"
-            ? "This account has been banned by a PerkUp administrator."
+            ? "This account has been banned by a Perk administrator."
             : "This account is temporarily suspended while it is under administrative review.")}
         </p>
         <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
-          Contact PerkUp Support if you believe this restriction was applied in error.
+          Contact Perk Support if you believe this restriction was applied in error.
         </p>
         <button
           type="button"

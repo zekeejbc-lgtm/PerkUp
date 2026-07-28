@@ -26,9 +26,9 @@ export interface AccountRestriction {
   updatedBy: string;
 }
 
-const DEFAULT_WARNING = "Your PerkUp subscription is almost ending. Please settle your balance to avoid an interruption.";
-const DEFAULT_PAYMENT_INSTRUCTIONS = "Contact PerkUp support for payment instructions and send your proof of payment for verification.";
-export const DEFAULT_POLICY_SUSPENSION_MESSAGE = "Access has been suspended because this store requires an administrative review. Contact PerkUp Support if you believe this was a mistake.";
+const DEFAULT_WARNING = "Your Perk subscription is almost ending. Please settle your balance to avoid an interruption.";
+const DEFAULT_PAYMENT_INSTRUCTIONS = "Contact Perk support for payment instructions and send your proof of payment for verification.";
+export const DEFAULT_POLICY_SUSPENSION_MESSAGE = "Access has been suspended because this store requires an administrative review. Contact Perk Support if you believe this was a mistake.";
 
 export const PAYMONGO_STANDARD_ACCESS: SubscriptionAccessPolicy = {
   status: "active",
@@ -174,11 +174,11 @@ export const safePaymentLink = (value: unknown) => {
 
 export const subscriptionNoticeDismissKey = (storeId: string, value: unknown) => {
   const policy = normalizeSubscriptionAccess(value);
-  return `perkup:subscription-notice:${storeId}:${policy.updatedAt}:${policy.status}`;
+  return `perk:subscription-notice:${storeId}:${policy.updatedAt}:${policy.status}`;
 };
 
 export const subscriptionPaymentWatchKey = (storeId: string) =>
-  `perkup-payment-watch:${String(storeId || "store")}`;
+  `perk-payment-watch:${String(storeId || "store")}`;
 
 export const isSubscriptionPaymentPending = (storeId: string) => {
   if (typeof window === "undefined") return false;

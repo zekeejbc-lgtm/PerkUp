@@ -1,11 +1,13 @@
-import * as ReactDOMServer from "react-dom/server";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { MapPin, Store as StoreIcon } from "lucide-react";
 import { MapContainer, Marker, Popup } from "react-leaflet";
-import L from "leaflet";
 import { DirectionsButton } from "./DirectionsButton";
 import { MapBaseLayers } from "./MapBaseLayers";
+import { createCustomerStoreMapPin } from "./CustomerStoreMapPin";
+import { getLandingMapInteractionOptions } from "./landingMapInteractions";
 import { getDisplayImageUrl } from "../lib/imageStorage";
+import { groupCustomerMapLocations } from "../lib/customerMapMarkers";
 import { DirectoryStore, isStoreOpenNow } from "../lib/storeDirectory";
 
 interface LandingStoreMapProps {
@@ -13,54 +15,77 @@ interface LandingStoreMapProps {
   center: [number, number];
 }
 
-const createCustomPin = (store: DirectoryStore) => {
-  const markerContent = (
-    <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <StoreIcon size={20} strokeWidth={2.5} color="#1b1b1b" />
-      {store.logoUrl && (
-        <div
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            inset: 0,
-            borderRadius: "50%",
-            backgroundColor: "#ffffff",
-            backgroundImage: `url(${JSON.stringify(getDisplayImageUrl(store.logoUrl))})`,
-            backgroundPosition: "center",
-            backgroundRepeat: "no-repeat",
-            backgroundSize: "cover",
-          }}
-        />
-      )}
-    </div>
+export default function LandingStoreMap({ stores, center }: LandingStoreMapProps) {
+  const usesCoarsePointer =
+    typeof window !== "undefined" &&
+    window.matchMedia("(pointer: coarse)").matches;
+  const storeGroups = useMemo(
+    () => groupCustomerMapLocations(
+      stores.filter(
+        (store): store is DirectoryStore & { lat: number; lng: number } =>
+          Number.isFinite(store.lat) && Number.isFinite(store.lng),
+      ),
+    ),
+    [stores],
   );
 
-  return L.divIcon({
-    className: "custom-pin",
-    html: `<div style="background-color:white;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);border:2px solid #1b1b1b;position:relative">${ReactDOMServer.renderToString(markerContent)}<div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:6px solid #1b1b1b"></div></div>`,
-    iconSize: [40, 46],
-    iconAnchor: [20, 46],
-    popupAnchor: [0, -46],
-  });
-};
-
-export default function LandingStoreMap({ stores, center }: LandingStoreMapProps) {
   return (
-    <MapContainer center={center} zoom={14} scrollWheelZoom={false} style={{ height: "100%", width: "100%", zIndex: 1 }}>
+    <MapContainer
+      center={center}
+      zoom={14}
+      {...getLandingMapInteractionOptions(usesCoarsePointer)}
+      style={{ height: "100%", width: "100%", zIndex: 1 }}
+    >
       <MapBaseLayers />
-      {stores.map((store) => store.lat && store.lng ? (
+      {storeGroups.map((group) => {
+        const store = group.items[0];
+        const isGroup = group.items.length > 1;
+        return (
         <Marker
-          key={store.id}
-          position={[store.lat, store.lng]}
-          icon={createCustomPin(store)}
-          title={`${store.name} location`}
-          alt={`${store.name} location`}
+          key={group.key}
+          position={group.position}
+          icon={createCustomerStoreMapPin(group)}
+          title={isGroup ? `${group.items.length} shops at this location` : `${store.name} location`}
+          alt={isGroup ? `${group.items.length} shops at this location` : `${store.name} location`}
         >
           <Popup className="rounded-xl overflow-hidden shadow-md">
+            {isGroup ? (
+              <div className="w-64 p-1 -m-1">
+                <p className="mb-3 font-bold text-gray-900">{group.items.length} shops at this location</p>
+                <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+                  {group.items.map((groupedStore) => (
+                    <div key={groupedStore.id} className="rounded-xl border border-gray-200 p-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100">
+                          {groupedStore.logoUrl ? (
+                            <img
+                              src={getDisplayImageUrl(groupedStore.logoUrl)}
+                              alt={`${groupedStore.name} logo`}
+                              referrerPolicy="no-referrer"
+                              className="h-full w-full object-contain"
+                            />
+                          ) : (
+                            <StoreIcon className="h-5 w-5 text-gray-700" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-gray-900">{groupedStore.name}</p>
+                          <p className="truncate text-xs text-gray-500">{groupedStore.category || "Shop"}</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <Link to={`/store/${groupedStore.id}`} className="rounded-lg bg-gray-900 px-2 py-2 text-center text-xs font-medium !text-white">View details</Link>
+                        <DirectionsButton destination={{ lat: groupedStore.lat, lng: groupedStore.lng, name: groupedStore.name }} className="rounded-lg bg-gray-100 px-2 py-2 text-xs font-medium text-[#1b1b1b]" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
             <div className="p-1 -m-1">
               {store.logoUrl && (
                 <div className="mb-3 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-                  <img src={getDisplayImageUrl(store.logoUrl)} alt={`${store.name} logo`} referrerPolicy="no-referrer" className="h-full w-full object-cover" />
+                  <img src={getDisplayImageUrl(store.logoUrl)} alt={`${store.name} logo`} referrerPolicy="no-referrer" className="h-full w-full object-contain" />
                 </div>
               )}
               <h3 className="font-bold text-gray-900 text-lg mb-1">{store.name}</h3>
@@ -75,9 +100,10 @@ export default function LandingStoreMap({ stores, center }: LandingStoreMapProps
                 <DirectionsButton destination={{ lat: store.lat, lng: store.lng, name: store.name }} className="w-full bg-gray-100 text-[#1b1b1b] font-medium py-2 rounded-lg text-xs hover:bg-gray-200 transition-colors" />
               </div>
             </div>
+            )}
           </Popup>
         </Marker>
-      ) : null)}
+      )})}
     </MapContainer>
   );
 }

@@ -5,9 +5,9 @@ export { auth, db, secondaryAuth };
 
 export type GoogleAuthIntent = "signin" | "signup";
 
-export const GOOGLE_AUTH_INTENT_KEY = "perkup:google-auth-intent";
-export const AUTH_REDIRECT_MESSAGE_KEY = "perkup:auth-redirect-message";
-export const GOOGLE_SIGNUP_PENDING_KEY = "perkup:google-signup-pending";
+export const GOOGLE_AUTH_INTENT_KEY = "perk:google-auth-intent";
+export const AUTH_REDIRECT_MESSAGE_KEY = "perk:auth-redirect-message";
+export const GOOGLE_SIGNUP_PENDING_KEY = "perk:google-signup-pending";
 
 export const signInWithGoogle = async (intent: GoogleAuthIntent = "signin") => {
   try {

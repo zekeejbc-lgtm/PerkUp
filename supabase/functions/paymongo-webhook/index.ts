@@ -127,7 +127,7 @@ Deno.serve(async (req) => {
     if (!invoice) {
       await supabase.from("paymongo_webhook_events").update({
         status: "ignored",
-        error_message: "No PerkUp invoice matched the PayMongo link.",
+        error_message: "No Perk invoice matched the PayMongo link.",
         processed_at: new Date().toISOString(),
       }).eq("event_id", eventId);
       return jsonResponse({ ok: true, unmatched: true });

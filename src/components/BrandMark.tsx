@@ -10,7 +10,7 @@ export function BrandMark({ className = "", compact = false }: BrandMarkProps) {
   return (
     <span className={`inline-flex items-center ${className}`}>
       <img
-        src="/icons/perkup-wordmark-light-transparent.png?v=20260722-theme"
+        src="/icons/perk-wordmark-light-transparent.png?v=20260722-theme"
         alt="perk."
         width="70"
         height="32"
@@ -20,7 +20,7 @@ export function BrandMark({ className = "", compact = false }: BrandMarkProps) {
         className={`${imageClassName} dark:hidden`}
       />
       <img
-        src="/icons/perkup-wordmark-dark-transparent.png?v=20260722-theme"
+        src="/icons/perk-wordmark-dark-transparent.png?v=20260722-theme"
         alt=""
         aria-hidden="true"
         width="70"

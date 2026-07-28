@@ -34,7 +34,7 @@ export const supabase = createClient(supabaseUrl, supabasePublishableKey || 'mis
 });
 export const secondarySupabase = createClient(supabaseUrl, supabasePublishableKey || 'missing-key', {
   auth: {
-    storageKey: 'perkup-secondary-auth',
+    storageKey: 'perk-secondary-auth',
     persistSession: false,
     autoRefreshToken: false,
     detectSessionInUrl: false,

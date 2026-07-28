@@ -13,7 +13,7 @@ This change covers two destructive billing paths:
 
 Deleting one branch while another branch survives remains unchanged. Billing records and payment links continue to belong to the surviving primary branch.
 
-This change does not introduce general invoice retention, refunds, a background archival queue, or a new billing table.
+This change does not introduce general invoice retention, refunds, a background archival queue, or a new billing table. It adds service-only database coordination functions using existing subscription and invoice fields.
 
 ## PayMongo Behavior
 
@@ -46,6 +46,8 @@ Extend `supabase/functions/_shared/paymongo.ts` with a focused archive operation
 
 The helper accepts an injectable `fetch` implementation for isolated Deno tests. Production callers use the global `fetch`.
 
+After confirming archival, the helper queries the link's paid payments. A completed external payment blocks deletion even if its webhook has not yet updated the local invoice.
+
 ### Archivable invoice selection
 
 Only invoices with a non-empty `paymongo_link_id` and a status other than `paid` require archival. This includes `pending`, `link_created`, `failed`, `expired`, and `void`.
@@ -54,15 +56,27 @@ Paid links are not archived as part of store deletion because the completed PayM
 
 Duplicate link IDs are removed before making API calls.
 
+### Link-creation and deletion coordination
+
+Service-only, security-invoker database functions serialize destructive cleanup against all three payment-link creation paths:
+
+- `begin_paymongo_link_creation` locks the invoice and then its subscription before marking the invoice with an attempt-specific `PAYMONGO_LINK_CREATION_IN_PROGRESS:<token>` lease;
+- `begin_store_billing_deletion` locks affected invoices and subscriptions in stable ID order, refuses deletion while any creation marker is active, disables automation, and pauses billing.
+- `retry_billing_invoice_safely` prevents an administrator retry from clearing an active attempt's marker.
+- `begin_expired_initial_account_deletion` atomically verifies that the initial invoice is still expired before pausing billing.
+
+The invoice-before-subscription lock order matches existing payment fulfillment and avoids payment/deletion deadlocks. The billing worker, owner payment-status function, and administrator initial-link flow must acquire a unique creation token before calling PayMongo. Success and failure updates compare against that token, so a competing request cannot persist or clear another attempt's state. Failures clear the marker only after any created-but-unpersisted link is archived. A short marker lease allows the same invoice-specific idempotency key to recover a worker that terminated during the external request.
+
 ### Administrator deletion
 
 Before the first irreversible local deletion in the `delete_store` or `delete_store_group` handler:
 
 1. Resolve the target store IDs and whether a surviving primary store exists.
 2. If a primary store survives, preserve and relink billing exactly as today; do not archive its links.
-3. If no primary store survives, read the target stores' invoice status, link ID, and `livemode`.
-4. Archive every archivable link.
-5. Only after all required links are confirmed archived, continue deleting local store data, invoices, subscriptions, stores, profiles, and managed files.
+3. If no primary store survives, acquire the database deletion lock.
+4. Read the target stores' invoice status, link ID, and `livemode`.
+5. Archive every archivable link and confirm it has no completed external payment.
+6. Only after all required links are confirmed safe, continue deleting local store data, invoices, subscriptions, stores, profiles, and managed files.
 
 If any required archive operation fails, the handler returns an error and performs no local deletion. The administrator can retry the same deletion safely.
 
@@ -70,14 +84,14 @@ If any required archive operation fails, the handler returns an error and perfor
 
 The existing database function marks an overdue initial invoice `expired` and advances `next_attempt_at` by one hour. The billing worker then attempts account cleanup.
 
-Before deleting any local data, `deleteExpiredInitialAccount` reads the expired invoice's PayMongo link details and archives the link. If archival fails:
+Before deleting any local data, `deleteExpiredInitialAccount` reads the candidate invoice, atomically locks billing and confirms that invoice is still expired, archives the link, and reconciles paid payments. If locking, validation, archival, or reconciliation fails:
 
 - account cleanup stops before local deletion;
 - the worker records the failure in its existing result and logs;
 - the invoice and subscription remain available;
 - the existing hourly `next_attempt_at` behavior makes the account eligible for a later retry.
 
-No new Cron job or migration is required.
+No new Cron job is required. One migration adds the service-only coordination functions and pgTAP coverage.
 
 ## Mode Safety
 
@@ -91,10 +105,10 @@ The decision uses the persisted invoice `livemode` value and the validated `PAYM
 
 ## Failure and Consistency Model
 
-External PayMongo state and Supabase data cannot be changed in one database transaction. The workflow therefore uses an archive-first, delete-second sequence:
+External PayMongo state and Supabase data cannot be changed in one database transaction. The workflow therefore uses a short database coordination transaction followed by an archive-first, delete-second sequence:
 
 ```text
-read invoices -> archive external links -> delete local records
+pause/lock billing -> read invoices -> archive and reconcile external links -> delete local records
 ```
 
 This sequence intentionally prefers a harmless archived link with temporarily retained local data over an active payable link whose local invoice has disappeared.
@@ -116,6 +130,8 @@ Add Deno tests for the shared helper and invoice-selection policy:
 - deduplicates repeated link IDs;
 - skips only safe test-mode links in live mode;
 - blocks live-mode links when the configured credentials cannot archive them.
+- rejects deletion when PayMongo reports a completed payment after archival.
+- redacts secret-bearing network errors.
 
 Verify both callers with focused tests or testable extracted orchestration:
 
@@ -124,16 +140,19 @@ Verify both callers with focused tests or testable extracted orchestration:
 - expired initial-account cleanup stops before local deletion when archival fails;
 - successful archival allows the existing deletion flow to continue.
 
+Add pgTAP coverage proving that an active creation marker blocks deletion, a deletion lock pauses automation, and a paused subscription cannot begin link creation.
+
 Run Deno tests, TypeScript checks, the existing application test suite relevant to billing, and formatting/diff checks before completion.
 
 ## Rollout and Operations
 
-Deploy the shared module together with both dependent Edge Functions:
+Apply the coordination migration first. Then deploy creator-only functions before the function that exposes administrator deletion:
 
-- `admin-backend`
+- `subscription-payment-status`
 - `subscription-billing-worker`
+- `admin-backend`
 
-No database migration is required. After deployment:
+After deployment:
 
 1. Exercise the flow with test-mode Payment Links.
 2. Confirm deletion archives the link in PayMongo before local rows disappear.

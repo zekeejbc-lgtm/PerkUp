@@ -2,8 +2,8 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 
 const SITE_URL = "https://www.perktoday.com";
-const DEFAULT_IMAGE = `${SITE_URL}/icons/perkup-logo-source.png`;
-const DEFAULT_DESCRIPTION = "PerkUp is a secure digital loyalty system for customers, staff, and local partner stores.";
+const DEFAULT_IMAGE = `${SITE_URL}/icons/perk-logo-source.png`;
+const DEFAULT_DESCRIPTION = "Perk is a secure digital loyalty system for customers, staff, and local partner stores.";
 
 type JsonLd = Record<string, unknown> | Array<Record<string, unknown>>;
 
@@ -48,7 +48,7 @@ export function Seo({
     setMeta('meta[property="og:type"]', "property", "og:type", type);
     setMeta('meta[property="og:url"]', "property", "og:url", canonicalUrl);
     setMeta('meta[property="og:image"]', "property", "og:image", imageUrl);
-    setMeta('meta[property="og:site_name"]', "property", "og:site_name", "PerkUp");
+    setMeta('meta[property="og:site_name"]', "property", "og:site_name", "Perk");
     setMeta('meta[name="twitter:card"]', "name", "twitter:card", "summary_large_image");
     setMeta('meta[name="twitter:title"]', "name", "twitter:title", title);
     setMeta('meta[name="twitter:description"]', "name", "twitter:description", description);
@@ -62,17 +62,17 @@ export function Seo({
     }
     canonical.href = canonicalUrl;
 
-    const previousJsonLd = document.getElementById("perkup-route-jsonld");
+    const previousJsonLd = document.getElementById("perk-route-jsonld");
     previousJsonLd?.remove();
     if (jsonLd) {
       const script = document.createElement("script");
-      script.id = "perkup-route-jsonld";
+      script.id = "perk-route-jsonld";
       script.type = "application/ld+json";
       script.textContent = JSON.stringify(jsonLd).replace(/</g, "\\u003c");
       document.head.appendChild(script);
     }
 
-    return () => document.getElementById("perkup-route-jsonld")?.remove();
+    return () => document.getElementById("perk-route-jsonld")?.remove();
   }, [canonicalPath, description, image, jsonLd, noIndex, title, type]);
 
   return null;
@@ -80,20 +80,20 @@ export function Seo({
 
 const routeMetadata: Record<string, Omit<SeoProps, "canonicalPath">> = {
   "/": {
-    title: "PerkUp | Digital Loyalty for Local Businesses",
-    description: "Discover local partner stores and collect secure digital loyalty rewards with PerkUp—no paper cards or app download required.",
+    title: "Perk | Digital Loyalty for Local Businesses",
+    description: "Discover local partner stores and collect secure digital loyalty rewards with Perk—no paper cards or app download required.",
     jsonLd: [
       {
         "@context": "https://schema.org",
         "@type": "Organization",
-        name: "PerkUp",
+        name: "Perk",
         url: SITE_URL,
         logo: DEFAULT_IMAGE,
       },
       {
         "@context": "https://schema.org",
         "@type": "WebSite",
-        name: "PerkUp",
+        name: "Perk",
         url: SITE_URL,
         potentialAction: {
           "@type": "SearchAction",
@@ -104,28 +104,28 @@ const routeMetadata: Record<string, Omit<SeoProps, "canonicalPath">> = {
     ],
   },
   "/stores": {
-    title: "Local Partner Stores | PerkUp",
-    description: "Browse PerkUp partner stores, search by category, check opening hours, and discover local loyalty rewards.",
+    title: "Local Partner Stores | Perk",
+    description: "Browse Perk partner stores, search by category, check opening hours, and discover local loyalty rewards.",
   },
   "/product": {
-    title: "Digital Loyalty Platform | PerkUp",
+    title: "Digital Loyalty Platform | Perk",
     description: "Digital loyalty cards, fast QR check-ins, promotions, products, customer feedback, and store management in one platform.",
   },
   "/customers": {
-    title: "Loyalty Rewards for Customers | PerkUp",
-    description: "Discover nearby PerkUp stores, track visits, carry digital loyalty cards, and redeem local rewards from one account.",
+    title: "Loyalty Rewards for Customers | Perk",
+    description: "Discover nearby Perk stores, track visits, carry digital loyalty cards, and redeem local rewards from one account.",
   },
   "/businesses": {
-    title: "Customer Loyalty for Local Businesses | PerkUp",
-    description: "Launch a branded digital loyalty experience, understand repeat visits, run promotions, and manage every branch with PerkUp.",
+    title: "Customer Loyalty for Local Businesses | Perk",
+    description: "Launch a branded digital loyalty experience, understand repeat visits, run promotions, and manage every branch with Perk.",
   },
   "/pricing": {
-    title: "Plans and Pricing for Businesses | PerkUp",
-    description: "Compare PerkUp digital loyalty plans for local businesses and choose the tools that fit your store and team.",
+    title: "Plans and Pricing for Businesses | Perk",
+    description: "Compare Perk digital loyalty plans for local businesses and choose the tools that fit your store and team.",
   },
-  "/privacy": { title: "Privacy Policy | PerkUp", description: "Read how PerkUp collects, uses, protects, and manages personal information." },
-  "/terms": { title: "Terms of Service | PerkUp", description: "Read the terms that govern access to and use of PerkUp services." },
-  "/data-deletion": { title: "Data Deletion | PerkUp", description: "Learn how to request deletion of your PerkUp account and associated personal data." },
+  "/privacy": { title: "Privacy Policy | Perk", description: "Read how Perk collects, uses, protects, and manages personal information." },
+  "/terms": { title: "Terms of Service | Perk", description: "Read the terms that govern access to and use of Perk services." },
+  "/data-deletion": { title: "Data Deletion | Perk", description: "Learn how to request deletion of your Perk account and associated personal data." },
 };
 
 const privateRoutePattern = /^\/(?:admin|owner|staff|customer)(?:\/|$)|^\/(?:dashboard|reset-password|scan|feedback)(?:\/|$)/;
@@ -136,10 +136,10 @@ export function RouteSeo() {
 
   if (metadata) return <Seo {...metadata} canonicalPath={pathname} />;
   if (privateRoutePattern.test(pathname)) {
-    return <Seo title="PerkUp" canonicalPath={pathname} noIndex />;
+    return <Seo title="Perk" canonicalPath={pathname} noIndex />;
   }
   if (pathname.startsWith("/store/")) {
-    return <Seo title="Partner Store | PerkUp" description="View this PerkUp partner store's details, products, promotions, and loyalty rewards." canonicalPath={pathname} />;
+    return <Seo title="Partner Store | Perk" description="View this Perk partner store's details, products, promotions, and loyalty rewards." canonicalPath={pathname} />;
   }
-  return <Seo title="Page Not Found | PerkUp" description="The requested PerkUp page could not be found." canonicalPath={pathname} noIndex />;
+  return <Seo title="Page Not Found | Perk" description="The requested Perk page could not be found." canonicalPath={pathname} noIndex />;
 }

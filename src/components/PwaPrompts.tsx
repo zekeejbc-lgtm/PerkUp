@@ -28,7 +28,7 @@ export function PwaPrompts() {
         <RefreshCw className="h-5 w-5" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-bold">PerkUp update ready</p>
+        <p className="text-sm font-bold">Perk update ready</p>
         <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
           Update when you have finished any active scan or form.
         </p>

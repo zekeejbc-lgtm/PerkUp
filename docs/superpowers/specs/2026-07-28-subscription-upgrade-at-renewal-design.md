@@ -2,13 +2,13 @@
 
 ## Goal
 
-Allow a store owner to schedule an upgrade to a higher PerkUp subscription plan without changing or destabilizing the existing Supabase and PayMongo renewal mechanism.
+Allow a store owner to schedule an upgrade to a higher Perk subscription plan without changing or destabilizing the existing Supabase and PayMongo renewal mechanism.
 
 The owner must receive an authoritative quote and review a complete terms panel before confirming. Confirmation is unavailable until the owner has reached the end of the terms, explicitly acknowledged them, and the backend has verified that the quote is still current.
 
 ## Approved Business Policy
 
-PerkUp exposes self-service upgrades only. It does not expose a self-service downgrade action.
+Perk exposes self-service upgrades only. It does not expose a self-service downgrade action.
 
 - An upgrade never takes effect immediately and never creates a prorated charge.
 - The current plan remains active until a qualifying renewal is successfully paid.
@@ -16,7 +16,7 @@ PerkUp exposes self-service upgrades only. It does not expose a self-service dow
 - If a renewal invoice already exists for the upcoming period, that invoice and its PayMongo link remain unchanged. The upgrade is attached to the following renewal.
 - An overdue renewal or unpaid initial invoice must be resolved before a new upgrade can be scheduled.
 - Automatic versus manual renewal remains unchanged by an upgrade request.
-- Lower-plan requests are handled outside this self-service flow through PerkUp support or an administrator.
+- Lower-plan requests are handled outside this self-service flow through Perk support or an administrator.
 - An administrator may cancel or exceptionally change a scheduled upgrade only through an audited operation.
 
 This policy intentionally avoids proration, mid-period entitlement changes, replacement PayMongo links, and automatic refunds.
@@ -46,7 +46,7 @@ When the owner has an active, billable subscription, it also shows:
 - the target renewal date and whether the next already-issued invoice remains unchanged;
 - a cancellation action only while the scheduled upgrade is not attached to an issued invoice.
 
-No `Downgrade` button or lower-plan selector is shown. The page may show neutral copy such as `Need a lower plan? Contact PerkUp support.` This copy must not imply that cancellation is unavailable.
+No `Downgrade` button or lower-plan selector is shown. The page may show neutral copy such as `Need a lower plan? Contact Perk support.` This copy must not imply that cancellation is unavailable.
 
 The upgrade action is unavailable with an explanatory message when:
 

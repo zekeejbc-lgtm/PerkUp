@@ -237,7 +237,7 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
               </div>
             </div>
             <div className="border-t border-gray-100 dark:border-gray-800 pt-6 text-center text-xs text-gray-400 dark:text-gray-500">
-              &copy; {new Date().getFullYear()} PerkUp. All rights reserved.
+              &copy; {new Date().getFullYear()} Perk. All rights reserved.
             </div>
           </div>
         </footer>

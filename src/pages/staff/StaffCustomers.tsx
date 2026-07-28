@@ -33,7 +33,7 @@ const getCustomerDetailSubtext = (card: any) => {
 };
 
 const getCardAppName = (card: any, store: any) =>
-  card.cardName || card.title || card.appName || card.storeName || store?.name || "PerkUp loyalty card";
+  card.cardName || card.title || card.appName || card.storeName || store?.name || "Perk loyalty card";
 
 const formatCardDate = (value: any) => {
   const date = value?.toDate?.() || (value ? new Date(value) : null);

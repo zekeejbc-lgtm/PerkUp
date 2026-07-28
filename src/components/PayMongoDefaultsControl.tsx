@@ -39,7 +39,7 @@ export function PayMongoDefaultsControl({
           <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-blue-600 dark:text-blue-300" />
           <span>
             <span className="block text-sm font-bold text-gray-900 dark:text-white">Use PayMongo standard defaults</span>
-            <span className="mt-1 block text-xs leading-5 text-gray-600 dark:text-gray-300">Enables automatic billing with a 30-day interval, 7-day warning, 3-day grace period, and PerkUp billing contact.</span>
+            <span className="mt-1 block text-xs leading-5 text-gray-600 dark:text-gray-300">Enables automatic billing with a 30-day interval, 7-day warning, 3-day grace period, and Perk billing contact.</span>
           </span>
         </span>
       </label>

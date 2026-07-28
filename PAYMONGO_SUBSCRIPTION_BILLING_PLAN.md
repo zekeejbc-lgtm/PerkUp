@@ -1,4 +1,4 @@
-# PerkUp PayMongo QR Ph Subscription Billing Plan
+# Perk PayMongo QR Ph Subscription Billing Plan
 
 ## Recommendation
 
@@ -14,14 +14,14 @@ This is safer than putting the cron job in Vercel because the subscription state
 
 ## Implementation status — July 22, 2026
 
-- Billing schema, RLS, invoice claiming, notification audit, and atomic fulfillment are live on `perkupshop`.
+- Billing schema, RLS, invoice claiming, notification audit, and atomic fulfillment are live on `perkshop`.
 - `subscription-billing-worker`, `paymongo-webhook`, and the updated admin backend are deployed.
 - PayMongo test secrets are stored only in Supabase; the public key is intentionally unused by this server-created Links flow.
 - Test webhook `link.payment.paid` is enabled and its signing secret is stored in Supabase.
 - Supabase Cron runs the worker hourly at minute 5; a live invocation returned HTTP 200.
 - A PayMongo test Link smoke test returned an unpaid `/test/` checkout URL with the expected amount, currency, and reference number.
 - The admin enrollment control and owner billing history/payment-page UI are live on `https://www.perktoday.com`.
-- The Google Apps Script billing email route is deployed on the existing protected PerkUp endpoint. A test-mode billing email was successfully sent through that route after deployment.
+- The Google Apps Script billing email route is deployed on the existing protected Perk endpoint. A test-mode billing email was successfully sent through that route after deployment.
 
 ## Important PayMongo limitation
 
@@ -42,9 +42,9 @@ Therefore:
 
 The supplied keys must never be committed. The secret key belongs only in Supabase Edge Function secrets. The public key is not required for the server-created Payment Links flow.
 
-## Current PerkUp state
+## Current Perk state
 
-Verified against the linked `perkupshop` Supabase project on July 22, 2026:
+Verified against the linked `perkshop` Supabase project on July 22, 2026:
 
 - Project ref: `fstwqgnonsqcqewiipqq`.
 - `pg_cron` is installed and already runs one unrelated promotion archival job.
@@ -196,7 +196,7 @@ The email includes:
 - due date and grace deadline
 - a button opening the PayMongo hosted link
 - instruction to choose QR Ph and scan using a participating bank or wallet
-- PerkUp support contact
+- Perk support contact
 - invoice/reference identifier
 
 The email must not claim payment succeeded. PayMongo's webhook is the source of truth.

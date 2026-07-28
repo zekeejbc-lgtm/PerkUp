@@ -5,8 +5,6 @@ import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, where
 import { db } from "../lib/backend";
 import { ArrowLeft, ArrowRight, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send, Image as ImageIcon, Store as StoreIcon, Utensils, Gift, CalendarDays, X } from "lucide-react";
 import { MapContainer, Marker, Popup } from "react-leaflet";
-import * as ReactDOMServer from "react-dom/server";
-import L from "leaflet";
 import { PageSkeleton } from "../components/LoadingSkeleton";
 import { useAuth } from "../contexts/AuthContext";
 import { useCurrency } from "../contexts/CurrencyContext";
@@ -14,7 +12,9 @@ import { DirectionsButton } from "../components/DirectionsButton";
 import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { MapBaseLayers } from "../components/MapBaseLayers";
+import { createCustomerStoreMapPin } from "../components/CustomerStoreMapPin";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../lib/imageStorage";
+import { groupCustomerMapLocations } from "../lib/customerMapMarkers";
 import { PublicSiteFooter } from "../components/PublicPageShell";
 import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../lib/dateTime";
 import { Seo } from "../components/Seo";
@@ -244,37 +244,6 @@ function StoreGalleryCarousel({ images, storeName }: { images: string[]; storeNa
   );
 }
 
-const createBranchPin = (branch: StoreContent, selected: boolean) => {
-  const markerContent = branch.logoUrl
-    ? ReactDOMServer.renderToString(
-        <img
-          src={getDisplayImageUrl(branch.logoUrl)}
-          alt=""
-          style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover" }}
-        />,
-      )
-    : ReactDOMServer.renderToString(
-        <StoreIcon size={20} strokeWidth={2.5} color={selected ? "#ffffff" : "#1b1b1b"} />,
-      );
-  const background = selected ? "#1b1b1b" : "#ffffff";
-  const border = selected ? "#ffffff" : "#1b1b1b";
-
-  return L.divIcon({
-    className: "",
-    html: `
-      <div style="position:relative;width:44px;height:50px;">
-        <div style="box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:44px;height:44px;padding:3px;overflow:hidden;border:3px solid ${border};border-radius:50%;background:${background};box-shadow:0 6px 16px rgba(0,0,0,.28);">
-          ${markerContent}
-        </div>
-        <div style="position:absolute;bottom:0;left:50%;width:0;height:0;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid ${border};"></div>
-      </div>
-    `,
-    iconSize: [44, 50],
-    iconAnchor: [22, 50],
-    popupAnchor: [0, -46],
-  });
-};
-
 export default function StorePage() {
   const { storeId } = useParams();
   const location = useLocation();
@@ -321,8 +290,8 @@ export default function StorePage() {
     if (!store) return;
 
     const shareData = {
-      title: `${store.name} | PerkUp`,
-      text: `View ${store.name} on PerkUp.`,
+      title: `${store.name} | Perk`,
+      text: `View ${store.name} on Perk.`,
       url: window.location.href,
     };
 
@@ -522,7 +491,7 @@ export default function StorePage() {
   if (!store) {
     return (
       <div className="min-h-screen bg-white dark:bg-[#1b1b1b] flex flex-col justify-center items-center transition-colors">
-        <Seo title="Store Not Found | PerkUp" canonicalPath={location.pathname} noIndex />
+        <Seo title="Store Not Found | Perk" canonicalPath={location.pathname} noIndex />
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Store Not Found</h2>
         <p className="text-gray-500 dark:text-gray-400 mb-6">The store you are looking for does not exist or has been removed.</p>
         <Link to="/" className="text-[#1b1b1b] dark:text-white hover:text-[#1b1b1b] dark:hover:text-white font-medium">Return to Home</Link>
@@ -533,6 +502,14 @@ export default function StorePage() {
   const mappedBranches = branches
     .map((branch) => ({ branch, coordinates: getCoordinates(branch) }))
     .filter((entry): entry is { branch: StoreContent; coordinates: [number, number] } => Boolean(entry.coordinates));
+  const branchGroups = groupCustomerMapLocations(
+    mappedBranches.map(({ branch, coordinates }) => ({
+      branch,
+      lat: coordinates[0],
+      lng: coordinates[1],
+      logoUrl: branch.logoUrl,
+    })),
+  );
   const selectedCoordinates = getCoordinates(store);
   const mapCenter = selectedCoordinates ?? mappedBranches[0]?.coordinates ?? null;
   const selectedProductPromotions = selectedProduct
@@ -550,8 +527,8 @@ export default function StorePage() {
   return (
     <div className="flex min-h-screen flex-col bg-white selection:bg-[#1b1b1b] selection:text-white transition-colors dark:bg-[#1b1b1b] dark:selection:bg-white dark:selection:text-[#1b1b1b]">
       <Seo
-        title={`${store.name} | PerkUp Partner Store`}
-        description={store.description || `View ${store.name}'s store details, current promotions, products, and PerkUp loyalty rewards.`}
+        title={`${store.name} | Perk Partner Store`}
+        description={store.description || `View ${store.name}'s store details, current promotions, products, and Perk loyalty rewards.`}
         canonicalPath={`/store/${store.id}`}
         image={store.logoUrl ? getDisplayImageUrl(store.logoUrl) : undefined}
         jsonLd={{
@@ -575,7 +552,7 @@ export default function StorePage() {
       />
       <header className="sticky top-0 z-50 border-b border-[#1b1b1b]/10 bg-white/85 backdrop-blur-md transition-colors dark:border-white/10 dark:bg-[#1b1b1b]/85">
         <nav className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-6">
-          <Link to="/" aria-label="PerkUp home">
+          <Link to="/" aria-label="Perk home">
             <BrandMark compact />
           </Link>
           <div className="flex items-center gap-4">
@@ -707,31 +684,60 @@ export default function StorePage() {
                 className="h-full w-full"
               >
                 <MapBaseLayers />
-                {mappedBranches.map(({ branch, coordinates }) => (
+                {branchGroups.map((group) => {
+                  const isGroup = group.items.length > 1;
+                  const firstBranch = group.items[0].branch;
+                  return (
                   <Marker
-                    key={branch.id}
-                    position={coordinates}
-                    icon={createBranchPin(branch, branch.id === store.id)}
+                    key={group.key}
+                    position={group.position}
+                    icon={createCustomerStoreMapPin(group)}
+                    title={isGroup ? `${group.items.length} shops at this location` : `${firstBranch.branchName || firstBranch.name} location`}
+                    alt={isGroup ? `${group.items.length} shops at this location` : `${firstBranch.branchName || firstBranch.name} location`}
                   >
                     <Popup>
-                      <div className="min-w-48">
-                        <p className="font-bold text-gray-900">{branch.branchName || branch.name}</p>
-                        <p className="mt-1 text-sm text-gray-600">{branch.address || "Address unavailable"}</p>
-                        <div className="mt-3 flex gap-2">
-                          {branch.id !== store.id && (
-                            <Link to={`/store/${branch.id}`} className="text-sm font-semibold text-gray-900 underline">
-                              View branch
-                            </Link>
-                          )}
-                          <DirectionsButton
-                            destination={{ lat: coordinates[0], lng: coordinates[1], address: branch.address, name: branch.name }}
-                            className="text-sm font-semibold text-gray-900 underline"
-                          />
+                      <div className={isGroup ? "w-64" : "min-w-48"}>
+                        {isGroup && <p className="mb-3 font-bold text-gray-900">{group.items.length} shops at this location</p>}
+                        <div className={isGroup ? "max-h-72 space-y-3 overflow-y-auto pr-1" : ""}>
+                          {group.items.map(({ branch, lat, lng }) => (
+                            <div key={branch.id} className={isGroup ? "rounded-xl border border-gray-200 p-3" : ""}>
+                              <div className="flex items-center gap-3">
+                                {isGroup && (
+                                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100">
+                                    {branch.logoUrl ? (
+                                      <img
+                                        src={getDisplayImageUrl(branch.logoUrl)}
+                                        alt={`${branch.branchName || branch.name} logo`}
+                                        className="h-full w-full object-contain"
+                                      />
+                                    ) : (
+                                      <StoreIcon className="h-5 w-5 text-gray-700" />
+                                    )}
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <p className="truncate font-bold text-gray-900">{branch.branchName || branch.name}</p>
+                                  <p className="mt-1 text-sm text-gray-600">{branch.address || "Address unavailable"}</p>
+                                </div>
+                              </div>
+                              <div className="mt-3 flex gap-3">
+                                {branch.id !== store.id && (
+                                  <Link to={`/store/${branch.id}`} className="text-sm font-semibold text-gray-900 underline">
+                                    View branch
+                                  </Link>
+                                )}
+                                <DirectionsButton
+                                  destination={{ lat, lng, address: branch.address, name: branch.name }}
+                                  className="text-sm font-semibold text-gray-900 underline"
+                                />
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </Popup>
                   </Marker>
-                ))}
+                )})}
               </MapContainer>
             </div>
           ) : (

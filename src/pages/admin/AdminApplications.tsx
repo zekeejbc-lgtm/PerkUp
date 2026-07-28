@@ -41,6 +41,9 @@ import { Pagination } from "../../components/Pagination";
 import { PayMongoDefaultsControl } from "../../components/PayMongoDefaultsControl";
 import { PAYMONGO_STANDARD_ACCESS } from "../../lib/subscriptionAccess";
 import { AlreadyPaidControl } from "../../components/AlreadyPaidControl";
+import { CategoryInput } from "../../components/CategoryInput";
+import { FEATURED_STORE_CATEGORIES } from "../../lib/storeDirectory";
+import { getPartnerApplicationStoreDefaults } from "../../lib/partnerApplicationStore";
 
 const APPLICATIONS_PER_PAGE = 8;
 
@@ -90,6 +93,7 @@ export default function AdminApplications() {
   const [subscriptionFilter, setSubscriptionFilter] = useState("all");
 
   const [storeName, setStoreName] = useState("");
+  const [storeCategory, setStoreCategory] = useState("");
   const [storeLocation, setStoreLocation] = useState("");
   const [storeCoordinates, setStoreCoordinates] = useState<[number, number] | null>(null);
   const [storeLogo, setStoreLogo] = useState("");
@@ -143,6 +147,7 @@ export default function AdminApplications() {
         const approvedStore = app.approvedStoreId ? storesById[app.approvedStoreId] : null;
         return [
           app.businessName,
+          app.category,
           app.applicantName,
           app.email,
           app.phoneNumber,
@@ -222,6 +227,7 @@ export default function AdminApplications() {
   const handleApproveApplication = (app: any) => {
     setDetailApplicationId("");
     setStoreName(app.businessName);
+    setStoreCategory(String(app.category || ""));
     setOwnerName(app.applicantName);
     setOwnerEmail(app.email);
     setStoreLocation(app.address || "");
@@ -278,6 +284,16 @@ export default function AdminApplications() {
           })
         : storeLogo;
       if (pendingLogo) uploadedLogoUrl = logoUrl;
+      const storeDefaults = getPartnerApplicationStoreDefaults(
+        selectedApplication || {},
+        {
+          name: storeName,
+          category: storeCategory,
+          address: storeLocation,
+          coordinates: storeCoordinates,
+          logoUrl,
+        },
+      );
       const result = await invokeAdminBackend<{ store: any; notification?: { sent: boolean; error?: string }; receiptNotification?: { sent: boolean; error?: string } }>({
         action: "create_store",
         email: ownerEmail,
@@ -287,15 +303,9 @@ export default function AdminApplications() {
         alreadyPaid,
         applicationId: selectedApplicationId,
         store: {
-          name: storeName,
-          location: storeLocation,
-          address: storeLocation,
-          ...(storeCoordinates ? { lat: storeCoordinates[0], lng: storeCoordinates[1] } : {}),
-          logoUrl,
+          ...storeDefaults,
           status: "active",
           subscriptionLevel: subLevel,
-          website: selectedApplication?.businessWebsiteUrl || "",
-          businessFacebookUrl: selectedApplication?.businessFacebookUrl || "",
           owedAmount: selectedOwedAmount,
           subscriptionDependencies: selectedSubscriptionDependencies,
           branchLimit: selectedBranchLimit,
@@ -493,6 +503,9 @@ export default function AdminApplications() {
                 <h2 id="application-detail-title" className="truncate text-2xl font-bold tracking-tight text-gray-950 dark:text-white">
                   {detailApplication.businessName || "Unnamed business"}
                 </h2>
+                <p className="mt-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  {detailApplication.category || "Category not supplied"}
+                </p>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Submitted {formatApplicationDateTime(detailApplication.createdAt)}</p>
               </div>
               <button
@@ -681,6 +694,16 @@ export default function AdminApplications() {
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Store Name</label>
                   <input type="text" required value={storeName} onChange={(e) => setStoreName(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white" placeholder="e.g. Downtown Coffee" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Category</label>
+                  <CategoryInput
+                    required
+                    value={storeCategory}
+                    onChange={setStoreCategory}
+                    suggestions={FEATURED_STORE_CATEGORIES}
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Location (Address)</label>

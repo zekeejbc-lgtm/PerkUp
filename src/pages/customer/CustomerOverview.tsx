@@ -9,9 +9,9 @@ import { buildCustomerQrPayload, issueCustomerQr, IssuedCustomerQr, updateCustom
 import { getUsernameValidationMessage, normalizeUsername } from "@/src/lib/username";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 
-const APP_NAME = "PerkUp";
-const LIGHT_LOGO_SRC = "/icons/perkup-wordmark-light-transparent.png?v=20260625-brand";
-const DARK_LOGO_SRC = "/icons/perkup-wordmark-dark-transparent.png?v=20260625-brand";
+const APP_NAME = "Perk";
+const LIGHT_LOGO_SRC = "/icons/perk-wordmark-light-transparent.png?v=20260625-brand";
+const DARK_LOGO_SRC = "/icons/perk-wordmark-dark-transparent.png?v=20260625-brand";
 
 type AppContact = {
   address?: string;
@@ -293,7 +293,7 @@ export default function CustomerOverview() {
     ctx.fillStyle = mutedText;
     ctx.textAlign = "center";
     ctx.font = "600 19px Inter, Arial, sans-serif";
-    ctx.fillText("PerkUp Customer QR", width / 2, 278);
+    ctx.fillText("Perk Customer QR", width / 2, 278);
 
     ctx.fillStyle = "#ffffff";
     ctx.strokeStyle = borderColor;
@@ -308,8 +308,8 @@ export default function CustomerOverview() {
     drawFittedText(ctx, `@${user.username}`, width / 2, 802, 650, 800, 38, 22, "Inter, Arial, sans-serif");
 
     ctx.fillStyle = secondaryText;
-    drawFittedText(ctx, user.name || "PerkUp customer", width / 2, 844, 650, 600, 21, 13, "Inter, Arial, sans-serif");
-    drawFittedText(ctx, "Scan in Perktoday.com to earn rewards!", width / 2, 880, 650, 500, 17, 12, "Inter, Arial, sans-serif");
+    drawFittedText(ctx, user.name || "Perk customer", width / 2, 844, 650, 600, 21, 13, "Inter, Arial, sans-serif");
+    drawFittedText(ctx, "Scan at www.perktoday.com to earn rewards!", width / 2, 880, 650, 500, 17, 12, "Inter, Arial, sans-serif");
 
     const footerRows = [
       appContact?.email ? `Email: ${appContact.email}` : null,
@@ -328,7 +328,7 @@ export default function CustomerOverview() {
 
       ctx.fillStyle = mutedText;
       ctx.font = "700 14px Inter, Arial, sans-serif";
-      ctx.fillText("Contact PerkUp", width / 2, 982);
+      ctx.fillText("Contact Perk", width / 2, 982);
 
       ctx.fillStyle = secondaryText;
       footerRows.slice(0, 6).forEach((row, index) => {
@@ -422,10 +422,10 @@ export default function CustomerOverview() {
               )}
             </div>
             <div className="mt-4 text-center">
-              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">PerkUp Identity QR</p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Perk Identity QR</p>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 {qrTicket
-                  ? "The live code renews securely. A phone camera opens PerkUp."
+                  ? "The live code renews securely. A phone camera opens Perk."
                   : qrError || "Preparing your private scan code."}
               </p>
             </div>
@@ -536,7 +536,7 @@ export default function CustomerOverview() {
               <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center text-[#1b1b1b] dark:text-white font-bold shrink-0">1</div>
               <div>
                 <h4 className="font-semibold text-gray-900 dark:text-white">Find a Partner Store</h4>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Browse our <Link to="/customer/stores" className="text-[#1b1b1b] dark:text-white hover:underline">store directory</Link> to discover cafes, shops, and restaurants that use PerkUp.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Browse our <Link to="/customer/stores" className="text-[#1b1b1b] dark:text-white hover:underline">store directory</Link> to discover cafes, shops, and restaurants that use Perk.</p>
               </div>
             </div>
             

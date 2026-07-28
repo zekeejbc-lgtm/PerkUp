@@ -1,4 +1,4 @@
-# Security Specification for PerkUp
+# Security Specification for Perk
 
 ## 1. Data Invariants
 1. **Roles & Identity**: A user's role can only be modified by an Admin or Auditor. Users cannot assign themselves higher privileges during registration or profile updates.

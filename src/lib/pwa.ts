@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-const UPDATE_EVENT = "perkup:pwa-update-ready";
+const UPDATE_EVENT = "perk:pwa-update-ready";
 
 let waitingWorker: ServiceWorker | null = null;
 let applyingUpdate = false;

@@ -9,7 +9,7 @@ const RESERVED_USERNAMES = new Set([
   "administrator",
   "api",
   "help",
-  "perkup",
+  "perk",
   "staff",
   "store",
   "support",

@@ -273,7 +273,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
           gracePeriodDays: billingSubscription?.grace_period_days || null,
         },
         business: {
-          name: subscriptionStore?.businessName || subscriptionStore?.name || "PerkUp merchant",
+          name: subscriptionStore?.businessName || subscriptionStore?.name || "Perk merchant",
           subscriberName: user?.name || null,
           address: subscriptionStore?.address || subscriptionStore?.location || null,
           contact: subscriptionStore?.contact || subscriptionStore?.contactNumber || subscriptionStore?.phone || null,
@@ -453,7 +453,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                     <p className="mt-1 max-w-xl text-sm leading-6 text-gray-500 dark:text-gray-400">
                       {manualRenewal
                         ? `No future billing links or reminders will be sent automatically. Access remains active through ${formatBillingDate(currentPeriodEnd)}, then you can renew from the expired-payment screen whenever you choose.`
-                        : "PerkUp prepares the next PayMongo payment link and sends billing reminders before the next cycle."}
+                        : "Perk prepares the next PayMongo payment link and sends billing reminders before the next cycle."}
                     </p>
                   </div>
                 </div>
@@ -538,7 +538,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
               )}
 
               <p className="mt-5 border-t border-gray-100 pt-4 text-sm font-medium text-gray-600 dark:border-gray-800 dark:text-gray-300">
-                Need a lower plan? Contact PerkUp support.
+              Need a lower plan? Contact Perk support.
               </p>
               {upgradeMessage && (
                 <p className="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm font-medium text-green-700 dark:bg-green-950/30 dark:text-green-300">
@@ -618,7 +618,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
       <ConfirmationModal
         isOpen={showCancelRenewal}
         title="Cancel automatic renewal?"
-        description={`Your current paid access will stay active through ${formatBillingDate(currentPeriodEnd)}. PerkUp will stop automatic renewal billing and reminder emails. When access expires, you can still renew manually from the payment screen.`}
+        description={`Your current paid access will stay active through ${formatBillingDate(currentPeriodEnd)}. Perk will stop automatic renewal billing and reminder emails. When access expires, you can still renew manually from the payment screen.`}
         confirmLabel="Cancel automatic renewal"
         cancelLabel="Keep automatic renewal"
         isLoading={cancellingRenewal}

@@ -117,11 +117,11 @@ export default function StoresPage() {
             </Link>}
             <div className="mx-auto mt-10 max-w-3xl text-center sm:mt-12">
               <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-gray-400 dark:text-gray-500">
-                PerkUp partners
+                Perk partners
               </p>
               <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">All affiliated stores</h1>
               <p className="mx-auto mt-3 max-w-2xl text-base text-gray-500 dark:text-gray-400 sm:text-lg">
-                Browse every business using PerkUp and find where to earn and redeem your rewards.
+                Browse every business using Perk and find where to earn and redeem your rewards.
               </p>
             </div>
 
@@ -263,7 +263,7 @@ export default function StoresPage() {
                       </div>
 
                       <p className="mt-5 line-clamp-3 min-h-15 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                        {store.description || "Earn and redeem PerkUp rewards at this affiliated store."}
+                        {store.description || "Earn and redeem Perk rewards at this affiliated store."}
                       </p>
 
                       {store.contact && (

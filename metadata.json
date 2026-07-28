@@ -1,5 +1,5 @@
 {
-  "name": "PerkUp",
+  "name": "Perk",
   "description": "A customer loyalty Progressive Web App (PWA) that helps businesses reward regular customers through a digital, QR-based system.",
   "requestFramePermissions": [
     "camera"

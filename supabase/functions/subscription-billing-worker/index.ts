@@ -1,5 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { jsonResponse } from "../_shared/cors.ts";
+import {
+  archivePayMongoInvoiceLinks,
+  archivePayMongoPaymentLink,
+  type PayMongoMode,
+} from "../_shared/paymongo.ts";
 
 const PAYMONGO_API = "https://api.paymongo.com/v1";
 const DEFAULT_GAS_URL =
@@ -100,11 +105,11 @@ const paymongoRequest = async (path: string, init: RequestInit) => {
 const createPaymentLink = async (invoice: ClaimedInvoice) => {
   const payload = await paymongoRequest("/payment_links", {
     method: "POST",
-    headers: { "Idempotency-Key": `perkup-invoice-${invoice.invoice_id}` },
+    headers: { "Idempotency-Key": `perk-invoice-${invoice.invoice_id}` },
     body: JSON.stringify({
       amount: invoice.amount_centavos,
       currency: invoice.currency,
-      description: `PerkUp ${invoice.plan_id} subscription`,
+      description: `Perk ${invoice.plan_id} subscription`,
       remarks: `Invoice ${invoice.invoice_id}`,
       metadata: {
         invoice_id: invoice.invoice_id,
@@ -192,6 +197,7 @@ const deleteExpiredInitialAccount = async (
   supabase: any,
   storeId: string,
   ownerUserId: string,
+  mode: PayMongoMode,
 ) => {
   const { data: storeRows, error: storesError } = await supabase.from("stores")
     .select("id,data").eq("data->>ownerId", ownerUserId);
@@ -206,10 +212,24 @@ const deleteExpiredInitialAccount = async (
   if (!subscription?.initial_payment_required) return false;
 
   const { data: unpaidInvoice, error: invoiceCheckError } = await supabase.from("billing_invoices")
-    .select("id").eq("subscription_id", subscription.id).eq("invoice_type", "initial")
+    .select("id,paymongo_link_id,status,livemode").eq("subscription_id", subscription.id).eq("invoice_type", "initial")
     .eq("status", "expired").maybeSingle();
   if (invoiceCheckError) throw invoiceCheckError;
   if (!unpaidInvoice) return false;
+
+  const { data: deletionStarted, error: billingDeletionLockError } = await (supabase as any)
+    .rpc("begin_expired_initial_account_deletion", {
+      p_store_ids: storeIds,
+      p_subscription_id: subscription.id,
+      p_invoice_id: unpaidInvoice.id,
+    });
+  if (billingDeletionLockError) throw billingDeletionLockError;
+  if (deletionStarted !== true) return false;
+
+  await archivePayMongoInvoiceLinks([unpaidInvoice], {
+    mode,
+    secretKey: Deno.env.get("PAYMONGO_SECRET_KEY") || "",
+  });
 
   const { data: staffRows, error: staffError } = await supabase.from("users")
     .select("id").in("data->>storeId", storeIds).eq("data->>role", "staff");
@@ -308,6 +328,9 @@ Deno.serve(async (req) => {
     };
     for (const invoice of (claimed || []) as ClaimedInvoice[]) {
       let hasPersistedLink = Boolean(invoice.paymongo_link_id && invoice.payment_url);
+      let createdUnpersistedLink: Awaited<ReturnType<typeof createPaymentLink>> | null = null;
+      let creationMarker: string | null = null;
+      let creationLeaseSuperseded = false;
       try {
         const { data: currentSubscription, error: currentSubscriptionError } = await supabase
           .from("billing_subscriptions")
@@ -334,20 +357,37 @@ Deno.serve(async (req) => {
           : null;
 
         if (!link) {
+          const creationToken = crypto.randomUUID();
+          const { data: linkCreationStarted, error: linkCreationStartError } = await supabase
+            .rpc("begin_paymongo_link_creation", {
+              p_invoice_id: invoice.invoice_id,
+              p_creation_token: creationToken,
+            });
+          if (linkCreationStartError) throw linkCreationStartError;
+          if (linkCreationStarted !== true) continue;
+          creationMarker = `PAYMONGO_LINK_CREATION_IN_PROGRESS:${creationToken}`;
+
           link = await createPaymentLink(invoice);
+          createdUnpersistedLink = link;
           if ((mode === "live") !== link.livemode) {
             throw new Error(`PayMongo returned a ${link.livemode ? "live" : "test"} link while ${mode} mode is configured.`);
           }
-          const { error } = await supabase.from("billing_invoices").update({
+          const { data: persistedInvoice, error } = await supabase.from("billing_invoices").update({
             status: "link_created",
             paymongo_link_id: link.id,
             paymongo_reference_number: link.referenceNumber,
             payment_url: link.url,
             livemode: link.livemode,
             last_error: null,
-          }).eq("id", invoice.invoice_id);
+          }).eq("id", invoice.invoice_id).eq("last_error", creationMarker).select("id").maybeSingle();
           if (error) throw error;
+          if (!persistedInvoice) {
+            creationLeaseSuperseded = true;
+            throw new Error("The PayMongo link-creation lease changed before the link could be saved.");
+          }
           hasPersistedLink = true;
+          createdUnpersistedLink = null;
+          creationMarker = null;
           results.linksCreated += 1;
         }
 
@@ -418,11 +458,33 @@ Deno.serve(async (req) => {
         const { data: attemptRow } = await supabase.from("billing_invoices")
           .select("attempt_count").eq("id", invoice.invoice_id).maybeSingle();
         const attemptCount = Math.max(1, Number(attemptRow?.attempt_count || 1));
-        await supabase.from("billing_invoices").update({
-          status: hasPersistedLink ? "link_created" : "failed",
-          last_error: message.slice(0, 1000),
-          next_attempt_at: retryAt(attemptCount),
-        }).eq("id", invoice.invoice_id);
+        let preserveCreationMarker = false;
+        if (createdUnpersistedLink && !creationLeaseSuperseded) {
+          try {
+            await archivePayMongoPaymentLink(
+              createdUnpersistedLink.id,
+              requiredEnv("PAYMONGO_SECRET_KEY"),
+            );
+          } catch (archiveError) {
+            preserveCreationMarker = true;
+            console.error("Unpersisted PayMongo link could not be archived", {
+              invoiceId: invoice.invoice_id,
+              linkId: createdUnpersistedLink.id,
+              error: archiveError instanceof Error ? archiveError.message : archiveError,
+            });
+          }
+        }
+        if (!preserveCreationMarker) {
+          let failureUpdate = supabase.from("billing_invoices").update({
+            status: hasPersistedLink ? "link_created" : "failed",
+            last_error: message.slice(0, 1000),
+            next_attempt_at: retryAt(attemptCount),
+          }).eq("id", invoice.invoice_id);
+          if (creationMarker) {
+            failureUpdate = failureUpdate.eq("last_error", creationMarker);
+          }
+          await failureUpdate;
+        }
         if (hasPersistedLink) {
           await supabase.from("billing_notifications").upsert({
             invoice_id: invoice.invoice_id,
@@ -717,6 +779,7 @@ Deno.serve(async (req) => {
           supabase,
           String(account.store_id),
           String(account.owner_user_id),
+          mode,
         )) results.expiredAccountsDeleted += 1;
       } catch (error) {
         results.failed += 1;

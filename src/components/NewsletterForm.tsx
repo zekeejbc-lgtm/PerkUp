@@ -29,7 +29,7 @@ export function NewsletterForm() {
 
   return (
     <form onSubmit={submit} className="mt-6 max-w-sm">
-      <label htmlFor="newsletter-email" className="text-sm font-semibold text-gray-900 dark:text-white">Get PerkUp updates</label>
+      <label htmlFor="newsletter-email" className="text-sm font-semibold text-gray-900 dark:text-white">Get Perk updates</label>
       <div className="mt-2 flex gap-2">
         <input
           id="newsletter-email"

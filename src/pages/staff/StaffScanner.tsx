@@ -353,7 +353,7 @@ export default function StaffScanner({ store }: { store: any }) {
 
     const parsedQr = parseCustomerQr(scanValue);
     if (!parsedQr) {
-      setMessage({ type: "error", text: "Invalid PerkUp QR code. Ask the customer to open their Identity QR." });
+      setMessage({ type: "error", text: "Invalid Perk QR code. Ask the customer to open their Identity QR." });
       return;
     }
     const redemptionInput: RedemptionInput = parsedQr.kind === "secure"

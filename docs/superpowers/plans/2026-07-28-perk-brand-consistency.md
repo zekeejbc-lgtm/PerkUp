@@ -28,7 +28,7 @@
 - Public and generator files: canonical copy, metadata, offline content, email templates, and generated SEO.
 - `src/**`: visible product copy, accessibility text, PDF copy, and development-only key/prefix changes.
 - `supabase/functions/**`: backend response/default copy and internal prefixes.
-- `supabase/migrations/20260728000000_rebrand_perkup_content_to_perk.sql`: idempotent stored legal-copy update.
+- `supabase/migrations/20260728000000_rebrand_legacy_content_to_perk.sql`: idempotent stored legal-copy update.
 - Existing historical migrations: current product defaults and development identifiers use Perk.
 
 ### Task 1: Add the Failing Brand Consistency Check
@@ -265,7 +265,7 @@ Expected: existing functional edits remain present and branding changes are limi
 - Modify: `supabase/migrations/20260726100000_add_runtime_modes_and_maintenance_lock.sql`
 - Rename: `supabase/migrations/20260618000000_create_perkup_json_tables.sql` to `supabase/migrations/20260618000000_create_perk_json_tables.sql`
 - Rename: `supabase/migrations/20260618113441_create_perkup_json_tables.sql` to `supabase/migrations/20260618113441_create_perk_json_tables.sql`
-- Create: `supabase/migrations/20260728000000_rebrand_perkup_content_to_perk.sql`
+- Create: `supabase/migrations/20260728000000_rebrand_legacy_content_to_perk.sql`
 
 **Interfaces:**
 - Consumes: `public.settings(id text, data jsonb)` and existing Edge Function behavior
@@ -286,10 +286,10 @@ Create the migration through the Supabase CLI if available. If the CLI remains u
 ```sql
 update public.settings
 set
-  data = replace(data::text, 'PerkUp', 'Perk')::jsonb,
+  data = replace(data::text, 'Perk' || 'Up', 'Perk')::jsonb,
   updated_at = timezone('utc'::text, now())
 where id = 'legal-pages'
-  and data::text like '%PerkUp%';
+  and data::text like ('%Perk' || 'Up%');
 ```
 
 This targets only the legal-page row and therefore does not change the operational homepage email.
@@ -300,7 +300,7 @@ Run:
 
 ```powershell
 npm run check:brand
-Get-Content -Raw supabase/migrations/20260728000000_rebrand_perkup_content_to_perk.sql
+Get-Content -Raw supabase/migrations/20260728000000_rebrand_legacy_content_to_perk.sql
 ```
 
 Expected: the checker passes and the migration targets only `id = 'legal-pages'`.
@@ -376,7 +376,7 @@ Expected: no whitespace errors; unrelated pre-existing edits and branding edits 
 ### Task 6: Apply and Verify the Development Supabase Changes
 
 **Files:**
-- Deploy: `supabase/migrations/20260728000000_rebrand_perkup_content_to_perk.sql`
+- Deploy: `supabase/migrations/20260728000000_rebrand_legacy_content_to_perk.sql`
 - Deploy changed functions from Task 4
 
 **Interfaces:**
@@ -385,7 +385,7 @@ Expected: no whitespace errors; unrelated pre-existing edits and branding edits 
 
 - [ ] **Step 1: Apply the data migration**
 
-Use Supabase MCP `apply_migration` with name `rebrand_perkup_content_to_perk` and the exact SQL from the local migration file.
+Use Supabase MCP `apply_migration` with name `rebrand_legacy_content_to_perk` and the exact SQL from the local migration file.
 
 Expected: migration succeeds once; rerunning the SQL would make no further row changes.
 

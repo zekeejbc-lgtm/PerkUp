@@ -34,7 +34,7 @@ type SubscriptionUpgradeTermsModalProps = {
 const TERMS = [
   "This self-service action is an upgrade only. Downgrades are not available in this flow.",
   "Nothing is charged today. Your current paid plan and access remain unchanged until the target renewal is paid.",
-  "The target plan becomes active only after PerkUp verifies full payment of the matching renewal invoice.",
+  "The target plan becomes active only after Perk verifies full payment of the matching renewal invoice.",
   "If the next renewal invoice is already issued, that invoice and its amount remain unchanged; the upgrade moves to the following renewal.",
   "The target renewal will use the exact plan and amount shown in this panel. A changed quote must be reviewed and accepted again.",
   "Your automatic or manual renewal setting is not changed by scheduling this upgrade.",
@@ -42,7 +42,7 @@ const TERMS = [
   "New plan features and limits become available only when the target renewal payment is verified.",
   "Your current plan, limits, and price continue to govern the account before the verified target renewal payment.",
   "A scheduled upgrade may be cancelled only before it is attached and locked to its renewal invoice.",
-  "Quotes expire and become invalid when material plan, price, invoice, or renewal state changes. PerkUp will require a refreshed review.",
+  "Quotes expire and become invalid when material plan, price, invoice, or renewal state changes. Perk will require a refreshed review.",
   "Your electronic acceptance records the terms version, account, timestamp, selected plans, amounts, and effective renewal for audit purposes.",
 ] as const;
 

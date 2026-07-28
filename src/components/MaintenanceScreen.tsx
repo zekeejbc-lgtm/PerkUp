@@ -37,7 +37,7 @@ export function MaintenanceScreen() {
           <button
             type="button"
             onClick={handleLogoPress}
-            aria-label="PerkUp"
+            aria-label="Perk"
             className="inline-flex appearance-none border-0 bg-transparent p-0"
           >
             <BrandMark className="justify-center" />
@@ -61,7 +61,7 @@ export function MaintenanceScreen() {
           {statusUnavailable && (
             <div className="mt-6 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-              Runtime status could not be verified, so PerkUp has locked access as a safety precaution.
+              Runtime status could not be verified, so Perk has locked access as a safety precaution.
             </div>
           )}
         </section>

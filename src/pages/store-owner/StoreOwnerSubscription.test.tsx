@@ -208,7 +208,7 @@ describe("StoreOwnerSubscription upgrade workflow", () => {
     expect(screen.getByText("Enterprise")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Standard/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/downgrade/i)).not.toBeInTheDocument();
-    expect(screen.getByText("Need a lower plan? Contact PerkUp support.")).toBeInTheDocument();
+    expect(screen.getByText("Need a lower plan? Contact Perk support.")).toBeInTheDocument();
   });
 
   it("shows a blocked reason and disables upgrade actions", async () => {

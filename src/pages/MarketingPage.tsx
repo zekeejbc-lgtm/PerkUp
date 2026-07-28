@@ -12,7 +12,7 @@ const content = {
   "/product": {
     eyebrow: "The Product",
     title: "Digital loyalty, without the paper cards.",
-    intro: "PerkUp gives local businesses a simple loyalty system customers can use directly in their browser.",
+    intro: "Perk gives local businesses a simple loyalty system customers can use directly in their browser.",
     cards: [
       [QrCode, "Digital loyalty cards", "Customers keep every store card in one secure account."],
       [ScanLine, "Fast QR check-ins", "Staff record visits and rewards through a quick, reliable scan."],
@@ -24,7 +24,7 @@ const content = {
     title: "One place for every local reward.",
     intro: "Discover nearby partner stores, track visits, and redeem rewards without installing another app.",
     cards: [
-      [Store, "Discover local stores", "Browse active PerkUp partners and find the right place by category."],
+      [Store, "Discover local stores", "Browse active Perk partners and find the right place by category."],
       [QrCode, "Carry less", "Your loyalty cards and QR code stay available from your account."],
       [Check, "Never lose progress", "See your stamps, eligible rewards, and current promotions."],
     ],
@@ -83,7 +83,7 @@ export function PricingPage() {
     <PublicPageShell>
       <p className="text-sm font-semibold text-gray-500 dark:text-gray-400">Pricing</p>
       <h1 className="mt-3 text-4xl font-bold tracking-tight sm:text-5xl">Plans for every local business.</h1>
-      <p className="mt-6 text-lg text-gray-600 dark:text-gray-300">These are the current subscription prices configured by the PerkUp administrator.</p>
+      <p className="mt-6 text-lg text-gray-600 dark:text-gray-300">These are the current subscription prices configured by the Perk administrator.</p>
       {loading ? (
         <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading subscription plans">
           {[0, 1, 2].map((item) => (

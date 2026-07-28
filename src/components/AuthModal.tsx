@@ -29,7 +29,7 @@ interface AuthModalProps {
 }
 
 const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
-const RESERVED_USERNAMES = new Set(["admin", "administrator", "api", "help", "perkup", "staff", "store", "support"]);
+const RESERVED_USERNAMES = new Set(["admin", "administrator", "api", "help", "perk", "staff", "store", "support"]);
 
 const emptySignupProfile = {
   name: '',
@@ -633,10 +633,10 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
 
                 <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/70 p-5 sm:p-6 text-left text-sm sm:text-base leading-7 text-gray-600 dark:text-gray-300">
                   <p>
-                    In accordance with the Data Privacy Act of 2012, PerkUp collects and processes the information you provide during signup, such as your email address, password credentials, profile details, loyalty activity, reward redemptions, and related account records.
+                    In accordance with the Data Privacy Act of 2012, Perk collects and processes the information you provide during signup, such as your email address, password credentials, profile details, loyalty activity, reward redemptions, and related account records.
                   </p>
                   <p className="mt-3">
-                    Your data is used to create and secure your customer account, identify you when earning or redeeming rewards, maintain loyalty cards and transaction history, provide customer support, prevent misuse, and improve PerkUp services. Authorized partner store staff may only access customer information needed to operate loyalty and promotion workflows.
+                    Your data is used to create and secure your customer account, identify you when earning or redeeming rewards, maintain loyalty cards and transaction history, provide customer support, prevent misuse, and improve Perk services. Authorized partner store staff may only access customer information needed to operate loyalty and promotion workflows.
                   </p>
                   <p className="mt-3">
                     By selecting Agree, you confirm that you understand this notice and consent to the collection and use of your data for these purposes.
@@ -668,7 +668,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
               {mode === 'signin' ? 'Welcome back' : mode === 'signup' ? 'Create account' : 'Reset password'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {mode === 'signin' ? 'Enter your details to sign in.' : mode === 'signup' ? 'Join PerkUp to earn rewards.' : 'Recover access to your PerkUp account.'}
+              {mode === 'signin' ? 'Enter your details to sign in.' : mode === 'signup' ? 'Join Perk to earn rewards.' : 'Recover access to your Perk account.'}
             </p>
           </div>
 

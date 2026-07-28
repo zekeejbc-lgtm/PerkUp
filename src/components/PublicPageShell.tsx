@@ -15,7 +15,7 @@ export function PublicSiteFooter() {
   return (
     <footer className="mt-auto border-t border-black/10 dark:border-white/10">
       <div className="mx-auto flex max-w-5xl flex-col gap-5 px-6 py-8 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-gray-500 dark:text-gray-400">© {new Date().getFullYear()} PerkUp. All rights reserved.</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">© {new Date().getFullYear()} Perk. All rights reserved.</p>
         <nav className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-gray-500 dark:text-gray-400" aria-label="Legal and support">
           {links.map(([to, label]) => <Link key={to} to={to} className="hover:text-black dark:hover:text-white">{label}</Link>)}
         </nav>
@@ -29,7 +29,7 @@ export function PublicPageShell({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen flex-col bg-white text-[#1b1b1b] dark:bg-[#1b1b1b] dark:text-white">
       <header className="sticky top-0 z-40 border-b border-black/10 bg-white/85 backdrop-blur-xl dark:border-white/10 dark:bg-[#1b1b1b]/85">
         <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4">
-          <Link to="/" aria-label="PerkUp home"><BrandMark compact /></Link>
+          <Link to="/" aria-label="Perk home"><BrandMark compact /></Link>
           <ThemeToggle />
         </nav>
       </header>

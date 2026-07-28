@@ -152,7 +152,7 @@ export default function CustomerTickets() {
         publicId: row.public_id || "",
         ticketNumber: row.public_id || row.data.ticketNumber || `LEGACY-${String(row.id).slice(0, 8).toUpperCase()}`,
         status: row.data.status || "issued",
-        storeName: row.data.storeName || "PerkUp Store",
+        storeName: row.data.storeName || "Perk Store",
         staffName: row.data.staffName || "Store staff",
         promotionTitle: row.data.promotionTitle || null,
         points: Number(row.data.points || 0),

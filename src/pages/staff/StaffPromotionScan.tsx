@@ -36,7 +36,7 @@ type ScannerLocation = {
 };
 
 const LEGACY_OFFLINE_QUEUE_KEY = "offlineScanQueue";
-const OFFLINE_QUEUE_PREFIX = "perkup:offlineScanQueue";
+const OFFLINE_QUEUE_PREFIX = "perk:offlineScanQueue";
 const OFFLINE_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_OFFLINE_QUEUE_ITEMS = 100;
 const MAX_POINTS_PER_SCAN = 100;
@@ -390,7 +390,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
     const parsedQr = parseCustomerQr(scannedId);
     if (!parsedQr) {
-      alert("Invalid PerkUp QR code. Ask the customer to open or download their QR from the PerkUp app.");
+      alert("Invalid Perk QR code. Ask the customer to open or download their QR from the Perk app.");
       return;
     }
     const redemptionInput: RedemptionInput = parsedQr.kind === "secure"
@@ -430,7 +430,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     }
 
     if (!navigator.onLine) {
-        alert("Secure QR scans require an internet connection so PerkUp can authenticate the staff account and QR ticket.");
+        alert("Secure QR scans require an internet connection so Perk can authenticate the staff account and QR ticket.");
         return;
     }
 
@@ -472,7 +472,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   const processPointsForCustomerInput = async (redemptionInput: RedemptionInput, points: number) => {
     if (!store) throw new Error("Store context is missing.");
     if (redemptionInput.scanToken && !isValidCustomerQr(redemptionInput.scanToken)) {
-      throw new Error("Invalid PerkUp QR code.");
+      throw new Error("Invalid Perk QR code.");
     }
     if (!redemptionInput.scanToken && !redemptionInput.manualUsername) {
       throw new Error("Customer scan or username is required.");

@@ -52,7 +52,7 @@ service cloud.firestore {
         isAdmin() || 
         (request.auth.uid == userId && (
           // Allow demo accounts to bypass role constraint
-          (request.resource.data.email.matches('^demo_.*@perkup\\.local$')) ||
+          (request.resource.data.email.matches('^demo_.*@perk\\.local$')) ||
           // Ensure new signups are 'customer' and updates don't change role
           (
             (!exists(/databases/$(database)/documents/users/$(userId)) && request.resource.data.role == 'customer') ||

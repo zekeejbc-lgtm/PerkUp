@@ -25,8 +25,8 @@ type EncryptedCache = {
   ciphertext: ArrayBuffer;
 };
 
-const LEGACY_CACHE_PREFIX = "perkup:customerScanCache";
-const DB_NAME = "perkup-secure-scan-cache";
+const LEGACY_CACHE_PREFIX = "perk:customerScanCache";
+const DB_NAME = "perk-secure-scan-cache";
 const DB_VERSION = 1;
 const KEY_STORE = "keys";
 const CACHE_STORE = "customer-rosters";
@@ -157,9 +157,9 @@ const writeEncryptedCache = async (
 };
 
 const getQrExpiry = (scanToken: string) => {
-  if (!scanToken.startsWith("perkup:v3:")) return undefined;
+  if (!scanToken.startsWith("perk:v3:")) return undefined;
   try {
-    const encodedPayload = scanToken.slice("perkup:v3:".length).split(".")[0];
+    const encodedPayload = scanToken.slice("perk:v3:".length).split(".")[0];
     const normalized = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
     const padded = normalized.padEnd(normalized.length + (4 - normalized.length % 4) % 4, "=");
     const payload = atob(padded);

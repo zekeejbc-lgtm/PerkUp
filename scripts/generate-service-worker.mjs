@@ -58,9 +58,9 @@ for (const url of precache) {
 }
 const revision = revisionHash.digest("hex").slice(0, 12);
 const source = `const CACHE_VERSION = ${JSON.stringify(revision)};
-const PRECACHE = \`perkup-precache-\${CACHE_VERSION}\`;
-const PAGE_CACHE = \`perkup-pages-\${CACHE_VERSION}\`;
-const RUNTIME_CACHE = \`perkup-runtime-\${CACHE_VERSION}\`;
+const PRECACHE = \`perk-precache-\${CACHE_VERSION}\`;
+const PAGE_CACHE = \`perk-pages-\${CACHE_VERSION}\`;
+const RUNTIME_CACHE = \`perk-runtime-\${CACHE_VERSION}\`;
 const PRECACHE_URLS = ${JSON.stringify(precache, null, 2)};
 const MAX_RUNTIME_ENTRIES = 100;
 const CACHEABLE_DESTINATIONS = new Set(["script", "style", "font", "image", "manifest"]);
@@ -72,7 +72,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key.startsWith("perkup-") && ![PRECACHE, PAGE_CACHE, RUNTIME_CACHE].includes(key)).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => key.startsWith("perk-") && ![PRECACHE, PAGE_CACHE, RUNTIME_CACHE].includes(key)).map((key) => caches.delete(key))))
       .then(() => self.clients.claim()),
   );
 });

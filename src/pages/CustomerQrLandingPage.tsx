@@ -25,22 +25,22 @@ export default function CustomerQrLandingPage() {
           <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-[#1b1b1b] text-white shadow-lg dark:bg-white dark:text-[#1b1b1b]">
             <QrCode className="h-10 w-10" />
           </div>
-          <h1 className="mt-6 text-3xl font-black tracking-tight">You scanned a PerkUp QR</h1>
+          <h1 className="mt-6 text-3xl font-black tracking-tight">You scanned a Perk QR</h1>
           <p className="mx-auto mt-3 max-w-md leading-7 text-gray-500 dark:text-gray-300">
             {username
-              ? `This code belongs to @${username}. PerkUp partner staff can scan it in the app to confirm the customer and award rewards.`
-              : "This is a secure customer code. PerkUp partner staff can scan it inside the app to confirm the customer and award rewards."}
+              ? `This code belongs to @${username}. Perk partner staff can scan it in the app to confirm the customer and award rewards.`
+              : "This is a secure customer code. Perk partner staff can scan it inside the app to confirm the customer and award rewards."}
           </p>
 
           <div className="mt-8 grid gap-3 text-left sm:grid-cols-2">
             <div className="rounded-2xl bg-gray-50 p-4 dark:bg-white/5">
               <ShieldCheck className="h-6 w-6 text-green-600 dark:text-green-400" />
               <p className="mt-3 font-bold">Partner staff?</p>
-              <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">Open the PerkUp staff scanner and scan the QR there.</p>
+              <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">Open the Perk staff scanner and scan the QR there.</p>
             </div>
             <div className="rounded-2xl bg-gray-50 p-4 dark:bg-white/5">
               <Smartphone className="h-6 w-6 text-[#1b1b1b] dark:text-white" />
-              <p className="mt-3 font-bold">New to PerkUp?</p>
+              <p className="mt-3 font-bold">New to Perk?</p>
               <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">Discover loyalty cards, promotions, and rewards from partner stores.</p>
             </div>
           </div>
@@ -49,7 +49,7 @@ export default function CustomerQrLandingPage() {
             to="/customers"
             className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#1b1b1b] px-5 py-4 font-bold text-white transition hover:bg-black dark:bg-white dark:text-[#1b1b1b] dark:hover:bg-gray-100"
           >
-            Explore PerkUp
+            Explore Perk
             <ArrowRight className="h-5 w-5" />
           </Link>
           <Link to="/" className="mt-4 inline-block text-sm font-semibold text-gray-500 hover:underline dark:text-gray-400">
