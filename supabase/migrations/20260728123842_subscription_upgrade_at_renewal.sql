@@ -1,3 +1,4 @@
+-- Subscription upgrades are scheduled against an immutable future renewal.
 create table public.subscription_plan_changes (
   id uuid primary key default gen_random_uuid(),
   subscription_id uuid not null references public.billing_subscriptions(id) on delete restrict,
