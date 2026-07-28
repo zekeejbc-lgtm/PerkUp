@@ -49,7 +49,7 @@ export default function AdminSubscriptions() {
           const loadedPlans = normalizeSubscriptionTierHierarchy(docSnap.data().plans || []);
           setPlans(loadedPlans);
           setOriginalPlans(loadedPlans);
-        } else {
+        } else if (canManagePlans) {
           await setDoc(docRef, { plans, updatedAt: serverTimestamp() });
         }
       } catch (error) {
@@ -59,7 +59,7 @@ export default function AdminSubscriptions() {
       }
     }
     loadPlans();
-  }, []);
+  }, [canManagePlans]);
 
   const prepareSave = async () => {
     if (!canManagePlans || saving) return;

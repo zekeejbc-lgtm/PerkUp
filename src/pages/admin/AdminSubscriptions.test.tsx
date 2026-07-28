@@ -127,6 +127,19 @@ describe("AdminSubscriptions tier hierarchy", () => {
     expect(screen.queryByRole("button", { name: /move .* (lower|higher)/i })).not.toBeInTheDocument();
   });
 
+  it("does not let an auditor initialize a missing subscription catalog", async () => {
+    mocks.role.current = "auditor";
+    mocks.getDoc.mockResolvedValue({
+      exists: () => false,
+      data: () => ({}),
+    });
+
+    render(<AdminSubscriptions />);
+
+    expect(await screen.findByText(/read-only hierarchy review/i)).toBeInTheDocument();
+    expect(mocks.setDoc).not.toHaveBeenCalled();
+  });
+
   it("requires impact confirmation before persisting explicit ranks", async () => {
     const user = userEvent.setup();
     render(<AdminSubscriptions />);
