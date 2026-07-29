@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, where } from "@/src/lib/dataCompat";
 import { db } from "../lib/backend";
-import { ArrowLeft, ArrowRight, MapPin, Phone, Globe, Clock, Star, Share2, MessageSquare, Send, Image as ImageIcon, Store as StoreIcon, Utensils, Gift, CalendarDays, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, MapPin, Clock, Star, Share2, MessageSquare, Image as ImageIcon, Store as StoreIcon, Utensils, Gift, CalendarDays, X } from "lucide-react";
 import { MapContainer, Marker, Popup } from "react-leaflet";
 import { PageSkeleton } from "../components/LoadingSkeleton";
 import { useAuth } from "../contexts/AuthContext";
@@ -19,6 +19,13 @@ import { PublicSiteFooter } from "../components/PublicPageShell";
 import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../lib/dateTime";
 import { Seo } from "../components/Seo";
 import { isStorePubliclyVisible } from "../lib/storeDirectory";
+import { getAverageRating, getInitials, getPublicReviews, type StoreReview } from "../lib/storeReviews";
+import { ReviewMontage } from "../components/store-reviews/ReviewMontage";
+import { ReviewDetailsModal } from "../components/store-reviews/ReviewDetailsModal";
+import { ReviewImageModal } from "../components/store-reviews/ReviewImageModal";
+import { StoreContactInformation } from "../components/StoreContactInformation";
+import type { StoreSocialLink } from "../lib/storeSocialLinks";
+import { ReviewFormModal } from "../components/store-reviews/ReviewFormModal";
 
 interface StoreContent {
   id: string;
@@ -27,6 +34,7 @@ interface StoreContent {
   description?: string;
   contact?: string;
   website?: string;
+  socialLinks?: StoreSocialLink[];
   address?: string;
   hours?: string;
   openingHours?: string;
@@ -66,40 +74,6 @@ interface StorePromotion {
   linkedProductId?: string;
   linkedProductName?: string;
 }
-
-interface StoreReview {
-  id: string;
-  customerName?: string;
-  customerAvatarUrl?: string;
-  customerInitials?: string;
-  anonymous?: boolean;
-  rating?: number;
-  comment?: string;
-  imageUrls?: string[];
-  ownerReply?: string;
-  createdAt?: string;
-  ownerRepliedAt?: string;
-  ownerReplyUpdatedAt?: string;
-}
-
-const toDate = (value?: any) => {
-  if (!value) return "";
-  if (typeof value.toDate === "function") return value.toDate();
-  if (typeof value.seconds === "number") return new Date(value.seconds * 1000);
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const reviewDate = (value?: any) => {
-  const date = toDate(value);
-  return date ? date.toLocaleDateString() : "";
-};
-
-const getInitials = (name?: string) => {
-  const parts = String(name || "Customer").trim().split(/\s+/).filter(Boolean);
-  const initials = parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
-  return initials || "C";
-};
 
 const promotionDate = (value?: string) => {
   return value ? formatPhilippineDate(value, "") : "";
@@ -265,6 +239,9 @@ export default function StorePage() {
   const reviewImagePreviewsRef = useRef<string[]>([]);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [selectedReview, setSelectedReview] = useState<StoreReview | null>(null);
+  const [selectedReviewImage, setSelectedReviewImage] = useState<{ url: string; alt: string } | null>(null);
   const [shareStatus, setShareStatus] = useState("");
 
   useEffect(() => () => {
@@ -281,10 +258,8 @@ export default function StorePage() {
     );
   }, [storeId]);
 
-  const averageRating = useMemo(() => {
-    if (!reviews.length) return 0;
-    return reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviews.length;
-  }, [reviews]);
+  const publicReviews = useMemo(() => getPublicReviews(reviews), [reviews]);
+  const averageRating = useMemo(() => getAverageRating(publicReviews), [publicReviews]);
 
   const handleShare = async () => {
     if (!store) return;
@@ -470,6 +445,7 @@ export default function StorePage() {
       setReviewImagePreviews([]);
       setFeedbackSent(true);
       await fetchReviews();
+      setFeedbackModalOpen(false);
     } catch (error) {
       if (!reviewPersisted && uploadedImageUrls.length) {
         await Promise.allSettled(uploadedImageUrls.map((url) => deleteImageFromDriveSecure(url)));
@@ -1104,223 +1080,101 @@ export default function StorePage() {
             <div>
               <h2 id="reviews-heading" className="text-2xl font-bold text-gray-900 dark:text-white">Customer Reviews</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                {reviews.length ? `${averageRating.toFixed(1)} out of 5 · ${reviews.length} review${reviews.length === 1 ? "" : "s"}` : "No reviews yet."}
+                {publicReviews.length ? `${averageRating.toFixed(1)} out of 5 · ${publicReviews.length} review${publicReviews.length === 1 ? "" : "s"}` : "No reviews yet."}
               </p>
             </div>
-            {reviews.length > 0 && (
-              <div className="flex text-[#1b1b1b] dark:text-white" aria-label={`${averageRating.toFixed(1)} average rating`}>
-                {[1, 2, 3, 4, 5].map((value) => (
-                  <Star key={value} className={`h-5 w-5 ${value <= Math.round(averageRating) ? "fill-current" : "text-gray-300 dark:text-gray-700"}`} />
-                ))}
-              </div>
-            )}
-          </div>
-          {reviews.length > 0 && (
-            <div className="grid gap-4 lg:grid-cols-2">
-              {reviews.map((review) => (
-                <article key={review.id} className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 text-sm font-black text-gray-600 dark:bg-white/10 dark:text-gray-200">
-                        {!review.anonymous && review.customerAvatarUrl ? (
-                          <img src={getDisplayImageUrl(review.customerAvatarUrl)} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <span>{review.customerInitials || getInitials(review.customerName)}</span>
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-bold text-gray-900 dark:text-white">{review.customerName || "Customer"}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{reviewDate(review.createdAt) || "Recent review"}</p>
-                      </div>
-                    </div>
-                    <div className="flex text-[#1b1b1b] dark:text-white" aria-label={`${review.rating || 0} star rating`}>
-                      {[1, 2, 3, 4, 5].map((value) => (
-                        <Star key={value} className={`h-4 w-4 ${value <= Number(review.rating || 0) ? "fill-current" : "text-gray-300 dark:text-gray-700"}`} />
-                      ))}
-                    </div>
-                  </div>
-                  <p className="mt-4 text-sm leading-6 text-gray-700 dark:text-gray-300">{review.comment}</p>
-                  {Array.isArray(review.imageUrls) && review.imageUrls.length > 0 && (
-                    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {review.imageUrls.filter(Boolean).map((imageUrl, index) => (
-                        <a
-                          key={`${review.id}-${imageUrl}-${index}`}
-                          href={getDisplayImageUrl(imageUrl)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block aspect-square overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800"
-                        >
-                          <img src={getDisplayImageUrl(imageUrl)} alt={`Review photo ${index + 1}`} className="h-full w-full object-cover" loading="lazy" />
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                  {review.ownerReply && (
-                    <div className="mt-4 rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/70">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Response from {store.name}</p>
-                        {review.ownerReplyUpdatedAt && (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                            Updated {reviewDate(review.ownerReplyUpdatedAt)}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-300">{review.ownerReply}</p>
-                    </div>
-                  )}
-                </article>
-              ))}
+            <div className="flex flex-wrap items-center gap-3">
+              {publicReviews.length > 0 && (
+                <div className="flex text-[#1b1b1b] dark:text-white" aria-label={`${averageRating.toFixed(1)} average rating`}>
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <Star key={value} className={`h-5 w-5 ${value <= Math.round(averageRating) ? "fill-current" : "text-gray-300 dark:text-gray-700"}`} />
+                  ))}
+                </div>
+              )}
+              <Link to={`/store/${store.id}/reviews`} className="inline-flex items-center justify-center rounded-xl border border-gray-200 px-4 py-2 text-sm font-bold text-gray-700 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/10">
+                Show all
+              </Link>
             </div>
+          </div>
+          {publicReviews.length > 0 && (
+            <ReviewMontage
+              reviews={publicReviews}
+              storeName={store.name}
+              onOpenReview={setSelectedReview}
+              onOpenImage={(url, alt) => setSelectedReviewImage({ url, alt })}
+            />
           )}
         </section>
 
+        {selectedReview && (
+          <ReviewDetailsModal
+            review={selectedReview}
+            storeName={store.name}
+            onClose={() => setSelectedReview(null)}
+            onOpenImage={(url, alt) => setSelectedReviewImage({ url, alt })}
+            suspended={Boolean(selectedReviewImage)}
+          />
+        )}
+        {selectedReviewImage && (
+          <ReviewImageModal
+            imageUrl={selectedReviewImage.url}
+            alt={selectedReviewImage.alt}
+            onClose={() => setSelectedReviewImage(null)}
+          />
+        )}
+        {feedbackModalOpen && user?.role === "customer" && (
+          <ReviewFormModal
+            rating={rating}
+            comment={comment}
+            anonymous={anonymousReview}
+            imageFiles={reviewImageFiles}
+            imagePreviews={reviewImagePreviews}
+            submitting={submittingFeedback}
+            onRatingChange={setRating}
+            onCommentChange={setComment}
+            onAnonymousChange={setAnonymousReview}
+            onImagesChange={handleReviewImageChange}
+            onRemoveImage={removeReviewImage}
+            onSubmit={handleFeedbackSubmit}
+            onClose={() => setFeedbackModalOpen(false)}
+          />
+        )}
+
         <div className="grid items-start gap-6 lg:grid-cols-2">
         {/* Contact Links */}
-        <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden transition-colors">
-          <div className="p-6 border-b border-gray-100 dark:border-gray-800 transition-colors">
-            <h3 className="font-semibold text-gray-900 dark:text-white text-lg transition-colors">Contact Information</h3>
-          </div>
-          <div className="divide-y divide-gray-100 dark:divide-gray-800 transition-colors">
-            {store.contact && (
-              <a href={`tel:${store.contact}`} className="flex items-center gap-4 p-6 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                <Phone className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-                <span className="text-gray-700 dark:text-gray-300 font-medium transition-colors">{store.contact}</span>
-              </a>
-            )}
-            {store.website && (
-              <a href={store.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-4 p-6 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                <Globe className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-                <span className="text-gray-700 dark:text-gray-300 font-medium truncate transition-colors">{store.website.replace(/^https?:\/\//, '')}</span>
-              </a>
-            )}
-            {!store.contact && !store.website && (
-              <div className="p-6 text-center text-gray-500 dark:text-gray-400 text-sm transition-colors">No contact information provided.</div>
-            )}
-          </div>
-        </div>
+        <StoreContactInformation
+          contact={store.contact}
+          website={store.website}
+          socialLinks={store.socialLinks}
+        />
 
-        <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden transition-colors">
-          <div className="p-6 border-b border-gray-100 dark:border-gray-800 transition-colors flex items-center gap-3">
-            <MessageSquare className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-            <h3 className="font-semibold text-gray-900 dark:text-white text-lg transition-colors">Leave a Review</h3>
+        <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <div className="flex items-start gap-3">
+            <span className="rounded-2xl bg-gray-100 p-3 text-gray-500 dark:bg-gray-800 dark:text-gray-300">
+              <MessageSquare className="h-5 w-5" />
+            </span>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Share your experience</h3>
+              <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">Help other customers by rating this store and adding optional photos.</p>
+            </div>
           </div>
 
           {user?.role === "customer" ? (
-            <form onSubmit={handleFeedbackSubmit} className="p-6 space-y-5">
-              <label className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm dark:border-gray-700 dark:bg-gray-800/60">
-                <input
-                  type="checkbox"
-                  checked={anonymousReview}
-                  onChange={(event) => setAnonymousReview(event.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900 dark:border-gray-600"
-                />
-                <span>
-                  <span className="block font-semibold text-gray-900 dark:text-gray-100">Stay anonymous</span>
-                  <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-                    Your review will show initials instead of your profile photo.
-                  </span>
-                </span>
-              </label>
-
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Rating</label>
-                <div className="flex items-center gap-2">
-                  {[1, 2, 3, 4, 5].map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setRating(value)}
-                      className="rounded-xl p-1.5 text-[#1b1b1b] transition-colors hover:bg-gray-100 dark:text-white dark:hover:bg-white/10"
-                      aria-label={`${value} star rating`}
-                    >
-                      <Star className={`h-7 w-7 ${value <= rating ? "fill-current" : "text-gray-300 dark:text-gray-700"}`} />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Comments</label>
-                <textarea
-                  required
-                  rows={4}
-                  maxLength={500}
-                  value={comment}
-                  onChange={(event) => setComment(event.target.value)}
-                  className="w-full resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 outline-none transition-colors focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  placeholder="Share your experience with this store..."
-                />
-                <p className="text-xs text-gray-400">{comment.length}/500</p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-sm font-semibold text-gray-900 dark:text-gray-200" htmlFor="review-images">Review photos</label>
-                  <span className="text-xs font-medium text-gray-400">{reviewImageFiles.length}/3</span>
-                </div>
-                <label
-                  htmlFor="review-images"
-                  className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-4 text-sm font-semibold text-gray-600 transition hover:border-gray-500 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500 dark:hover:text-white"
-                >
-                  <ImageIcon className="h-5 w-5" />
-                  Add images
-                </label>
-                <input
-                  id="review-images"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(event) => handleReviewImageChange(event.target.files)}
-                  className="sr-only"
-                />
-                {reviewImagePreviews.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {reviewImagePreviews.map((previewUrl, index) => (
-                      <div key={previewUrl} className="relative aspect-square overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
-                        <img src={previewUrl} alt={`Selected review photo ${index + 1}`} className="h-full w-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => removeReviewImage(index)}
-                          className="absolute right-1.5 top-1.5 rounded-full bg-black/70 p-1 text-white transition hover:bg-black"
-                          aria-label={`Remove review photo ${index + 1}`}
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <button
-                  type="submit"
-                  disabled={submittingFeedback || !comment.trim()}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-black disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
-                >
-                  <Send className="h-4 w-4" />
-                  {submittingFeedback ? "Submitting..." : "Submit Review"}
-                </button>
-                {feedbackSent && (
-                  <p className="text-sm font-semibold text-green-600 dark:text-green-400">Review submitted.</p>
-                )}
-              </div>
-            </form>
+            <div className="mt-5">
+              <button type="button" onClick={() => setFeedbackModalOpen(true)} className="inline-flex items-center justify-center rounded-xl bg-gray-900 px-5 py-3 text-sm font-bold text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100">
+                Create feedback
+              </button>
+              {feedbackSent && <p className="mt-3 text-sm font-semibold text-green-600 dark:text-green-400">Review submitted.</p>}
+            </div>
           ) : !user ? (
-            <div className="flex flex-col items-start gap-4 p-6 text-sm text-gray-500 dark:text-gray-400">
+            <div className="mt-5 flex flex-col items-start gap-4 text-sm text-gray-500 dark:text-gray-400">
               <p>Sign in as a customer to rate and review this store.</p>
-              <Link
-                to="/"
-                state={{ authRequired: true, returnTo: window.location.pathname }}
-                className="inline-flex items-center justify-center rounded-xl bg-gray-900 px-5 py-3 font-bold text-white transition-colors hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
-              >
+              <Link to="/" state={{ authRequired: true, returnTo: window.location.pathname }} className="inline-flex items-center justify-center rounded-xl bg-gray-900 px-5 py-3 font-bold text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100">
                 Sign in to leave a review
               </Link>
             </div>
           ) : (
-            <div className="p-6 text-sm text-gray-500 dark:text-gray-400">
-              Reviews can only be submitted from a customer account.
-            </div>
+            <p className="mt-5 text-sm text-gray-500 dark:text-gray-400">Reviews can only be submitted from a customer account.</p>
           )}
         </div>
         </div>

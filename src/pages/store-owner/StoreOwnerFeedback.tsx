@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { BarChart3, CheckCircle2, Clock3, Inbox, MessageSquare, Star, TrendingDown, TrendingUp } from "lucide-react";
+import { BarChart3, CheckCircle2, Clock3, Eye, EyeOff, Inbox, MessageSquare, Star, Trash2, TrendingDown, TrendingUp, UserRound, X } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { Pagination } from "../../components/Pagination";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
+import { moderateStoreReview } from "../../lib/storeReviewModeration";
 
 const REVIEWS_PER_PAGE = 6;
 
@@ -31,6 +32,9 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
   const [filter, setFilter] = useState<"all" | "unanswered" | "low">("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
+  const [moderatingReviewId, setModeratingReviewId] = useState("");
+  const [reviewToRemove, setReviewToRemove] = useState<any | null>(null);
+  const [moderationError, setModerationError] = useState("");
 
   useEffect(() => {
     async function fetchFeedback() {
@@ -85,6 +89,55 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
       alert("Failed to save reply. Please try again.");
     } finally {
       setSavingReplyId("");
+    }
+  };
+
+  const toggleReviewVisibility = async (review: any) => {
+    const action = review.hidden ? "show" : "hide";
+    setModeratingReviewId(review.id);
+    setModerationError("");
+    try {
+      await moderateStoreReview({ action, reviewId: review.id });
+      setFeedback((current) => current.map((item) => (
+        item.id === review.id
+          ? {
+              ...item,
+              hidden: action === "hide",
+              hiddenAt: action === "hide" ? new Date().toISOString() : undefined,
+              hiddenBy: action === "hide" ? "current-store-owner" : undefined,
+            }
+          : item
+      )));
+    } catch (error) {
+      console.error("Failed to change review visibility", error);
+      setModerationError(error instanceof Error ? error.message : "Failed to change review visibility.");
+    } finally {
+      setModeratingReviewId("");
+    }
+  };
+
+  const removeReview = async () => {
+    if (!reviewToRemove) return;
+    const review = reviewToRemove;
+    setModeratingReviewId(review.id);
+    setModerationError("");
+    try {
+      const result = await moderateStoreReview({ action: "remove", reviewId: review.id });
+      setFeedback((current) => current.filter((item) => item.id !== review.id));
+      setReplyDrafts((current) => {
+        const next = { ...current };
+        delete next[review.id];
+        return next;
+      });
+      setReviewToRemove(null);
+      if (result.cleanupFailures) {
+        setModerationError(`Review removed, but ${result.cleanupFailures} image${result.cleanupFailures === 1 ? "" : "s"} could not be cleaned up.`);
+      }
+    } catch (error) {
+      console.error("Failed to remove review", error);
+      setModerationError(error instanceof Error ? error.message : "Failed to remove review.");
+    } finally {
+      setModeratingReviewId("");
     }
   };
 
@@ -221,6 +274,12 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
         resultsId="store-review-results"
         className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-12 text-sm text-gray-900 shadow-sm outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
       />
+
+      {moderationError && (
+        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+          {moderationError}
+        </div>
+      )}
 
       {feedback.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-gray-300 bg-white p-12 text-center dark:border-gray-700 dark:bg-gray-900">
@@ -361,12 +420,17 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 text-sm font-black text-gray-600 dark:bg-white/10 dark:text-gray-200">
                       {!item.anonymous && item.customerAvatarUrl ? (
                         <img src={getDisplayImageUrl(item.customerAvatarUrl)} alt="" loading="lazy" className="h-full w-full object-cover" />
-                      ) : (
+                      ) : !item.anonymous ? (
                         <span>{item.customerInitials || getInitials(item.customerName)}</span>
+                      ) : (
+                        <UserRound className="h-5 w-5" aria-hidden="true" />
                       )}
                     </div>
                     <div>
-                      <p className="font-bold text-gray-900 dark:text-white">{item.customerName || "Customer"}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-bold text-gray-900 dark:text-white">{item.anonymous ? "Anonymous Customer" : item.customerName || "Customer"}</p>
+                        {item.hidden && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950 dark:text-amber-200">Hidden</span>}
+                      </div>
                       {item.publicId && <p className="font-mono text-[10px] font-semibold text-gray-400">{item.publicId}</p>}
                       <p className="text-xs text-gray-500 dark:text-gray-400">{createdAt ? createdAt.toLocaleDateString() : "Date unavailable"}</p>
                     </div>
@@ -409,6 +473,27 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
                     <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-300">{item.ownerReply}</p>
                   </div>
                 )}
+                <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4 dark:border-gray-800">
+                  <button
+                    type="button"
+                    onClick={() => toggleReviewVisibility(item)}
+                    disabled={moderatingReviewId === item.id}
+                    aria-label={`${item.hidden ? "Show" : "Hide"} review from ${item.anonymous ? "Anonymous Customer" : item.customerName || "Customer"}`}
+                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    {item.hidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                    {moderatingReviewId === item.id ? "Updating..." : item.hidden ? "Show review" : "Hide review"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReviewToRemove(item)}
+                    disabled={moderatingReviewId === item.id}
+                    aria-label={`Remove review from ${item.anonymous ? "Anonymous Customer" : item.customerName || "Customer"}`}
+                    className="inline-flex items-center gap-2 rounded-xl border border-red-200 px-3 py-2 text-xs font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-50 dark:border-red-900/60 dark:text-red-300 dark:hover:bg-red-950/30"
+                  >
+                    <Trash2 className="h-4 w-4" /> Remove review
+                  </button>
+                </div>
                 <div className="mt-4">
                   <label htmlFor={`reply-${item.id}`} className="text-sm font-semibold text-gray-900 dark:text-gray-200">
                     {item.ownerReply ? "Edit response" : "Reply to this review"}
@@ -471,6 +556,36 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
           </aside>
         </div>
         </>
+      )}
+
+      {reviewToRemove && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="remove-review-heading"
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !moderatingReviewId) setReviewToRemove(null);
+          }}
+        >
+          <div className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-2xl dark:bg-gray-900">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-red-600 dark:text-red-400">Permanent action</p>
+                <h2 id="remove-review-heading" className="mt-1 text-xl font-bold text-gray-900 dark:text-white">Permanently remove review</h2>
+              </div>
+              <button type="button" disabled={Boolean(moderatingReviewId)} onClick={() => setReviewToRemove(null)} aria-label="Close remove review confirmation" className="rounded-full p-2 text-gray-500 hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-white/10"><X className="h-5 w-5" /></button>
+            </div>
+            <p className="mt-4 text-sm leading-6 text-gray-600 dark:text-gray-300">This deletes the review and its uploaded images. It cannot be undone.</p>
+            <blockquote className="mt-4 line-clamp-3 rounded-2xl bg-gray-50 p-4 text-sm text-gray-700 dark:bg-gray-800 dark:text-gray-300">{reviewToRemove.comment || "No written comment."}</blockquote>
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button type="button" disabled={Boolean(moderatingReviewId)} onClick={() => setReviewToRemove(null)} className="rounded-xl px-4 py-2.5 text-sm font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-800">Cancel</button>
+              <button type="button" disabled={Boolean(moderatingReviewId)} onClick={removeReview} aria-label="Confirm permanent removal" className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50">
+                <Trash2 className="h-4 w-4" /> {moderatingReviewId ? "Removing..." : "Remove permanently"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

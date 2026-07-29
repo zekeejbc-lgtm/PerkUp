@@ -1,14 +1,19 @@
 import { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { collection, query, getDocs } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
-import { Gift, Calendar, Users, Search, Store, MapPin, LayoutGrid, Rows3, Table2, X, Tag } from "lucide-react";
+import { ArrowLeft, ChevronRight, Gift, Calendar, Users, Search, Store, MapPin, LayoutGrid, Rows3, Table2, X, Tag } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { getCompletedPromotionCount, getRemainingPromotionClaims } from "../../lib/promotionProgress";
 import { Pagination } from "../../components/Pagination";
 import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../../lib/dateTime";
 import { ViewModeButton } from "../../components/ViewModeButton";
+import {
+  buildCustomerPromotionStores,
+  filterCustomerPromotionStores,
+  getStorePromotionGroups,
+} from "../../lib/customerPromotionStores";
 
 type PromotionViewMode = "card" | "page" | "table";
 
@@ -17,6 +22,8 @@ const PROMOTIONS_PER_PAGE_BY_VIEW: Record<PromotionViewMode, number> = {
   page: 6,
   table: 10,
 };
+
+const STORES_PER_PAGE = 9;
 
 const viewOptions: Array<{ value: PromotionViewMode; label: string; icon: typeof LayoutGrid }> = [
   { value: "card", label: "Card", icon: LayoutGrid },
@@ -152,6 +159,7 @@ const StoreIdentity = ({ promo, compact = false, linkable = true }: { promo: any
 );
 
 export default function CustomerPromotions() {
+  const { storeId } = useParams();
   const [promotions, setPromotions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -215,35 +223,54 @@ export default function CustomerPromotions() {
     fetchPromotions();
   }, []);
 
-  const filteredPromotions = useMemo(() => {
-    const term = searchQuery.trim().toLowerCase();
-    if (!term) return promotions;
-
-    return promotions.filter((promo) => {
-      const store = promo.store || {};
-      return [
-        promo.title,
-        promo.description,
-        promo.linkedProductName,
-        getPromotionAvailability(promo).label,
-        store.name,
-        store.category,
-        store.address,
-        store.contact,
-      ].some((value) => String(value || "").toLowerCase().includes(term));
-    });
-  }, [promotions, searchQuery]);
-
-  const pageSize = PROMOTIONS_PER_PAGE_BY_VIEW[viewMode];
-  const totalPages = Math.max(1, Math.ceil(filteredPromotions.length / pageSize));
+  const storeSummaries = useMemo(
+    () => buildCustomerPromotionStores(promotions),
+    [promotions],
+  );
+  const selectedStore = useMemo(
+    () => storeSummaries.find((store) => store.id === storeId),
+    [storeId, storeSummaries],
+  );
+  const filteredStores = useMemo(
+    () => filterCustomerPromotionStores(storeSummaries, searchQuery),
+    [searchQuery, storeSummaries],
+  );
+  const promotionGroups = useMemo(
+    () => storeId ? getStorePromotionGroups(promotions, storeId, searchQuery) : [],
+    [promotions, searchQuery, storeId],
+  );
+  const filteredPromotions = useMemo(
+    () => promotionGroups.flatMap((group) => group.promotions),
+    [promotionGroups],
+  );
+  const pageSize = storeId ? PROMOTIONS_PER_PAGE_BY_VIEW[viewMode] : STORES_PER_PAGE;
+  const totalItems = storeId ? filteredPromotions.length : filteredStores.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const paginatedPromotions = filteredPromotions.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
+  const paginatedStores = filteredStores.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+  const paginatedPromotionIds = useMemo(
+    () => new Set(paginatedPromotions.map((promotion) => promotion.id)),
+    [paginatedPromotions],
+  );
+  const paginatedPromotionGroups = useMemo(
+    () => promotionGroups
+      .map((group) => ({
+        ...group,
+        promotions: group.promotions.filter((promotion) => paginatedPromotionIds.has(promotion.id)),
+      }))
+      .filter((group) => group.promotions.length > 0),
+    [paginatedPromotionIds, promotionGroups],
+  );
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, viewMode]);
+  }, [searchQuery, storeId, viewMode]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
@@ -261,9 +288,9 @@ export default function CustomerPromotions() {
   }, [selectedPromotion]);
 
   const openPromotion = (promo: any) => setSelectedPromotion(promo);
-  const renderCardView = () => (
+  const renderCardView = (items: any[]) => (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {paginatedPromotions.map((promo) => {
+      {items.map((promo) => {
         const availability = getPromotionAvailability(promo);
         return (
           <button
@@ -301,9 +328,9 @@ export default function CustomerPromotions() {
     </div>
   );
 
-  const renderPageView = () => (
+  const renderPageView = (items: any[]) => (
     <div className="space-y-3">
-      {paginatedPromotions.map((promo) => (
+      {items.map((promo) => (
         <button
           key={promo.id}
           type="button"
@@ -345,7 +372,7 @@ export default function CustomerPromotions() {
     </div>
   );
 
-  const renderTableView = () => (
+  const renderTableView = (items: any[]) => (
     <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
@@ -359,7 +386,7 @@ export default function CustomerPromotions() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {paginatedPromotions.map((promo) => (
+            {items.map((promo) => (
               <tr
                 key={promo.id}
                 tabIndex={0}
@@ -398,62 +425,164 @@ export default function CustomerPromotions() {
     </div>
   );
 
-  const renderPromotions = () => {
-    if (viewMode === "page") return renderPageView();
-    if (viewMode === "table") return renderTableView();
-    return renderCardView();
+  const renderPromotions = (items: any[]) => {
+    if (viewMode === "page") return renderPageView(items);
+    if (viewMode === "table") return renderTableView(items);
+    return renderCardView(items);
   };
 
   if (loading) return <PageSkeleton variant="promotions" />;
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Promotions & Campaigns</h2>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">Special offers from affiliated stores.</p>
+      {storeId && !selectedStore ? (
+        <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center dark:border-gray-700 dark:bg-gray-900">
+          <Store className="mx-auto h-10 w-10 text-gray-300 dark:text-gray-600" />
+          <h2 className="mt-4 text-xl font-bold text-gray-900 dark:text-white">Store promotions unavailable</h2>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">This store does not have promotions you can view right now.</p>
+          <Link to="/customer/promotions" className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-gray-900 hover:underline dark:text-white">
+            <ArrowLeft className="h-4 w-4" />
+            Back to promotion stores
+          </Link>
         </div>
-        <div className="flex w-full flex-col gap-3 sm:flex-row xl:w-auto">
-          <div className="relative w-full shrink-0 sm:w-72">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
-              type="search"
-              placeholder="Search promotions or stores..."
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              className="block w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-3 text-gray-900 transition-colors placeholder:text-gray-400 focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:ring-white sm:text-sm"
-            />
+      ) : (
+        <>
+          <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
+            <div>
+              {selectedStore && (
+                <Link to="/customer/promotions" className="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-gray-500 transition-colors hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
+                  <ArrowLeft className="h-4 w-4" />
+                  All promotion stores
+                </Link>
+              )}
+              <div className="flex items-center gap-3">
+                {selectedStore && (
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+                    {selectedStore.logoUrl ? (
+                      <img src={getDisplayImageUrl(selectedStore.logoUrl)} alt={`${selectedStore.name} logo`} className="h-full w-full object-cover" />
+                    ) : (
+                      <Store className="h-6 w-6 text-gray-400" />
+                    )}
+                  </div>
+                )}
+                <div>
+                  <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+                    {selectedStore ? selectedStore.name : "Promotions & Campaigns"}
+                  </h2>
+                  <p className="mt-1 text-gray-500 dark:text-gray-400">
+                    {selectedStore
+                      ? `${selectedStore.promotionCount} ${selectedStore.promotionCount === 1 ? "promotion" : "promotions"} from this store.`
+                      : "Choose a store to see its active and archived promotions."}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex w-full flex-col gap-3 sm:flex-row xl:w-auto">
+              <label className="relative w-full shrink-0 sm:w-72">
+                <span className="sr-only">{selectedStore ? "Search this store's promotions" : "Search promotion stores"}</span>
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="search"
+                  placeholder={selectedStore ? "Search this store's promotions..." : "Search promotion stores..."}
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  className="block w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-3 text-gray-900 transition-colors placeholder:text-gray-400 focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:ring-white sm:text-sm"
+                />
+              </label>
+              {selectedStore && (
+                <ViewModeButton value={viewMode} options={viewOptions} onChange={setViewMode} ariaLabel="Change promotion view" />
+              )}
+            </div>
           </div>
-          <ViewModeButton value={viewMode} options={viewOptions} onChange={setViewMode} ariaLabel="Change promotion view" />
-        </div>
-      </div>
 
-      {promotions.length === 0 ? (
+          {promotions.length === 0 ? (
         <div className="flex flex-col items-center rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center dark:border-gray-700 dark:bg-gray-900">
           <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-50 dark:bg-gray-800">
             <Gift className="h-8 w-8 text-gray-300 dark:text-gray-600" />
           </div>
-          <p className="mb-1 font-medium text-gray-500 dark:text-gray-400">No active promotions</p>
+          <p className="mb-1 font-medium text-gray-500 dark:text-gray-400">No promotions yet</p>
           <p className="max-w-sm text-sm text-gray-400 dark:text-gray-500">Check back later for special offers and campaigns from our partners.</p>
         </div>
-      ) : filteredPromotions.length === 0 ? (
+          ) : !selectedStore && filteredStores.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center dark:border-gray-700 dark:bg-gray-900">
-          <p className="font-medium text-gray-500 dark:text-gray-400">No promotions match your search.</p>
+          <p className="font-medium text-gray-500 dark:text-gray-400">No promotion stores match your search.</p>
           <button type="button" onClick={() => setSearchQuery("")} className="mt-3 text-sm font-semibold text-[#1b1b1b] hover:underline dark:text-white">
             Clear search
           </button>
         </div>
-      ) : (
-        renderPromotions()
-      )}
+          ) : selectedStore && filteredPromotions.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center dark:border-gray-700 dark:bg-gray-900">
+          <p className="font-medium text-gray-500 dark:text-gray-400">No promotions from this store match your search.</p>
+          <button type="button" onClick={() => setSearchQuery("")} className="mt-3 text-sm font-semibold text-[#1b1b1b] hover:underline dark:text-white">
+            Clear search
+          </button>
+        </div>
+          ) : selectedStore ? (
+            <div className="space-y-8">
+              {paginatedPromotionGroups.map((group) => (
+                <section key={group.section} aria-labelledby={`promotion-section-${group.section === "Active promotions" ? "active" : "archived"}`}>
+                  <div className="mb-3 flex items-center justify-between gap-4">
+                    <div>
+                      <h3 id={`promotion-section-${group.section === "Active promotions" ? "active" : "archived"}`} className="text-lg font-bold text-gray-900 dark:text-white">
+                        {group.section}
+                      </h3>
+                      <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+                        {group.section === "Active promotions"
+                          ? "Offers currently available from this store."
+                          : "Ended, discontinued, upcoming, or fully claimed offers."}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-600 dark:bg-white/10 dark:text-gray-300">
+                      {promotionGroups.find((item) => item.section === group.section)?.promotions.length || 0}
+                    </span>
+                  </div>
+                  {renderPromotions(group.promotions)}
+                </section>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {paginatedStores.map((storeSummary) => (
+                <Link
+                  key={storeSummary.id}
+                  to={`/customer/promotions/${encodeURIComponent(storeSummary.id)}`}
+                  aria-label={`View promotions from ${storeSummary.name}`}
+                  className="group flex min-h-44 flex-col justify-between rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-gray-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#1b1b1b] dark:border-gray-800 dark:bg-gray-900 dark:hover:border-gray-700 dark:focus:ring-white"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-950">
+                      {storeSummary.logoUrl ? (
+                        <img src={getDisplayImageUrl(storeSummary.logoUrl)} alt={`${storeSummary.name} logo`} loading="lazy" className="h-full w-full object-cover" />
+                      ) : (
+                        <Store className="h-6 w-6 text-gray-400" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate text-lg font-bold text-gray-900 dark:text-white">{storeSummary.name}</h3>
+                      <p className="truncate text-sm text-gray-500 dark:text-gray-400">{storeSummary.category}</p>
+                      {storeSummary.address && <p className="mt-1 line-clamp-1 text-xs text-gray-400 dark:text-gray-500">{storeSummary.address}</p>}
+                    </div>
+                    <ChevronRight className="h-5 w-5 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5 dark:text-gray-600" />
+                  </div>
+                  <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4 text-xs font-bold dark:border-gray-800">
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200">{storeSummary.activeCount} active</span>
+                    <span className="rounded-full bg-gray-100 px-2.5 py-1 text-gray-600 dark:bg-white/10 dark:text-gray-300">{storeSummary.archivedCount} archived</span>
+                    <span className="ml-auto text-gray-400 dark:text-gray-500">{storeSummary.promotionCount} total</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
 
-      <Pagination
-        page={currentPage}
-        pageSize={pageSize}
-        totalItems={filteredPromotions.length}
-        itemLabel="promotions"
-        onPageChange={setCurrentPage}
-      />
+          <Pagination
+            page={currentPage}
+            pageSize={pageSize}
+            totalItems={totalItems}
+            itemLabel={selectedStore ? "promotions" : "stores"}
+            onPageChange={setCurrentPage}
+          />
+        </>
+      )}
 
       {selectedPromotion && (
         <PromotionDetailsModal promo={selectedPromotion} onClose={() => setSelectedPromotion(null)} />

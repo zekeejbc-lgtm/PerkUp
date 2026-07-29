@@ -111,6 +111,11 @@
   100% { transform: translateX(-50%); }
 }
 
+@keyframes review-montage-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-50% - 0.5rem)); }
+}
+
 @keyframes skeleton-shine {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
@@ -141,13 +146,23 @@
 
 @media (prefers-reduced-motion: reduce) {
   .skeleton-shimmer,
-  .animate-scroll {
+  .animate-scroll,
+  .review-montage-track {
     animation: none;
   }
 }
 
 .animate-scroll {
   animation: scroll 40s linear infinite;
+}
+
+.review-montage-track {
+  animation: review-montage-scroll 55s linear infinite;
+}
+
+.review-montage:hover .review-montage-track,
+.review-montage:focus-within .review-montage-track {
+  animation-play-state: paused;
 }
 
 .animation-delay-2000 {

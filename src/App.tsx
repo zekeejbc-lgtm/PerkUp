@@ -21,6 +21,7 @@ const LandingPage = lazy(() => import("./pages/LandingPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const StoresPage = lazy(() => import("./pages/StoresPage"));
 const StorePage = lazy(() => import("./pages/StorePage"));
+const StoreReviewsPage = lazy(() => import("./pages/StoreReviewsPage"));
 const StoreProductsPage = lazy(() => import("./pages/StoreProductsPage"));
 const StorePromotionsPage = lazy(() => import("./pages/StorePromotionsPage"));
 const CustomerDashboard = lazy(() => import("./pages/CustomerDashboard"));
@@ -438,6 +439,7 @@ export default function App() {
       <Route path="/reset-password" element={<Suspense fallback={<PageSkeleton variant="auth" />}><ResetPasswordPage /></Suspense>} />
       <Route path="/stores" element={<Suspense fallback={<PageSkeleton variant="directory" />}><StoresPage /></Suspense>} />
       <Route path="/store/:storeId" element={<Suspense fallback={<PageSkeleton variant="store" />}><StorePage /></Suspense>} />
+      <Route path="/store/:storeId/reviews" element={<Suspense fallback={<PageSkeleton variant="content" />}><StoreReviewsPage /></Suspense>} />
       <Route path="/store/:storeId/products" element={<Suspense fallback={<PageSkeleton variant="products" />}><StoreProductsPage /></Suspense>} />
       <Route path="/store/:storeId/promotions" element={<Suspense fallback={<PageSkeleton variant="promotions" />}><StorePromotionsPage /></Suspense>} />
       <Route path="/privacy" element={<Suspense fallback={<PageSkeleton variant="content" />}><PrivacyPolicyPage /></Suspense>} />

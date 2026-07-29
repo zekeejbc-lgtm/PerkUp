@@ -6,6 +6,31 @@ update public.users
 set data = data - 'lifetimeStars'
 where data ? 'lifetimeStars';
 
+create or replace function private.strip_lifetime_stars()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  new.data := coalesce(new.data, '{}'::jsonb) - 'lifetimeStars';
+  return new;
+end;
+$$;
+
+revoke all on function private.strip_lifetime_stars()
+  from public, anon, authenticated;
+
+drop trigger if exists customers_strip_lifetime_stars on public.customers;
+create trigger customers_strip_lifetime_stars
+before insert or update of data on public.customers
+for each row execute function private.strip_lifetime_stars();
+
+drop trigger if exists users_strip_lifetime_stars on public.users;
+create trigger users_strip_lifetime_stars
+before insert or update of data on public.users
+for each row execute function private.strip_lifetime_stars();
+
 drop policy if exists "users scoped update" on public.users;
 create policy "users scoped update"
 on public.users
@@ -24,6 +49,8 @@ with check (
     and coalesce(data->'forcePasswordReset', 'false'::jsonb) = coalesce((select private.current_user_data())->'forcePasswordReset', 'false'::jsonb)
   )
 );
+
+drop function if exists public.increment_loyalty_totals(text, text, integer);
 
 create or replace function public.increment_loyalty_totals(
   p_customer_id text,

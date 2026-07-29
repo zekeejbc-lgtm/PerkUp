@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { sessionNeedsMfa } from "../_shared/auth.ts";
 import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
+import { withoutLifetimeStars } from "../_shared/loyalty-data.ts";
 
 const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
 const RESERVED_USERNAMES = new Set([
@@ -138,7 +139,7 @@ Deno.serve(async (req) => {
     };
 
     const mergedUser = {
-      ...existingUser,
+      ...withoutLifetimeStars(existingUser),
       ...payload,
       role: "customer",
       email: existingUser.email || authData.user.email || "",
@@ -156,7 +157,7 @@ Deno.serve(async (req) => {
     if (customerReadError) throw customerReadError;
 
     const mergedCustomer = {
-      ...((customerRow?.data || {}) as Record<string, unknown>),
+      ...withoutLifetimeStars(customerRow?.data),
       ...payload,
       userId: authData.user.id,
     };
