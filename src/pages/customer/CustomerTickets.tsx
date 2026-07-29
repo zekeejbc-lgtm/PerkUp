@@ -169,7 +169,7 @@ export default function CustomerTickets() {
       });
 
       const storeIds = Array.from(new Set(next.map((ticket) => ticket.storeId).filter(Boolean)));
-      const metadata = await Promise.all(storeIds.map(async (storeId) => {
+      const metadata = await Promise.all(storeIds.map(async (storeId): Promise<TicketStoreMetadata | null> => {
         try {
           const snapshot = await getDoc(doc(db, "stores", storeId));
           if (!snapshot.exists()) return null;

@@ -85,7 +85,7 @@ export default function CustomerDashboard() {
     location.pathname.startsWith('/customer/cards') ? 'cards' :
     location.pathname === '/customer/stores' ? 'map-list' :
     location.pathname === '/customer/promotions' ? 'promotions' :
-    location.pathname === '/customer/tickets' ? 'tickets' :
+    location.pathname.startsWith('/customer/tickets') ? 'tickets' :
     location.pathname === '/customer/profile' ? 'form' :
     'overview';
 
@@ -149,6 +149,7 @@ export default function CustomerDashboard() {
             <Route path="/stores" element={<CustomerStores />} />
             <Route path="/promotions" element={<CustomerPromotions />} />
             <Route path="/tickets" element={<CustomerTickets />} />
+            <Route path="/tickets/:storeId" element={<CustomerTickets />} />
             <Route path="/profile" element={<CustomerProfile />} />
           </Routes>
         </Suspense>
