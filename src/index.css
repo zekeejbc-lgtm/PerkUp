@@ -42,7 +42,7 @@
   --scrollbar-thumb: #b7bdc7;
   --scrollbar-thumb-hover: #8d96a3;
   --scrollbar-thumb-active: #687180;
-  --scrollbar-track: #f2f3f5;
+  --scrollbar-arrow: #7b8490;
   color-scheme: light;
   background-color: #ffffff;
   color: #1b1b1b;
@@ -52,44 +52,85 @@
   --scrollbar-thumb: #555b65;
   --scrollbar-thumb-hover: #737b87;
   --scrollbar-thumb-active: #939ba6;
-  --scrollbar-track: #24262a;
+  --scrollbar-arrow: #858d98;
   color-scheme: dark;
   background-color: #1b1b1b;
   color: #ffffff;
 }
 
-/* A single theme-aware scrollbar for the page and every scrollable panel. */
+/* One transparent, activity-aware scrollbar for the page and every scrollable panel. */
 * {
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-color: transparent transparent;
   scrollbar-width: thin;
 }
 
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
+  background: transparent;
 }
 
-*::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track-piece,
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 *::-webkit-scrollbar-thumb {
   min-height: 32px;
-  border: 2px solid var(--scrollbar-track);
+  border: 2px solid transparent;
   border-radius: 999px;
+  background-color: transparent;
+  background-clip: padding-box;
+  transition: background-color 180ms ease;
+}
+
+*::-webkit-scrollbar-button:single-button {
+  display: block;
+  width: 10px;
+  height: 11px;
+  background-color: transparent;
+  transition: background-color 180ms ease;
+}
+
+:is(.scrollbars-visible, .scrollbars-visible *) {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+:is(.scrollbars-visible, .scrollbars-visible *)::-webkit-scrollbar-thumb {
   background-color: var(--scrollbar-thumb);
 }
 
-*::-webkit-scrollbar-thumb:hover {
+:is(.scrollbars-visible, .scrollbars-visible *)::-webkit-scrollbar-thumb:hover {
   background-color: var(--scrollbar-thumb-hover);
 }
 
-*::-webkit-scrollbar-thumb:active {
+:is(.scrollbars-visible, .scrollbars-visible *)::-webkit-scrollbar-thumb:active {
   background-color: var(--scrollbar-thumb-active);
 }
 
-*::-webkit-scrollbar-corner {
-  background: var(--scrollbar-track);
+:is(.scrollbars-visible, .scrollbars-visible *)::-webkit-scrollbar-button:single-button {
+  background-color: var(--scrollbar-arrow);
+}
+
+:is(.scrollbars-visible, .scrollbars-visible *)::-webkit-scrollbar-button:single-button:vertical:decrement {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 8 6 4l4 4' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 9px 9px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 8 6 4l4 4' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 9px 9px no-repeat;
+}
+
+:is(.scrollbars-visible, .scrollbars-visible *)::-webkit-scrollbar-button:single-button:vertical:increment {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='m2 4 4 4 4-4' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 9px 9px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='m2 4 4 4 4-4' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 9px 9px no-repeat;
+}
+
+:is(.scrollbars-visible, .scrollbars-visible *)::-webkit-scrollbar-button:single-button:horizontal:decrement {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M8 2 4 6l4 4' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 9px 9px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M8 2 4 6l4 4' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 9px 9px no-repeat;
+}
+
+:is(.scrollbars-visible, .scrollbars-visible *)::-webkit-scrollbar-button:single-button:horizontal:increment {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='m4 2 4 4-4 4' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 9px 9px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='m4 2 4 4-4 4' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 9px 9px no-repeat;
 }
 
 @layer base {

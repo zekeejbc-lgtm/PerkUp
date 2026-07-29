@@ -380,13 +380,13 @@ export function PageSkeleton({ variant = "dashboard" }: { variant?: PageSkeleton
 
 export function DashboardShellSkeleton({ children, navigationItems = 5 }: { children?: ReactNode; navigationItems?: number }) {
   return (
-    <div className="flex min-h-0 w-full flex-col gap-8 pb-24 md:h-full md:flex-row md:pb-0">
-      <aside className="hidden w-64 shrink-0 space-y-4 overflow-y-auto overscroll-contain md:block">
+    <div className="flex w-full flex-col gap-8 pb-24 md:flex-row md:pb-0">
+      <aside className="sticky top-24 hidden max-h-[calc(100dvh-7rem)] w-64 shrink-0 space-y-4 overflow-y-auto overscroll-contain md:block">
         <div className="flex items-center justify-between"><SkeletonBlock className="h-5 w-24 rounded-lg" /><SkeletonBlock className="h-9 w-9 rounded-xl" /></div>
         <SkeletonBlock className="h-16 rounded-2xl" />
         {Array.from({ length: navigationItems }, (_, item) => <SkeletonBlock key={item} className="h-12 rounded-2xl" />)}
       </aside>
-      <div className="min-w-0 flex-1 md:min-h-0 md:overflow-y-auto md:overscroll-contain">{children ?? <PageSkeleton />}</div>
+      <div className="min-w-0 flex-1">{children ?? <PageSkeleton />}</div>
     </div>
   );
 }

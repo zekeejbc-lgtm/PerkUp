@@ -101,8 +101,8 @@ export default function AdminDashboard() {
     'table';
 
   return (
-    <div className="relative flex min-h-0 w-full flex-col gap-8 pb-24 md:h-full md:flex-row md:pb-0">
-      <aside className={`hidden md:flex min-h-0 flex-col shrink-0 overflow-y-auto overscroll-contain z-10 transition-all duration-300 ease-in-out [scrollbar-gutter:stable] ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
+    <div className="flex min-h-0 flex-col gap-8 pb-24 md:flex-row md:pb-0 w-full relative">
+      <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 max-h-[calc(100dvh-7rem)] overflow-y-auto overscroll-contain z-10 transition-all duration-300 ease-in-out [scrollbar-gutter:stable] ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
         <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} mb-2`}>
           {isSidebarOpen && <span className="font-bold text-gray-900 dark:text-white px-2 text-xs tracking-widest uppercase">Navigation</span>}
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 rounded-xl text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
@@ -157,7 +157,7 @@ export default function AdminDashboard() {
         }))}
       />
 
-      <div key={location.pathname} className="min-w-0 flex-1 rounded-[2rem] border border-gray-200 bg-white p-4 shadow-sm transition-colors dark:border-gray-800 dark:bg-gray-900 sm:p-6 md:min-h-0 md:overflow-y-auto md:overscroll-contain md:p-8 md:[scrollbar-gutter:stable]">
+      <div className="flex-1 min-w-0 bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 p-4 sm:p-6 md:p-8 shadow-sm transition-colors">
         {isDemoAdmin && !isAccountPage && (
           <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-medium text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
             Demo administrator sandbox preview. Data is limited to this demo tenant and management actions are read-only.
