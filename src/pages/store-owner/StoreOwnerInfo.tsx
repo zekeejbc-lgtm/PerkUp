@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { doc, updateDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Save, MapPin, Clock, Image as ImageIcon, CheckCircle2, Upload, X, Store, BadgeCheck, Pencil, ExternalLink, Eye } from "lucide-react";
+import { Save, MapPin, Clock, Image as ImageIcon, CheckCircle2, Upload, X, Store, BadgeCheck, Pencil, ExternalLink, Eye, Share2 } from "lucide-react";
 import { MapContainer, Marker, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -12,6 +12,8 @@ import { formatStoreHours } from "../../lib/dateTime";
 import { STAMP_COLOR_OPTIONS, STAMP_ICON_OPTIONS, StoreStamp } from "../../components/StoreStamp";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { getSubscriptionGalleryPhotoLimit, SubscriptionDependencies } from "../../lib/subscriptionBilling";
+import { StoreSocialLinksEditor } from "../../components/StoreSocialLinks";
+import { normalizeSocialLinks } from "../../lib/storeSocialLinks";
 
 function LocationPicker({ setPosition }: { position: [number, number], setPosition: (p: [number, number]) => void }) {
   useMapEvents({
@@ -28,6 +30,9 @@ const getStoreFormData = (store: any) => ({
   category: store?.category || "",
   contact: store?.contact || "",
   website: store?.website || "",
+  socialLinks: Array.isArray(store?.socialLinks)
+    ? store.socialLinks.map((link: any) => ({ url: String(link?.url ?? "") }))
+    : [],
   address: store?.address || "",
   latitude: store?.lat ?? store?.latitude ?? "",
   longitude: store?.lng ?? store?.longitude ?? "",
@@ -100,6 +105,12 @@ export default function StoreOwnerInfo({ store, setStore, subscriptionDependenci
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!store?.id) return;
+    let socialLinks;
+    try {
+      socialLinks = normalizeSocialLinks(formData.socialLinks);
+    } catch {
+      return;
+    }
     setSaving(true);
     setSaved(false);
     setUploadProgress("");
@@ -138,6 +149,7 @@ export default function StoreOwnerInfo({ store, setStore, subscriptionDependenci
       );
       const nextStoreData = {
         ...formData,
+        socialLinks,
         logoUrl,
         menuUrl,
         images,
@@ -357,6 +369,21 @@ export default function StoreOwnerInfo({ store, setStore, subscriptionDependenci
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white">
+              <Share2 className="h-5 w-5 text-[#1b1b1b] dark:text-white" /> Social Media
+            </h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              These links appear only on this branch&apos;s customer page. The platform logo is detected automatically.
+            </p>
+          </div>
+          <StoreSocialLinksEditor
+            value={formData.socialLinks}
+            onChange={(socialLinks) => setFormData({ ...formData, socialLinks })}
+          />
         </div>
 
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm">
