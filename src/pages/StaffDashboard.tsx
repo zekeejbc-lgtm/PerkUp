@@ -113,8 +113,8 @@ export default function StaffDashboard() {
     {subscriptionStore && <SubscriptionAccessBanner store={subscriptionStore} role="staff" />}
     <div className="flex flex-col md:flex-row gap-8 pb-24 md:pb-0 w-full relative">
       {/* Desktop Sidebar Navigation */}
-      <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 max-h-[calc(100dvh-7rem)] overflow-y-auto overscroll-contain z-10 transition-all duration-300 ease-in-out [scrollbar-gutter:stable] ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
-        <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} mb-2`}>
+      <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 max-h-[calc(100dvh-7rem)] overflow-x-hidden overflow-y-auto overscroll-contain z-10 transition-all duration-300 ease-in-out [scrollbar-gutter:stable] ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
+        <div className={`sticky top-0 z-20 flex items-center bg-white/95 py-1 backdrop-blur-sm dark:bg-[#1b1b1b]/95 ${isSidebarOpen ? 'justify-between' : 'justify-center'} mb-2`}>
             {isSidebarOpen && <span className="font-bold text-gray-900 dark:text-white px-2 text-xs tracking-widest uppercase">Navigation</span>}
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 rounded-xl text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                <Menu className="w-5 h-5" />
