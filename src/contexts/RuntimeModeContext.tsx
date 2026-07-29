@@ -11,6 +11,8 @@ export type RuntimeConfig = {
   maintenanceReason: string;
   maintenanceDetails: string;
   maintenanceStartedAt: string | null;
+  subscriptionUpgradesEnabled: boolean;
+  subscriptionUpgradesChangedAt: string | null;
   modeChangedAt: string;
   updatedAt: string;
 };
@@ -23,6 +25,8 @@ const unavailableConfig: RuntimeConfig = {
   maintenanceReason: "We could not verify the current system status. Access is paused as a safety precaution.",
   maintenanceDetails: "Please try again shortly. An auditor can use the recovery option below.",
   maintenanceStartedAt: null,
+  subscriptionUpgradesEnabled: false,
+  subscriptionUpgradesChangedAt: null,
   modeChangedAt: new Date(0).toISOString(),
   updatedAt: new Date(0).toISOString(),
 };
@@ -44,6 +48,10 @@ const mapRuntimeConfig = (row: Record<string, unknown>): RuntimeConfig => ({
   maintenanceReason: String(row.maintenance_reason || "Perk is temporarily unavailable."),
   maintenanceDetails: String(row.maintenance_details || ""),
   maintenanceStartedAt: row.maintenance_started_at ? String(row.maintenance_started_at) : null,
+  subscriptionUpgradesEnabled: row.subscription_upgrades_enabled === true,
+  subscriptionUpgradesChangedAt: row.subscription_upgrades_changed_at
+    ? String(row.subscription_upgrades_changed_at)
+    : null,
   modeChangedAt: String(row.mode_changed_at || new Date().toISOString()),
   updatedAt: String(row.updated_at || new Date().toISOString()),
 });
@@ -56,7 +64,7 @@ export function RuntimeModeProvider({ children }: { children: ReactNode }) {
   const refreshRuntimeMode = useCallback(async () => {
     const { data, error } = await supabase
       .from("system_runtime_config")
-      .select("id,mode,mode_before_maintenance,maintenance_title,maintenance_reason,maintenance_details,maintenance_started_at,mode_changed_at,updated_at")
+      .select("id,mode,mode_before_maintenance,maintenance_title,maintenance_reason,maintenance_details,maintenance_started_at,subscription_upgrades_enabled,subscription_upgrades_changed_at,mode_changed_at,updated_at")
       .eq("id", "global")
       .single();
     if (error || !data) {

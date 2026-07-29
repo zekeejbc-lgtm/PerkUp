@@ -89,7 +89,7 @@ export function SubscriptionUpgradeTermsModal({
     setAccepted(false);
     setSubmittingLocally(false);
     submissionStartedRef.current = false;
-  }, [isOpen, quote?.quoteFingerprint]);
+  }, [isOpen, quote?.quoteFingerprint, quote?.quoteToken]);
 
   useEffect(() => {
     if (!isOpen) return;

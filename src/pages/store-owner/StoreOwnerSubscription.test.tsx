@@ -152,6 +152,7 @@ const quote: SubscriptionUpgradeQuote = {
   quotedAt: "2099-07-20T00:00:00.000Z",
   expiresAt: "2099-07-20T00:15:00.000Z",
   quoteFingerprint: "a".repeat(64),
+  quoteToken: "signed-quote-token",
 };
 
 const pendingChange = (
@@ -250,6 +251,7 @@ describe("StoreOwnerSubscription upgrade workflow", () => {
       termsVersion: "subscription-upgrade-v1",
       termsAccepted: true,
       quoteFingerprint: "a".repeat(64),
+      quoteToken: "signed-quote-token",
     }));
     expect(api.getSubscriptionUpgradeOptions).toHaveBeenCalledTimes(2);
     expect(await screen.findByText(/Premium is scheduled/i)).toBeInTheDocument();
@@ -257,7 +259,12 @@ describe("StoreOwnerSubscription upgrade workflow", () => {
 
   it("allows cancellation while scheduled and refreshes the pending state", async () => {
     api.getSubscriptionUpgradeOptions
-      .mockResolvedValueOnce(options({ eligiblePlans: [], pendingChange: pendingChange("scheduled") }))
+      .mockResolvedValueOnce(options({
+        enabled: false,
+        eligiblePlans: [],
+        pendingChange: pendingChange("scheduled"),
+        blockedReason: "Subscription upgrades are currently unavailable.",
+      }))
       .mockResolvedValueOnce(options());
     const user = userEvent.setup();
     render(<StoreOwnerSubscription stores={[store]} />);

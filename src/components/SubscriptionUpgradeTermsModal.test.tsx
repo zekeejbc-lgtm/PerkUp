@@ -61,6 +61,7 @@ const quote = (
   quotedAt: "2099-07-20T00:00:00.000Z",
   expiresAt: "2099-07-20T00:15:00.000Z",
   quoteFingerprint: "a".repeat(64),
+  quoteToken: "signed-quote-token",
   ...overrides,
 });
 
@@ -169,6 +170,27 @@ describe("SubscriptionUpgradeTermsModal", () => {
 
     expect(screen.getByRole("checkbox")).not.toBeChecked();
     expect(screen.getByRole("checkbox")).toBeDisabled();
+  });
+
+  it("requires a fresh terms review when a new token has the same fingerprint", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<SubscriptionUpgradeTermsModal {...defaultProps} />);
+    reachTermsEnd();
+    await user.click(screen.getByRole("checkbox"));
+    expect(screen.getByRole("button", { name: /Confirm upgrade/i })).toBeEnabled();
+
+    rerender(<SubscriptionUpgradeTermsModal
+      {...defaultProps}
+      quote={quote({
+        quoteToken: "refreshed-signed-quote-token",
+        quotedAt: "2099-07-20T00:05:00.000Z",
+        expiresAt: "2099-07-20T00:20:00.000Z",
+      })}
+    />);
+
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Confirm upgrade/i })).toBeDisabled();
   });
 
   it("blocks an expired quote and offers refresh", async () => {

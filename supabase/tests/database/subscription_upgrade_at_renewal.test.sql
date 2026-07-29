@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(33);
+select plan(40);
 
 select has_table(
   'public',
@@ -48,6 +48,33 @@ select has_function(
   'public',
   'cancel_subscription_upgrade',
   'pending subscription upgrades can be cancelled'
+);
+
+select ok(
+  not has_table_privilege(
+    'authenticated',
+    'public.system_runtime_config',
+    'UPDATE'
+  ),
+  'authenticated browsers cannot update runtime controls'
+);
+
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.confirm_subscription_upgrade(text,text,jsonb,jsonb,integer,integer,timestamptz,timestamptz,text,text,timestamptz,uuid,text,timestamptz)',
+    'EXECUTE'
+  ),
+  'authenticated browsers cannot execute upgrade confirmation'
+);
+
+select ok(
+  has_function_privilege(
+    'service_role',
+    'public.confirm_subscription_upgrade(text,text,jsonb,jsonb,integer,integer,timestamptz,timestamptz,text,text,timestamptz,uuid,text,timestamptz)',
+    'EXECUTE'
+  ),
+  'only the service backend receives upgrade confirmation execution'
 );
 
 select policies_are(
@@ -124,6 +151,54 @@ insert into public.billing_subscriptions(
 
 select throws_ok(
   $$select public.confirm_subscription_upgrade(
+    'upgrade-test-store-a',
+    '00000000-0000-0000-0000-0000000000a1',
+    '{"id":"standard","name":"Standard","order":0,"priceCentavos":99900,"interval":"month","intervalDays":30,"features":["Basic analytics"],"dependencies":{"customerLimit":1000,"staffLimit":1,"branchLimit":1,"galleryPhotoLimit":3}}',
+    '{"id":"premium","name":"Premium","order":1,"priceCentavos":199900,"interval":"month","intervalDays":30,"features":["Basic analytics","Priority support"],"dependencies":{"customerLimit":10000,"staffLimit":5,"branchLimit":3,"galleryPhotoLimit":6}}',
+    99900,
+    199900,
+    '2026-07-31T00:00:00Z',
+    '2026-08-30T00:00:00Z',
+    'subscription-upgrade-v1',
+    'fingerprint-disabled-0001',
+    (select updated_at from public.settings where id = 'subscriptions'),
+    null,
+    null,
+    '2026-07-20T00:00:00Z'
+  )$$,
+  '23514',
+  null,
+  'the database confirmation path fails closed while upgrades are disabled'
+);
+
+update public.system_runtime_config
+set subscription_upgrades_enabled = true
+where id = 'global';
+
+select throws_ok(
+  $$select public.confirm_subscription_upgrade(
+    'upgrade-test-store-a',
+    '00000000-0000-0000-0000-0000000000a1',
+    '{"id":"standard","name":"Standard","order":0,"priceCentavos":99900,"interval":"month","intervalDays":30,"features":["Basic analytics"],"dependencies":{"customerLimit":1000,"staffLimit":1,"branchLimit":1,"galleryPhotoLimit":3}}',
+    '{"id":"premium","name":"Premium","order":1,"priceCentavos":199900,"interval":"month","intervalDays":30,"features":["Basic analytics","Priority support"],"dependencies":{"customerLimit":10000,"staffLimit":5,"branchLimit":3,"galleryPhotoLimit":6}}',
+    99900,
+    199900,
+    '2026-07-31T00:00:00Z',
+    '2026-08-30T00:00:00Z',
+    'subscription-upgrade-v1',
+    'fingerprint-stale-catalog-0001',
+    (select updated_at - interval '1 second' from public.settings where id = 'subscriptions'),
+    null,
+    null,
+    '2026-07-20T00:00:00Z'
+  )$$,
+  '40001',
+  null,
+  'a stale plan catalog version cannot be confirmed'
+);
+
+select throws_ok(
+  $$select public.confirm_subscription_upgrade(
     'upgrade-test-store-b',
     '00000000-0000-0000-0000-0000000000b1',
     '{"id":"standard","name":"Standard","order":0,"priceCentavos":99900,"interval":"month","intervalDays":30,"features":["Basic analytics"],"dependencies":{"customerLimit":1000,"staffLimit":1,"branchLimit":1,"galleryPhotoLimit":3}}',
@@ -134,6 +209,9 @@ select throws_ok(
     '2026-08-30T00:00:00Z',
     'subscription-upgrade-v1',
     'fingerprint-equal-price-0001',
+    (select updated_at from public.settings where id = 'subscriptions'),
+    null,
+    null,
     '2026-07-20T00:00:00Z'
   )$$,
   '22023',
@@ -157,6 +235,9 @@ select throws_ok(
     '2026-08-30T00:00:00Z',
     'subscription-upgrade-v1',
     'fingerprint-frozen-store-0001',
+    (select updated_at from public.settings where id = 'subscriptions'),
+    null,
+    null,
     '2026-07-20T00:00:00Z'
   )$$,
   '23514',
@@ -180,6 +261,9 @@ select lives_ok(
     '2026-08-30T00:00:00Z',
     'subscription-upgrade-v1',
     'fingerprint-test-a-0001',
+    (select updated_at from public.settings where id = 'subscriptions'),
+    null,
+    null,
     '2026-07-20T00:00:00Z'
   )$$,
   'an upgrade can target the upcoming renewal before its invoice exists'
@@ -207,6 +291,9 @@ select throws_ok(
     '2026-08-30T00:00:00Z',
     'subscription-upgrade-v1',
     'fingerprint-duplicate-0001',
+    (select updated_at from public.settings where id = 'subscriptions'),
+    null,
+    null,
     '2026-07-20T00:00:00Z'
   )$$,
   '23505',
@@ -278,6 +365,10 @@ select is(
   'invoice insertion locks the matching scheduled upgrade'
 );
 
+update public.system_runtime_config
+set subscription_upgrades_enabled = false
+where id = 'global';
+
 update public.billing_invoices
 set status = 'paid',
     paid_at = '2026-07-31T00:00:00Z'
@@ -290,7 +381,7 @@ select is(
     where id = '10000000-0000-0000-0000-000000000001'
   ),
   'premium',
-  'paid target renewal applies the normalized active plan'
+  'paid target renewal applies the normalized active plan while upgrades are disabled'
 );
 
 select is(
@@ -337,6 +428,10 @@ select is(
   'a repeated paid update does not queue a duplicate notification'
 );
 
+update public.system_runtime_config
+set subscription_upgrades_enabled = true
+where id = 'global';
+
 insert into public.billing_invoices(
   id,
   subscription_id,
@@ -381,6 +476,50 @@ select is(
   'an already-issued renewal keeps its original amount'
 );
 
+select throws_ok(
+  $$select public.confirm_subscription_upgrade(
+    'upgrade-test-store-b',
+    '00000000-0000-0000-0000-0000000000b1',
+    '{"id":"standard","name":"Standard","order":0,"priceCentavos":99900,"interval":"month","intervalDays":30,"features":["Basic analytics"],"dependencies":{"customerLimit":1000,"staffLimit":1,"branchLimit":1,"galleryPhotoLimit":3}}',
+    '{"id":"premium","name":"Premium","order":1,"priceCentavos":199900,"interval":"month","intervalDays":30,"features":["Basic analytics","Priority support"],"dependencies":{"customerLimit":10000,"staffLimit":5,"branchLimit":3,"galleryPhotoLimit":6}}',
+    99900,
+    199900,
+    '2026-08-30T00:00:00Z',
+    '2026-09-29T00:00:00Z',
+    'subscription-upgrade-v1',
+    'fingerprint-stale-invoice-id-0001',
+    (select updated_at from public.settings where id = 'subscriptions'),
+    '20000000-0000-0000-0000-000000000099',
+    'link_created',
+    '2026-07-20T00:00:00Z'
+  )$$,
+  '40001',
+  null,
+  'a changed renewal invoice identity cannot be confirmed'
+);
+
+select throws_ok(
+  $$select public.confirm_subscription_upgrade(
+    'upgrade-test-store-b',
+    '00000000-0000-0000-0000-0000000000b1',
+    '{"id":"standard","name":"Standard","order":0,"priceCentavos":99900,"interval":"month","intervalDays":30,"features":["Basic analytics"],"dependencies":{"customerLimit":1000,"staffLimit":1,"branchLimit":1,"galleryPhotoLimit":3}}',
+    '{"id":"premium","name":"Premium","order":1,"priceCentavos":199900,"interval":"month","intervalDays":30,"features":["Basic analytics","Priority support"],"dependencies":{"customerLimit":10000,"staffLimit":5,"branchLimit":3,"galleryPhotoLimit":6}}',
+    99900,
+    199900,
+    '2026-08-30T00:00:00Z',
+    '2026-09-29T00:00:00Z',
+    'subscription-upgrade-v1',
+    'fingerprint-stale-invoice-0001',
+    (select updated_at from public.settings where id = 'subscriptions'),
+    '20000000-0000-0000-0000-000000000002',
+    'pending',
+    '2026-07-20T00:00:00Z'
+  )$$,
+  '40001',
+  null,
+  'a changed renewal invoice status cannot be confirmed'
+);
+
 select lives_ok(
   $$select public.confirm_subscription_upgrade(
     'upgrade-test-store-b',
@@ -393,6 +532,9 @@ select lives_ok(
     '2026-09-29T00:00:00Z',
     'subscription-upgrade-v1',
     'fingerprint-test-b-0001',
+    (select updated_at from public.settings where id = 'subscriptions'),
+    '20000000-0000-0000-0000-000000000002',
+    'link_created',
     '2026-07-20T00:00:00Z'
   )$$,
   'an already-issued renewal moves the upgrade to the following renewal'
@@ -428,6 +570,10 @@ select is(
   'the already-issued renewal is never retroactively attached to the upgrade'
 );
 
+update public.system_runtime_config
+set subscription_upgrades_enabled = false
+where id = 'global';
+
 select lives_ok(
   $$select public.cancel_subscription_upgrade(
     (
@@ -440,7 +586,7 @@ select lives_ok(
     'Client cancelled the scheduled upgrade.',
     '2026-07-21T00:00:00Z'
   )$$,
-  'an owner can cancel an upgrade before it is attached to an invoice'
+  'an owner can cancel an upgrade while new upgrades are disabled'
 );
 
 select is(

@@ -42,6 +42,7 @@ export type SubscriptionUpgradeQuote = {
   quotedAt: string;
   expiresAt: string;
   quoteFingerprint: string;
+  quoteToken: string;
 };
 
 export type SubscriptionPlanChangeSummary = {

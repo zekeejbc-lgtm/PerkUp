@@ -19,6 +19,7 @@ export type ConfirmUpgradeInput = {
   termsVersion: string;
   termsAccepted: true;
   quoteFingerprint: string;
+  quoteToken: string;
 };
 
 export async function getSubscriptionUpgradeOptions(
@@ -52,6 +53,7 @@ export async function confirmSubscriptionUpgrade(
     termsVersion: input.termsVersion,
     termsAccepted: input.termsAccepted,
     quoteFingerprint: input.quoteFingerprint,
+    quoteToken: input.quoteToken,
   });
   return response.change;
 }

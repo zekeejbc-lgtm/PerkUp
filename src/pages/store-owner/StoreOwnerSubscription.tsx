@@ -101,12 +101,8 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
   const manualRenewal = billingSubscription?.renewal_mode === "manual";
   const currentPeriodEnd = billingSubscription?.current_period_end || subscriptionStore?.subscriptionEnd;
   const currentPeriodExpired = Boolean(currentPeriodEnd) && new Date(currentPeriodEnd).getTime() <= Date.now();
-  const upgradeUiEnabled =
-    import.meta.env.VITE_SUBSCRIPTION_UPGRADES_ENABLED === "true"
-    || import.meta.env.MODE === "test";
-
   const refreshUpgradeOptions = useCallback(async () => {
-    if (!upgradeUiEnabled || !subscriptionStore?.id) {
+    if (!subscriptionStore?.id) {
       setUpgradeOptions(null);
       return;
     }
@@ -121,7 +117,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
     } finally {
       setUpgradeLoading(false);
     }
-  }, [subscriptionStore?.id, upgradeUiEnabled]);
+  }, [subscriptionStore?.id]);
 
   useEffect(() => {
     void refreshUpgradeOptions();
@@ -164,6 +160,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
       const change = await confirmSubscriptionUpgrade({
         storeId: subscriptionStore.id,
         targetPlanId: upgradeQuote.targetPlan.id,
+        quoteToken: upgradeQuote.quoteToken,
         ...acceptance,
       });
       setUpgradeMessage(
@@ -172,7 +169,10 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
       setUpgradeQuote(null);
       await refreshUpgradeOptions();
     } catch (error) {
-      if (error instanceof BackendOperationError && error.code === "STALE_UPGRADE_QUOTE") {
+      if (
+        error instanceof BackendOperationError
+        && ["STALE_UPGRADE_QUOTE", "EXPIRED_UPGRADE_QUOTE"].includes(error.code)
+      ) {
         try {
           const refreshedQuote = await quoteSubscriptionUpgrade(
             subscriptionStore.id,
@@ -475,8 +475,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
             </section>
           )}
 
-          {upgradeUiEnabled && (
-            <section className="mt-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <section className="mt-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
               <div className="flex items-start gap-3">
                 <span className="rounded-xl bg-teal-50 p-2.5 text-[#1b5660] dark:bg-teal-950/40 dark:text-teal-300">
                   <ArrowUpCircle className="h-5 w-5" />
@@ -493,10 +492,6 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                 <div className="mt-5 flex items-center gap-2 rounded-2xl bg-gray-50 p-4 text-sm text-gray-500 dark:bg-gray-800">
                   <Loader2 className="h-4 w-4 animate-spin" /> Checking eligible upgrades...
                 </div>
-              ) : upgradeOptions?.enabled === false ? (
-                <p className="mt-5 rounded-2xl bg-gray-50 p-4 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-                  Subscription upgrades are not available yet.
-                </p>
               ) : upgradeOptions?.pendingChange ? (
                 <PendingUpgradePanel
                   change={upgradeOptions.pendingChange}
@@ -505,6 +500,10 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                     setUpgradeToCancel(upgradeOptions.pendingChange);
                   }}
                 />
+              ) : upgradeOptions?.enabled === false ? (
+                <p className="mt-5 rounded-2xl bg-gray-50 p-4 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                  {upgradeOptions.blockedReason || "Subscription upgrades are currently unavailable."}
+                </p>
               ) : upgradeOptions ? (
                 <>
                   {upgradeOptions.blockedReason && (
@@ -551,7 +550,6 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                 </p>
               )}
             </section>
-          )}
 
           <section className="mt-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <div className="flex flex-wrap items-start justify-between gap-3">

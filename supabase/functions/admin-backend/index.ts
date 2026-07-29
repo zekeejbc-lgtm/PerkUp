@@ -17,6 +17,13 @@ import {
   type RenewalInvoiceState,
   type UpgradeQuote,
 } from "../_shared/subscription-upgrade.ts";
+import {
+  signSubscriptionUpgradeQuote,
+  SubscriptionUpgradeQuoteTokenError,
+  verifySubscriptionUpgradeQuote,
+  type SubscriptionUpgradeQuoteClaims,
+} from "../_shared/subscription-upgrade-token.ts";
+import { authorizeSubscriptionUpgradeToggle } from "../_shared/subscription-upgrade-control.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
@@ -169,7 +176,9 @@ const handleAdminRequest = async (req: Request) => {
 
     const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData.user) return jsonResponse({ error: "Authentication required." }, 401);
-    if (action !== "end_maintenance_mode" && await sessionNeedsMfa(userClient, authorization)) {
+    const mfaRequired = action !== "end_maintenance_mode"
+      && await sessionNeedsMfa(userClient, authorization);
+    if (mfaRequired && action !== "set_subscription_upgrades_enabled") {
       return jsonResponse({ error: "Complete multi-factor authentication to continue.", code: "mfa_required" }, 403);
     }
 
@@ -193,6 +202,55 @@ const handleAdminRequest = async (req: Request) => {
     if (action === "get_runtime_config") {
       if (actor.role !== "auditor") return jsonResponse({ error: "Auditor access required." }, 403);
       return jsonResponse({ config: runtimeConfig });
+    }
+
+    if (action === "set_subscription_upgrades_enabled") {
+      const password = String(body.password || "");
+      const confirmation = cleanText(body.confirmation, 80);
+      const authorizationResult = await authorizeSubscriptionUpgradeToggle({
+        actorRole: actor.role,
+        actorStatus,
+        mfaRequired,
+        enabled: body.enabled,
+        passwordPresent: Boolean(password),
+        confirmation,
+      }, async () =>
+        Boolean(authData.user.email)
+        && await verifyActorPassword(
+          supabaseUrl,
+          anonKey,
+          authData.user.email || "",
+          password,
+        )
+      );
+      if (!authorizationResult.ok) {
+        return jsonResponse({
+          error: authorizationResult.error,
+          ...(authorizationResult.code ? { code: authorizationResult.code } : {}),
+        }, authorizationResult.status);
+      }
+      const { data: storedConfig, error } = await admin.rpc(
+        "set_subscription_upgrades_enabled",
+        {
+          p_actor_user_id: authData.user.id,
+          p_enabled: authorizationResult.enabled,
+        },
+      );
+      if (error) throw error;
+      const stored = storedConfig && typeof storedConfig === "object"
+        ? storedConfig as Record<string, unknown>
+        : {};
+      return jsonResponse({
+        config: {
+          ...runtimeConfig,
+          subscription_upgrades_enabled: stored.subscription_upgrades_enabled === true,
+          subscription_upgrades_changed_at:
+            cleanText(stored.subscription_upgrades_changed_at, 100) || null,
+          subscription_upgrades_changed_by:
+            cleanText(stored.subscription_upgrades_changed_by, 100) || null,
+        },
+        previousEnabled: stored.previousEnabled === true,
+      });
     }
 
     if (action === "set_runtime_mode") {
@@ -1420,16 +1478,6 @@ const handleAdminRequest = async (req: Request) => {
       if (cleanText(actor.role, 30) !== "store_owner") {
         return jsonResponse({ error: "Store-owner access required." }, 403);
       }
-      if (Deno.env.get("SUBSCRIPTION_UPGRADES_ENABLED") !== "true") {
-        return jsonResponse({
-          enabled: false,
-          currentPlan: null,
-          eligiblePlans: [],
-          pendingChange: null,
-          blockedReason: "Subscription upgrades are not available yet.",
-        });
-      }
-
       const storeId = cleanText(body.storeId, 100);
       if (!storeId) return jsonResponse({ error: "Store is required." }, 400);
       const upgradeState = await loadSubscriptionUpgradeState(
@@ -1437,6 +1485,15 @@ const handleAdminRequest = async (req: Request) => {
         storeId,
         authData.user.id,
       );
+      if (!runtimeConfig.subscription_upgrades_enabled) {
+        return jsonResponse({
+          enabled: false,
+          currentPlan: upgradeState.currentPlan,
+          eligiblePlans: [],
+          pendingChange: upgradeState.pendingChange,
+          blockedReason: "Subscription upgrades are currently unavailable.",
+        });
+      }
       return jsonResponse({
         enabled: true,
         currentPlan: upgradeState.currentPlan,
@@ -1450,9 +1507,9 @@ const handleAdminRequest = async (req: Request) => {
       if (cleanText(actor.role, 30) !== "store_owner") {
         return jsonResponse({ error: "Store-owner access required." }, 403);
       }
-      if (Deno.env.get("SUBSCRIPTION_UPGRADES_ENABLED") !== "true") {
+      if (!runtimeConfig.subscription_upgrades_enabled) {
         return jsonResponse({
-          error: "Subscription upgrades are not available yet.",
+          error: "Subscription upgrades are currently unavailable.",
           code: "SUBSCRIPTION_UPGRADES_DISABLED",
         }, 409);
       }
@@ -1471,16 +1528,24 @@ const handleAdminRequest = async (req: Request) => {
         return jsonResponse({ error: upgradeState.blockedReason }, 409);
       }
       const quote = await quoteSubscriptionUpgrade(upgradeState, targetPlanId);
-      return jsonResponse({ quote });
+      const quoteToken = await signSubscriptionUpgradeQuote(
+        subscriptionUpgradeQuoteClaims(
+          quote,
+          upgradeState,
+          authData.user.id,
+        ),
+        requiredEnv("SUBSCRIPTION_UPGRADE_QUOTE_SECRET"),
+      );
+      return jsonResponse({ quote: { ...quote, quoteToken } });
     }
 
     if (action === "confirm_subscription_upgrade") {
       if (cleanText(actor.role, 30) !== "store_owner") {
         return jsonResponse({ error: "Store-owner access required." }, 403);
       }
-      if (Deno.env.get("SUBSCRIPTION_UPGRADES_ENABLED") !== "true") {
+      if (!runtimeConfig.subscription_upgrades_enabled) {
         return jsonResponse({
-          error: "Subscription upgrades are not available yet.",
+          error: "Subscription upgrades are currently unavailable.",
           code: "SUBSCRIPTION_UPGRADES_DISABLED",
         }, 409);
       }
@@ -1489,9 +1554,11 @@ const handleAdminRequest = async (req: Request) => {
       const targetPlanId = cleanText(body.targetPlanId, 80).toLocaleLowerCase();
       const termsVersion = cleanText(body.termsVersion, 80);
       const quoteFingerprint = cleanText(body.quoteFingerprint, 128).toLocaleLowerCase();
+      const quoteToken = cleanText(body.quoteToken, 16_000);
       if (
         !storeId
         || !targetPlanId
+        || !quoteToken
         || body.termsAccepted !== true
         || termsVersion !== SUBSCRIPTION_UPGRADE_TERMS_VERSION
         || !/^[a-f0-9]{64}$/.test(quoteFingerprint)
@@ -1499,6 +1566,26 @@ const handleAdminRequest = async (req: Request) => {
         return jsonResponse({
           error: "Review all current upgrade terms and acknowledge them before confirming.",
         }, 400);
+      }
+
+      let quoteClaims: SubscriptionUpgradeQuoteClaims;
+      try {
+        quoteClaims = await verifySubscriptionUpgradeQuote(
+          quoteToken,
+          requiredEnv("SUBSCRIPTION_UPGRADE_QUOTE_SECRET"),
+          {
+            ownerUserId: authData.user.id,
+            storeId,
+            targetPlanId,
+            termsVersion,
+            quoteFingerprint,
+          },
+        );
+      } catch (error) {
+        if (error instanceof SubscriptionUpgradeQuoteTokenError) {
+          return jsonResponse({ error: error.message, code: error.code }, 409);
+        }
+        throw error;
       }
 
       const upgradeState = await loadSubscriptionUpgradeState(
@@ -1510,7 +1597,10 @@ const handleAdminRequest = async (req: Request) => {
         return jsonResponse({ error: upgradeState.blockedReason }, 409);
       }
       const quote = await quoteSubscriptionUpgrade(upgradeState, targetPlanId);
-      if (quote.quoteFingerprint !== quoteFingerprint) {
+      if (
+        quote.quoteFingerprint !== quoteFingerprint
+        || !subscriptionUpgradeQuoteMatchesClaims(quote, upgradeState, quoteClaims)
+      ) {
         return jsonResponse({
           error: "The plan price or renewal timing changed. Review the refreshed terms before confirming.",
           code: "STALE_UPGRADE_QUOTE",
@@ -1531,10 +1621,19 @@ const handleAdminRequest = async (req: Request) => {
           p_target_period_end: quote.targetRenewal.periodEnd,
           p_terms_version: quote.termsVersion,
           p_quote_fingerprint: quote.quoteFingerprint,
+          p_plan_catalog_updated_at: upgradeState.planCatalogUpdatedAt,
+          p_current_renewal_invoice_id: upgradeState.currentRenewalInvoice?.id || null,
+          p_current_renewal_invoice_status: upgradeState.currentRenewalInvoice?.status || null,
         },
       );
       if (changeError) {
-        if (["23505", "40001"].includes(String(changeError.code))) {
+        if (String(changeError.code) === "23505") {
+          return jsonResponse({
+            error: "A subscription upgrade is already scheduled.",
+            code: "UPGRADE_ALREADY_SCHEDULED",
+          }, 409);
+        }
+        if (String(changeError.code) === "40001") {
           return jsonResponse({
             error: "The subscription changed before confirmation. Request and review a new quote.",
             code: "STALE_UPGRADE_QUOTE",
@@ -1565,12 +1664,6 @@ const handleAdminRequest = async (req: Request) => {
       if (cleanText(actor.role, 30) !== "store_owner") {
         return jsonResponse({ error: "Store-owner access required." }, 403);
       }
-      if (Deno.env.get("SUBSCRIPTION_UPGRADES_ENABLED") !== "true") {
-        return jsonResponse({
-          error: "Subscription upgrades are not available yet.",
-          code: "SUBSCRIPTION_UPGRADES_DISABLED",
-        }, 409);
-      }
 
       const planChangeId = cleanText(body.planChangeId, 100);
       if (!planChangeId) return jsonResponse({ error: "Scheduled upgrade is required." }, 400);
@@ -1594,12 +1687,6 @@ const handleAdminRequest = async (req: Request) => {
 
     if (action === "admin_cancel_subscription_upgrade") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
-      if (Deno.env.get("SUBSCRIPTION_UPGRADES_ENABLED") !== "true") {
-        return jsonResponse({
-          error: "Subscription upgrades are not available yet.",
-          code: "SUBSCRIPTION_UPGRADES_DISABLED",
-        }, 409);
-      }
 
       const planChangeId = cleanText(body.planChangeId, 100);
       const reason = cleanText(body.reason, 500);
@@ -3664,6 +3751,7 @@ const assertStaffSlotAvailable = async (
 };
 
 const mutationEntityType = (action: string) => {
+  if (action === "set_subscription_upgrades_enabled") return "system_runtime";
   if (["update_public_feedback"].includes(action)) return "site_feedback";
   if (["update_error_report"].includes(action)) return "client_error_report";
   if (["sync_subscription_billing", "cancel_subscription_auto_renewal", "update_subscription_access"].includes(action)) {
@@ -3690,6 +3778,7 @@ const mutationEntityId = (
   body: Record<string, unknown>,
   responseBody: Record<string, unknown>,
 ) => {
+  if (action === "set_subscription_upgrades_enabled") return "global";
   if (action === "update_public_feedback") return cleanText(body.feedbackId, 160);
   if (action === "update_error_report") return cleanText(body.reportId, 160);
   if (action === "retry_billing_invoice") return cleanText(body.invoiceId, 160);
@@ -3722,6 +3811,13 @@ const mutationAuditMetadata = (
   responseBody: Record<string, unknown>,
 ) => {
   const metadata: Record<string, unknown> = {};
+  if (action === "set_subscription_upgrades_enabled") {
+    metadata.previousEnabled = responseBody.previousEnabled === true;
+    const config = responseBody.config && typeof responseBody.config === "object"
+      ? responseBody.config as Record<string, unknown>
+      : {};
+    metadata.enabled = config.subscription_upgrades_enabled === true;
+  }
   const status = cleanText(body.status, 40);
   if (status) metadata.status = status;
   const decision = cleanText(body.decision, 40);
@@ -4003,6 +4099,49 @@ const quoteSubscriptionUpgrade = (
     currentRenewalInvoice: state.currentRenewalInvoice,
     planCatalogUpdatedAt: state.planCatalogUpdatedAt,
   });
+
+const subscriptionUpgradeQuoteClaims = (
+  quote: UpgradeQuote,
+  state: SubscriptionUpgradeState,
+  ownerUserId: string,
+): SubscriptionUpgradeQuoteClaims => ({
+  version: 1,
+  ownerUserId,
+  storeId: quote.storeId,
+  subscriptionId: quote.subscriptionId,
+  fromPlanId: quote.currentPlan.id,
+  toPlanId: quote.targetPlan.id,
+  currentAmountCentavos: quote.currentPlan.priceCentavos,
+  targetAmountCentavos: quote.targetPlan.priceCentavos,
+  targetPeriodStart: quote.targetRenewal.periodStart,
+  targetPeriodEnd: quote.targetRenewal.periodEnd,
+  currentRenewalInvoiceId: state.currentRenewalInvoice?.id || null,
+  currentRenewalInvoiceStatus: state.currentRenewalInvoice?.status || null,
+  renewalMode: quote.renewalMode,
+  termsVersion: quote.termsVersion,
+  planCatalogUpdatedAt: state.planCatalogUpdatedAt,
+  quoteFingerprint: quote.quoteFingerprint,
+  issuedAt: quote.quotedAt,
+  expiresAt: quote.expiresAt,
+});
+
+const subscriptionUpgradeQuoteMatchesClaims = (
+  quote: UpgradeQuote,
+  state: SubscriptionUpgradeState,
+  claims: SubscriptionUpgradeQuoteClaims,
+) =>
+  claims.subscriptionId === quote.subscriptionId
+  && claims.fromPlanId === quote.currentPlan.id
+  && claims.toPlanId === quote.targetPlan.id
+  && claims.currentAmountCentavos === quote.currentPlan.priceCentavos
+  && claims.targetAmountCentavos === quote.targetPlan.priceCentavos
+  && claims.targetPeriodStart === quote.targetRenewal.periodStart
+  && claims.targetPeriodEnd === quote.targetRenewal.periodEnd
+  && claims.currentRenewalInvoiceId === (state.currentRenewalInvoice?.id || null)
+  && claims.currentRenewalInvoiceStatus === (state.currentRenewalInvoice?.status || null)
+  && claims.renewalMode === quote.renewalMode
+  && claims.planCatalogUpdatedAt === state.planCatalogUpdatedAt
+  && claims.quoteFingerprint === quote.quoteFingerprint;
 
 const syncBillingSubscription = async (admin: any, primaryStore: { id: string; data: Record<string, any> }) => {
   const store = primaryStore.data || {};
