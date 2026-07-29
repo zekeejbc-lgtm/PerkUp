@@ -82,7 +82,7 @@ export default function CustomerDashboard() {
   };
 
   const fallbackVariant =
-    location.pathname === '/customer/cards' ? 'cards' :
+    location.pathname.startsWith('/customer/cards') ? 'cards' :
     location.pathname === '/customer/stores' ? 'map-list' :
     location.pathname === '/customer/promotions' ? 'promotions' :
     location.pathname === '/customer/tickets' ? 'tickets' :
@@ -145,6 +145,7 @@ export default function CustomerDashboard() {
           <Routes>
             <Route path="/" element={<CustomerOverview />} />
             <Route path="/cards" element={<CustomerCards />} />
+            <Route path="/cards/:storeId" element={<CustomerCards />} />
             <Route path="/stores" element={<CustomerStores />} />
             <Route path="/promotions" element={<CustomerPromotions />} />
             <Route path="/tickets" element={<CustomerTickets />} />

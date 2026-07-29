@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Calendar, CheckCircle2, Clock3, Gift, Grid2X2, ImageIcon, List, Search, Store, Tag, X } from "lucide-react";
+import { ArrowLeft, Calendar, ChevronRight, Clock3, Gift, Grid2X2, ImageIcon, List, Search, Star, Store, Tag, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { collection, doc, getDoc, getDocs, getDocsFromServer, query, where } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
@@ -9,23 +9,21 @@ import { supabase } from "../../lib/supabase";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { normalizeStampStyle, StoreStamp, StoreStampStyle } from "../../components/StoreStamp";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
-import { formatPhilippineDate, formatPhilippineDateTime, getPhilippineDateTimeMillis } from "../../lib/dateTime";
+import { formatPhilippineDate, formatPhilippineDateTime } from "../../lib/dateTime";
 import { claimPromotion, listPromotionClaims, PromotionClaim } from "../../lib/promotionClaims";
 import { ViewModeButton } from "../../components/ViewModeButton";
+import { CustomerRewardStoreLocation } from "../../components/CustomerRewardStoreLocation";
+import {
+  buildCustomerCardStores,
+  filterCustomerCardStores,
+  getStoreRewardGroups,
+  type RewardSection,
+} from "../../lib/customerCardStores";
 
 const cardViewOptions = [
   { value: "grid", label: "Card", icon: Grid2X2 },
   { value: "list", label: "List", icon: List },
 ] as const;
-
-const isPromotionAvailable = (promotion: any) => {
-  const now = Date.now();
-  const startsAt = promotion.startDate ? getPhilippineDateTimeMillis(promotion.startDate) : Number.NaN;
-  const endsAt = promotion.endDate ? getPhilippineDateTimeMillis(promotion.endDate) : Number.NaN;
-  return promotion.active !== false
-    && (!Number.isFinite(startsAt) || startsAt <= now)
-    && (!Number.isFinite(endsAt) || endsAt > now);
-};
 
 const formatPromoDuration = (promotion: any) => {
   const start = promotion.startDate ? formatPhilippineDate(promotion.startDate, "") : "";
@@ -36,21 +34,11 @@ const formatPromoDuration = (promotion: any) => {
   return "No promotion expiry";
 };
 
-type ProgressGroup = "Claimed" | "Ready to claim" | "In progress" | "Redeemed" | "Expired";
-
-const getProgressGroup = (promo: any): ProgressGroup => {
-  if (promo.claim?.status === "claimed") return "Claimed";
-  if (promo.claim?.status === "redeemed") return "Redeemed";
-  if (promo.claim?.status === "expired") return "Expired";
-  return Number(promo.progress || 0) >= Math.max(Number(promo.requiredStamps || 10), 1)
-    ? "Ready to claim"
-    : "In progress";
-};
-
-const groupOrder: ProgressGroup[] = ["Claimed", "Ready to claim", "In progress", "Redeemed", "Expired"];
-
 export default function CustomerCards() {
   const { user } = useAuth();
+  const { storeId } = useParams();
+  const [cards, setCards] = useState<any[]>([]);
+  const [stores, setStores] = useState<any[]>([]);
   const [promoCards, setPromoCards] = useState<any[]>([]);
   const [storeStyles, setStoreStyles] = useState<Record<string, StoreStampStyle>>({});
   const [selectedPromo, setSelectedPromo] = useState<any | null>(null);
@@ -73,19 +61,27 @@ export default function CustomerCards() {
           }),
         ]);
         if (!active) return;
-        const cards = cardsSnapshot.docs.map((cardDoc) => ({ id: cardDoc.id, ...cardDoc.data() }));
-        const storeIds = Array.from(new Set(cards.map((card) => String(card.storeId || "")).filter(Boolean)));
-        const styleEntries = await Promise.all(storeIds.map(async (storeId) => {
+        const fetchedCards = cardsSnapshot.docs.map((cardDoc) => ({ id: cardDoc.id, ...cardDoc.data() }));
+        const storeIds = Array.from(new Set(fetchedCards.map((card) => String(card.storeId || "")).filter(Boolean)));
+        setCards(fetchedCards);
+        const storeEntries = await Promise.all(storeIds.map(async (storeId) => {
           const storeSnap = await getDoc(doc(db, "stores", storeId));
-          return [storeId, normalizeStampStyle(storeSnap.data())] as const;
+          return {
+            id: storeId,
+            ...(storeSnap.exists() ? storeSnap.data() : {}),
+          };
         }));
         if (!active) return;
-        setStoreStyles(Object.fromEntries(styleEntries));
-        if (!storeIds.length) return setPromoCards([]);
+        setStores(storeEntries);
+        setStoreStyles(Object.fromEntries(storeEntries.map((store) => [store.id, normalizeStampStyle(store)])));
+        if (!storeIds.length) {
+          setPromoCards([]);
+          return;
+        }
 
         const promotionsSnapshot = await getDocs(query(collection(db, "promotions"), where("storeId", "in", storeIds)));
         if (!active) return;
-        const cardsByStore = cards.reduce<Record<string, any[]>>((result, card) => {
+        const cardsByStore = fetchedCards.reduce<Record<string, any[]>>((result, card) => {
           const storeId = String(card.storeId || "");
           if (storeId) (result[storeId] ||= []).push(card);
           return result;
@@ -108,7 +104,7 @@ export default function CustomerCards() {
             progress: Number(card?.promoProgress?.[promotionDoc.id] || 0),
             claim: claimsByPromotion.get(promotionDoc.id),
           };
-        }).filter((promotion) => isPromotionAvailable(promotion) || Boolean(promotion.claim)).filter((promotion) => promotion.progress > 0));
+        }).filter((promotion) => promotion.progress > 0 || Boolean(promotion.claim)));
       } catch (error) {
         if (active) handleDataError(error, OperationType.GET, "cards");
       } finally {
@@ -139,19 +135,31 @@ export default function CustomerCards() {
     };
   }, [user?.id]);
 
-  const groupedCards = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    const filtered = promoCards.filter((promo) => !term || [promo.publicId, promo.card?.publicId, promo.title, promo.description, promo.card?.storeName, promo.linkedProductName]
-      .some((value) => String(value || "").toLowerCase().includes(term)));
-    return groupOrder.map((status) => ({
-      status,
-      stores: Object.entries(filtered.filter((promo) => getProgressGroup(promo) === status).reduce<Record<string, any[]>>((groups, promo) => {
-        const storeName = String(promo.card?.storeName || "Participating store");
-        (groups[storeName] ||= []).push(promo);
-        return groups;
-      }, {})).sort(([a], [b]) => a.localeCompare(b)),
-    })).filter((group) => group.stores.length);
-  }, [promoCards, search]);
+  const storeSummaries = useMemo(
+    () => buildCustomerCardStores(cards, stores, promoCards),
+    [cards, promoCards, stores],
+  );
+  const selectedStore = useMemo(
+    () => storeSummaries.find((store) => store.id === storeId),
+    [storeId, storeSummaries],
+  );
+  const visibleStores = useMemo(
+    () => filterCustomerCardStores(storeSummaries, search),
+    [search, storeSummaries],
+  );
+  const rewardGroups = useMemo(
+    () => storeId ? getStoreRewardGroups(promoCards, storeId, search) : [],
+    [promoCards, search, storeId],
+  );
+  const selectedStoreRewards = useMemo(
+    () => promoCards.filter((promo) => String(promo.storeId || "") === String(storeId || "")),
+    [promoCards, storeId],
+  );
+
+  useEffect(() => {
+    setSearch("");
+    setSelectedPromo(null);
+  }, [storeId]);
 
   const handleClaim = async (promo: any) => {
     if (claimingId) return;
@@ -170,42 +178,135 @@ export default function CustomerCards() {
 
   if (loading) return <PageSkeleton variant="cards" />;
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Reward Cards</h2>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">Track progress, reserve earned rewards, and show your one-time code at the store.</p>
+  if (storeId && !selectedStore) {
+    return (
+      <div className="flex min-h-[420px] flex-col items-center justify-center rounded-3xl border border-dashed border-gray-300 bg-white px-6 text-center dark:border-gray-700 dark:bg-gray-900">
+        <Store className="mb-4 h-10 w-10 text-gray-300" />
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">Store cards not found</h2>
+        <p className="mt-2 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
+          This store is not connected to one of your loyalty cards.
+        </p>
+        <Link to="/customer/cards" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-bold text-white dark:bg-white dark:text-gray-900">
+          <ArrowLeft className="h-4 w-4" />
+          Back to stores
+        </Link>
+      </div>
+    );
+  }
+
+  if (!storeId) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Reward Cards</h2>
+            <p className="mt-1 text-gray-500 dark:text-gray-400">Choose a store to view your loyalty credit, reward progress, and claims.</p>
+          </div>
+          {!!storeSummaries.length && <SearchField value={search} onChange={setSearch} placeholder="Search your stores" ariaLabel="Search your reward card stores" />}
         </div>
-        <div className="flex gap-2">
-          <label className="relative min-w-0 flex-1 lg:w-72">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search rewards or stores" className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:focus:ring-white" />
-          </label>
-          <ViewModeButton value={viewMode} options={cardViewOptions} onChange={setViewMode} ariaLabel="Change card view" />
+
+        {!storeSummaries.length ? (
+          <EmptyCards />
+        ) : !visibleStores.length ? (
+          <div className="rounded-2xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-500 dark:border-gray-700">No stores match &ldquo;{search}&rdquo;.</div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {visibleStores.map((store) => (
+              <Link
+                key={store.id}
+                to={`/customer/cards/${encodeURIComponent(store.id)}`}
+                aria-label={`Open ${store.name} reward cards`}
+                className="group overflow-hidden rounded-3xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-gray-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-gray-900 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-gray-600 dark:focus:ring-white"
+              >
+                <div className="flex items-center gap-4">
+                  <StoreLogo name={store.name} logoUrl={store.logoUrl} size="lg" />
+                  <div className="min-w-0 flex-1">
+                    <h3 className="truncate text-base font-bold text-gray-900 dark:text-white">{store.name}</h3>
+                    <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-amber-600 dark:text-amber-300">
+                      <Star className="h-4 w-4 fill-current" />
+                      {store.loyaltyCredit} loyalty credit
+                    </p>
+                  </div>
+                  <ChevronRight className="h-5 w-5 shrink-0 text-gray-300 transition-transform group-hover:translate-x-1 dark:text-gray-600" />
+                </div>
+                <div className="mt-5 border-t border-gray-100 pt-4 text-xs font-medium text-gray-500 dark:border-gray-800 dark:text-gray-400">
+                  {store.rewardCount} {store.rewardCount === 1 ? "reward card" : "reward cards"}
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const storeLocation = {
+    ...selectedStore!.cards[0],
+    ...selectedStore!.store,
+    id: selectedStore!.id,
+    name: selectedStore!.name,
+    logoUrl: selectedStore!.logoUrl,
+  };
+
+  return (
+    <div className="space-y-7">
+      <Link to="/customer/cards" className="inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
+        <ArrowLeft className="h-4 w-4" />
+        All card stores
+      </Link>
+
+      <div className="flex flex-col gap-5 rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div className="flex min-w-0 items-center gap-4">
+          <StoreLogo name={selectedStore!.name} logoUrl={selectedStore!.logoUrl} size="xl" />
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400">Your store card</p>
+            <h2 className="mt-1 truncate text-2xl font-bold tracking-tight text-gray-900 dark:text-white">{selectedStore!.name}</h2>
+            <p className="mt-2 flex items-center gap-1.5 text-sm font-bold text-amber-600 dark:text-amber-300">
+              <Star className="h-4 w-4 fill-current" />
+              {selectedStore!.loyaltyCredit} loyalty credit
+            </p>
+          </div>
+        </div>
+        <div className="rounded-2xl bg-amber-50 px-5 py-3 text-center dark:bg-amber-500/10">
+          <p className="text-2xl font-black text-amber-700 dark:text-amber-200">{selectedStore!.loyaltyCredit}</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700/70 dark:text-amber-200/70">Store credit</p>
         </div>
       </div>
 
-      {!promoCards.length ? (
-        <EmptyCards />
-      ) : !groupedCards.length ? (
-        <div className="rounded-2xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-500 dark:border-gray-700">No reward cards match “{search}”.</div>
+      <CustomerRewardStoreLocation store={storeLocation} />
+
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white">Your rewards</h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Track, claim, and review rewards from this store.</p>
+        </div>
+        {!!selectedStoreRewards.length && (
+          <div className="flex gap-2">
+            <SearchField value={search} onChange={setSearch} placeholder="Search this store's rewards" ariaLabel={`Search ${selectedStore!.name} rewards`} />
+            <ViewModeButton value={viewMode} options={cardViewOptions} onChange={setViewMode} ariaLabel="Change card view" />
+          </div>
+        )}
+      </div>
+
+      {!selectedStoreRewards.length ? (
+        <div className="rounded-3xl border border-dashed border-gray-300 bg-white p-10 text-center dark:border-gray-700 dark:bg-gray-900">
+          <Gift className="mx-auto h-9 w-9 text-gray-300" />
+          <p className="mt-3 font-medium text-gray-600 dark:text-gray-300">No reward cards with progress from this store yet</p>
+          <p className="mt-1 text-sm text-gray-400">Your store loyalty credit is still shown above.</p>
+        </div>
+      ) : !rewardGroups.length ? (
+        <div className="rounded-2xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-500 dark:border-gray-700">No reward cards match &ldquo;{search}&rdquo;.</div>
       ) : (
         <div className="space-y-9">
-          {groupedCards.map((group) => (
+          {rewardGroups.map((group) => (
             <section key={group.status} className="space-y-4">
               <div className="flex items-center gap-2">
-                {group.status === "Claimed" || group.status === "Redeemed" ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Clock3 className="h-4 w-4 text-gray-400" />}
+                <Clock3 className={`h-4 w-4 ${rewardSectionColor(group.status)}`} />
                 <h3 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-300">{group.status}</h3>
               </div>
-              {group.stores.map(([storeName, promotions]) => (
-                <div key={storeName} className="space-y-3">
-                  <p className="flex items-center gap-2 text-xs font-semibold text-gray-500 dark:text-gray-400"><Store className="h-3.5 w-3.5" />{storeName}</p>
-                  <div className={viewMode === "grid" ? "grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3" : "space-y-3"}>
-                    {promotions.map((promo) => <RewardCard key={promo.id} promo={promo} compact={viewMode === "list"} stampStyle={storeStyles[String(promo.storeId || "")] || normalizeStampStyle(promo.card)} claiming={claimingId === promo.id} onOpen={() => setSelectedPromo(promo)} onClaim={() => handleClaim(promo)} />)}
-                  </div>
-                </div>
-              ))}
+              <div className={viewMode === "grid" ? "grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3" : "space-y-3"}>
+                {group.promotions.map((promo) => <RewardCard key={promo.id} promo={promo} compact={viewMode === "list"} stampStyle={storeStyles[String(promo.storeId || "")] || normalizeStampStyle(promo.card)} claiming={claimingId === promo.id} onOpen={() => setSelectedPromo(promo)} onClaim={() => handleClaim(promo)} />)}
+              </div>
             </section>
           ))}
         </div>
@@ -216,8 +317,42 @@ export default function CustomerCards() {
   );
 }
 
+function rewardSectionColor(status: RewardSection) {
+  if (status === "Ready to Claim") return "text-emerald-600 dark:text-emerald-400";
+  if (status === "Archived / Expired") return "text-gray-400";
+  return "text-amber-500";
+}
+
+function SearchField({ value, onChange, placeholder, ariaLabel }: { value: string; onChange: (value: string) => void; placeholder: string; ariaLabel: string }) {
+  return (
+    <label className="relative min-w-0 flex-1 lg:w-72">
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:focus:ring-white"
+      />
+    </label>
+  );
+}
+
+function StoreLogo({ name, logoUrl, size }: { name: string; logoUrl: string; size: "lg" | "xl" }) {
+  const dimension = size === "xl" ? "h-20 w-20 rounded-3xl" : "h-16 w-16 rounded-2xl";
+  return (
+    <span className={`flex shrink-0 items-center justify-center overflow-hidden border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-white/10 ${dimension}`}>
+      {logoUrl ? (
+        <img src={getDisplayImageUrl(logoUrl)} alt={`${name} logo`} className="h-full w-full object-contain" />
+      ) : (
+        <Store className="h-7 w-7 text-gray-400" aria-hidden="true" />
+      )}
+    </span>
+  );
+}
+
 function EmptyCards() {
-  return <div className="flex flex-col items-center rounded-3xl border border-dashed border-gray-300 bg-white p-8 text-center dark:border-gray-700 dark:bg-gray-900"><Gift className="mb-4 h-9 w-9 text-gray-300" /><p className="font-medium text-gray-600 dark:text-gray-300">No promo cards with stamps yet</p><p className="mb-5 mt-1 max-w-sm text-sm text-gray-400">Earn at least one promotion stamp to see a reward here.</p><Link to="/customer/stores" className="font-medium hover:underline">Find stores near you</Link></div>;
+  return <div className="flex flex-col items-center rounded-3xl border border-dashed border-gray-300 bg-white p-8 text-center dark:border-gray-700 dark:bg-gray-900"><Gift className="mb-4 h-9 w-9 text-gray-300" /><p className="font-medium text-gray-600 dark:text-gray-300">No store loyalty cards yet</p><p className="mb-5 mt-1 max-w-sm text-sm text-gray-400">Visit a participating store and earn loyalty credit or a promotion stamp to see it here.</p><Link to="/customer/stores" className="font-medium hover:underline">Find stores near you</Link></div>;
 }
 
 function RewardCard({ promo, stampStyle, compact, claiming, onOpen, onClaim }: any) {
