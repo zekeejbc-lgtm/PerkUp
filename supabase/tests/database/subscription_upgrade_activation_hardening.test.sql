@@ -97,13 +97,17 @@ update public.users
 set data = jsonb_set(data, '{role}', '"auditor"', true)
 where id = '00000000-0000-0000-0000-0000000000c1';
 
+set local role service_role;
+
 select lives_ok(
   $$select public.set_subscription_upgrades_enabled(
     '00000000-0000-0000-0000-0000000000c1',
     true
   )$$,
-  'an active auditor can atomically enable subscription upgrades'
+  'the service backend can atomically enable subscription upgrades'
 );
+
+reset role;
 
 select is(
   (
