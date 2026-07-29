@@ -8,6 +8,7 @@ import {
   buildSubscriptionUpgradeQuote,
   computeSubscriptionUpgradeFingerprint,
   listEligibleUpgradePlans,
+  normalizeSubscriptionUpgradeTimestamp,
   normalizePlanCatalog,
   resolveUpgradeTargetPeriod,
 } from "./subscription-upgrade.ts";
@@ -31,6 +32,13 @@ const plan = (
     branchLimit: 1,
     galleryPhotoLimit: 3,
   },
+});
+
+Deno.test("normalizes PostgREST timestamps before quote state comparisons", () => {
+  assertEquals(
+    normalizeSubscriptionUpgradeTimestamp("2026-07-29T06:57:31.544001+00:00"),
+    "2026-07-29T06:57:31.544Z",
+  );
 });
 
 Deno.test("normalizes the ordered settings catalog into integer-centavo snapshots", () => {

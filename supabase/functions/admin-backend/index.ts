@@ -12,6 +12,7 @@ import {
   findPlan,
   listEligibleUpgradePlans,
   normalizePlanCatalog,
+  normalizeSubscriptionUpgradeTimestamp,
   SUBSCRIPTION_UPGRADE_TERMS_VERSION,
   type PlanSnapshot,
   type RenewalInvoiceState,
@@ -4089,7 +4090,9 @@ const loadSubscriptionUpgradeState = async (
     eligiblePlans,
     currentRenewalInvoice,
     pendingChange,
-    planCatalogUpdatedAt: String(settingsResult.data?.updated_at || ""),
+    planCatalogUpdatedAt: normalizeSubscriptionUpgradeTimestamp(
+      String(settingsResult.data?.updated_at || ""),
+    ),
     blockedReason,
   };
 };

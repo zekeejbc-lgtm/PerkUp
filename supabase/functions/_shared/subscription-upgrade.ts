@@ -247,6 +247,10 @@ const parseIso = (value: string, label: string) => {
   return parsed;
 };
 
+export function normalizeSubscriptionUpgradeTimestamp(value: string): string {
+  return parseIso(value, "Subscription upgrade timestamp").toISOString();
+}
+
 export function resolveUpgradeTargetPeriod(input: BillingQuoteState): TargetRenewal {
   const now = parseIso(input.now, "Quote time");
   const currentPeriodEnd = parseIso(input.currentPeriodEnd, "Current period end");
