@@ -88,9 +88,7 @@ const cleanRequiredText = (value: unknown, maximum: number) => {
 const parseIso = (value: unknown) => {
   const text = cleanRequiredText(value, 50);
   const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== text) {
-    throw invalidQuote();
-  }
+  if (Number.isNaN(parsed.getTime())) throw invalidQuote();
   return parsed;
 };
 

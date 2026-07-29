@@ -91,6 +91,21 @@ Deno.test("signed upgrade quote token round-trips exact claims", async () => {
   assertEquals(verified, claims());
 });
 
+Deno.test("signed upgrade quote normalizes a PostgREST catalog timestamp", async () => {
+  const token = await signSubscriptionUpgradeQuote(
+    claims({ planCatalogUpdatedAt: "2026-07-28T15:27:17.836257+00:00" }),
+    secret,
+  );
+  const verified = await verifySubscriptionUpgradeQuote(
+    token,
+    secret,
+    expected,
+    now,
+  );
+
+  assertEquals(verified.planCatalogUpdatedAt, "2026-07-28T15:27:17.836Z");
+});
+
 Deno.test("tampered upgrade quote token is rejected", async () => {
   const token = await signSubscriptionUpgradeQuote(claims(), secret);
   const [payload, signature] = token.split(".");
