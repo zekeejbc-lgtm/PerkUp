@@ -161,6 +161,32 @@ const signaturesMatch = (left: Uint8Array, right: Uint8Array) => {
   return difference === 0;
 };
 
+export async function resolveSubscriptionUpgradeQuoteSecret(
+  configuredSecret: string | undefined,
+  serviceRoleSecret: string,
+) {
+  const dedicatedSecret = configuredSecret?.trim() || "";
+  if (dedicatedSecret) {
+    if (dedicatedSecret.length < 32) {
+      throw invalidQuote("Subscription upgrade quote signing is unavailable.");
+    }
+    return dedicatedSecret;
+  }
+  if (serviceRoleSecret.length < 32) {
+    throw invalidQuote("Subscription upgrade quote signing is unavailable.");
+  }
+  const derived = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      `perk:subscription-upgrade-quotes:v1:${serviceRoleSecret}`,
+    ),
+  );
+  return Array.from(
+    new Uint8Array(derived),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 export async function signSubscriptionUpgradeQuote(
   claims: SubscriptionUpgradeQuoteClaims,
   secret: string,

@@ -18,6 +18,7 @@ import {
   type UpgradeQuote,
 } from "../_shared/subscription-upgrade.ts";
 import {
+  resolveSubscriptionUpgradeQuoteSecret,
   signSubscriptionUpgradeQuote,
   SubscriptionUpgradeQuoteTokenError,
   verifySubscriptionUpgradeQuote,
@@ -1534,7 +1535,10 @@ const handleAdminRequest = async (req: Request) => {
           upgradeState,
           authData.user.id,
         ),
-        requiredEnv("SUBSCRIPTION_UPGRADE_QUOTE_SECRET"),
+        await resolveSubscriptionUpgradeQuoteSecret(
+          Deno.env.get("SUBSCRIPTION_UPGRADE_QUOTE_SECRET"),
+          serviceKey,
+        ),
       );
       return jsonResponse({ quote: { ...quote, quoteToken } });
     }
@@ -1572,7 +1576,10 @@ const handleAdminRequest = async (req: Request) => {
       try {
         quoteClaims = await verifySubscriptionUpgradeQuote(
           quoteToken,
-          requiredEnv("SUBSCRIPTION_UPGRADE_QUOTE_SECRET"),
+          await resolveSubscriptionUpgradeQuoteSecret(
+            Deno.env.get("SUBSCRIPTION_UPGRADE_QUOTE_SECRET"),
+            serviceKey,
+          ),
           {
             ownerUserId: authData.user.id,
             storeId,

@@ -3,6 +3,7 @@ import {
   assertRejects,
 } from "jsr:@std/assert@1";
 import {
+  resolveSubscriptionUpgradeQuoteSecret,
   signSubscriptionUpgradeQuote,
   SubscriptionUpgradeQuoteTokenError,
   verifySubscriptionUpgradeQuote,
@@ -43,6 +44,29 @@ const expected = {
   termsVersion: "subscription-upgrade-v1",
   quoteFingerprint: "a".repeat(64),
 };
+
+Deno.test("upgrade quote signing falls back to a server-only service key", async () => {
+  const fallbackSecret = await resolveSubscriptionUpgradeQuoteSecret(
+    "",
+    "service-role-secret-that-is-long-enough-for-safe-derivation",
+  );
+  const token = await signSubscriptionUpgradeQuote(claims(), fallbackSecret);
+
+  assertEquals(
+    await verifySubscriptionUpgradeQuote(token, fallbackSecret, expected, now),
+    claims(),
+  );
+});
+
+Deno.test("upgrade quote signing prefers the dedicated configured secret", async () => {
+  assertEquals(
+    await resolveSubscriptionUpgradeQuoteSecret(
+      "dedicated-upgrade-secret-that-is-long-enough",
+      "service-role-secret-that-is-long-enough-for-safe-derivation",
+    ),
+    "dedicated-upgrade-secret-that-is-long-enough",
+  );
+});
 
 const rejectsWithCode = async (
   operation: () => Promise<unknown>,
