@@ -68,6 +68,74 @@ Deno.test("normalizes the ordered settings catalog into integer-centavo snapshot
   );
 });
 
+Deno.test("uses declared tier ranks instead of catalog insertion order", () => {
+  const plans = normalizePlanCatalog({
+    plans: [
+      { id: "enterprise", name: "Enterprise", price: 2999, interval: "month", tierRank: 30 },
+      { id: "testing", name: "Testing Plan", price: 1, interval: "month", tierRank: 0 },
+      { id: "standard", name: "Standard", price: 999, interval: "month", tierRank: 10 },
+    ],
+  });
+
+  assertEquals(plans.map((candidate) => [candidate.id, candidate.order]), [
+    ["testing", 0],
+    ["standard", 10],
+    ["enterprise", 30],
+  ]);
+  assertEquals(
+    listEligibleUpgradePlans(plans, "testing").map((candidate) => candidate.id),
+    ["standard", "enterprise"],
+  );
+});
+
+Deno.test("infers a legacy catalog by price rather than insertion order", () => {
+  const plans = normalizePlanCatalog({
+    plans: [
+      { id: "enterprise", name: "Enterprise", price: 2999, interval: "month" },
+      { id: "testing", name: "Testing Plan", price: 1, interval: "month" },
+      { id: "standard", name: "Standard", price: 999, interval: "month" },
+    ],
+  });
+
+  assertEquals(plans.map((candidate) => [candidate.id, candidate.order]), [
+    ["testing", 0],
+    ["standard", 10],
+    ["enterprise", 20],
+  ]);
+});
+
+Deno.test("rejects duplicate, partial, and malformed declared tier ranks", () => {
+  assertThrows(
+    () => normalizePlanCatalog({
+      plans: [
+        { id: "standard", name: "Standard", price: 999, tierRank: 10 },
+        { id: "premium", name: "Premium", price: 1999, tierRank: 10 },
+      ],
+    }),
+    Error,
+    "Tier ranks must be unique.",
+  );
+  assertThrows(
+    () => normalizePlanCatalog({
+      plans: [
+        { id: "standard", name: "Standard", price: 999, tierRank: 10 },
+        { id: "premium", name: "Premium", price: 1999 },
+      ],
+    }),
+    Error,
+    "Every subscription plan must declare a tier rank.",
+  );
+  assertThrows(
+    () => normalizePlanCatalog({
+      plans: [
+        { id: "standard", name: "Standard", price: 999, tierRank: -1 },
+      ],
+    }),
+    Error,
+    "Tier ranks must be non-negative whole numbers.",
+  );
+});
+
 Deno.test("targets upcoming renewal when no renewal invoice exists", () => {
   const target = resolveUpgradeTargetPeriod({
     currentPeriodEnd: "2026-07-31T00:00:00.000Z",
