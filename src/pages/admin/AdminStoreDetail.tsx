@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { deleteField, doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
@@ -40,6 +40,11 @@ import {
   AdminSubscriptionPlanChanges,
   type AdminSubscriptionPlanChange,
 } from "../../components/AdminSubscriptionPlanChanges";
+import {
+  SubscriptionAccessActionModal,
+  type SubscriptionAccessAssessment,
+} from "../../components/SubscriptionAccessActionModal";
+import { createAssessmentRequestController } from "../../lib/subscriptionAccessAssessmentRequest";
 
 const ACTIVITY_LOGS_PER_PAGE = 8;
 type SubscriptionAccessAction = "active" | "warning" | "grace" | "frozen";
@@ -111,6 +116,10 @@ export default function AdminStoreDetail({
   const [subscriptionAccessMessage, setSubscriptionAccessMessage] = useState("");
   const [subscriptionAccessError, setSubscriptionAccessError] = useState("");
   const [pendingSubscriptionAccessAction, setPendingSubscriptionAccessAction] = useState<SubscriptionAccessAction | null>(null);
+  const [subscriptionActionAssessment, setSubscriptionActionAssessment] = useState<SubscriptionAccessAssessment | null>(null);
+  const [subscriptionActionAssessmentLoading, setSubscriptionActionAssessmentLoading] = useState(false);
+  const [subscriptionActionAssessmentError, setSubscriptionActionAssessmentError] = useState("");
+  const subscriptionAssessmentRequests = useRef(createAssessmentRequestController());
   const [billingInvoices, setBillingInvoices] = useState<any[]>([]);
   const [billingInvoicesLoading, setBillingInvoicesLoading] = useState(false);
   const [billingRetryId, setBillingRetryId] = useState("");
@@ -234,6 +243,10 @@ export default function AdminStoreDetail({
   const visibleActivityRows = isStorePhase ? activityRows : branchActivityRows;
   const activityTotalPages = Math.max(1, Math.ceil(visibleActivityRows.length / ACTIVITY_LOGS_PER_PAGE));
   const paginatedActivityRows = visibleActivityRows.slice((activityPage - 1) * ACTIVITY_LOGS_PER_PAGE, activityPage * ACTIVITY_LOGS_PER_PAGE);
+
+  useEffect(() => () => {
+    subscriptionAssessmentRequests.current.cancel();
+  }, []);
 
   useEffect(() => {
     async function fetchDetails() {
@@ -511,10 +524,13 @@ export default function AdminStoreDetail({
     setSubscriptionAccessMessage("");
     setSubscriptionAccessError("");
     try {
-      const result = await invokeAdminBackend<{ storeId: string; subscriptionAccess: any }>({
+      const result = await invokeAdminBackend<{ storeId: string; subscriptionAccess: any; assessment: SubscriptionAccessAssessment }>({
         action: "update_subscription_access",
         storeId: subscriptionStore.id,
         subscriptionAccess: { ...subscriptionAccessForm, status },
+        overrideAcknowledged:
+          Boolean(subscriptionActionAssessmentError) ||
+          subscriptionActionAssessment?.valid === false,
       });
       setSubscriptionAccessForm(normalizeSubscriptionAccess(result.subscriptionAccess));
       if (store?.id === result.storeId) {
@@ -540,7 +556,37 @@ export default function AdminStoreDetail({
 
   const requestSubscriptionAccessUpdate = (status: SubscriptionAccessAction) => {
     setSubscriptionAccessError("");
+    setSubscriptionActionAssessment(null);
+    setSubscriptionActionAssessmentError("");
+    setSubscriptionActionAssessmentLoading(true);
     setPendingSubscriptionAccessAction(status);
+    const requestId = subscriptionAssessmentRequests.current.begin();
+    void invokeAdminBackend<{ storeId: string; assessment: SubscriptionAccessAssessment }>({
+      action: "assess_subscription_access_action",
+      storeId: subscriptionStore?.id,
+      subscriptionAccess: { ...subscriptionAccessForm, status },
+    }).then((result) => {
+      if (!subscriptionAssessmentRequests.current.isCurrent(requestId)) return;
+      setSubscriptionActionAssessment(result.assessment);
+    }).catch((error) => {
+      if (!subscriptionAssessmentRequests.current.isCurrent(requestId)) return;
+      setSubscriptionActionAssessmentError(
+        (error as Error).message || "The billing policy check could not be completed.",
+      );
+    }).finally(() => {
+      if (subscriptionAssessmentRequests.current.isCurrent(requestId)) {
+        setSubscriptionActionAssessmentLoading(false);
+      }
+    });
+  };
+
+  const closeSubscriptionAccessModal = () => {
+    if (subscriptionAccessBusy) return;
+    subscriptionAssessmentRequests.current.cancel();
+    setPendingSubscriptionAccessAction(null);
+    setSubscriptionActionAssessment(null);
+    setSubscriptionActionAssessmentLoading(false);
+    setSubscriptionActionAssessmentError("");
   };
 
   const retryBillingInvoice = async (invoiceId: string) => {
@@ -626,7 +672,7 @@ export default function AdminStoreDetail({
   const confirmSubscriptionAccessUpdate = async () => {
     if (!pendingSubscriptionAccessAction) return;
     const updated = await updateSubscriptionAccess(pendingSubscriptionAccessAction);
-    if (updated) setPendingSubscriptionAccessAction(null);
+    if (updated) closeSubscriptionAccessModal();
   };
 
   const handleUpdateStore = async () => {
@@ -2034,65 +2080,20 @@ export default function AdminStoreDetail({
       />
 
       {pendingSubscriptionAccessAction && subscriptionAccessConfirmation && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4 backdrop-blur-sm animate-in fade-in duration-200 dark:bg-black/70"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="subscription-action-title"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !subscriptionAccessBusy) setPendingSubscriptionAccessAction(null);
-          }}
-        >
-          <div className="w-full max-w-md overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
-            <div className="p-6 sm:p-7">
-              <div className="flex items-start gap-4">
-                <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${
-                  pendingSubscriptionAccessAction === "frozen" ? "bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400" :
-                  pendingSubscriptionAccessAction === "grace" ? "bg-orange-100 text-orange-600 dark:bg-orange-950/60 dark:text-orange-400" :
-                  pendingSubscriptionAccessAction === "warning" ? "bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400" :
-                  "bg-green-100 text-green-600 dark:bg-green-950/60 dark:text-green-400"
-                }`}>
-                  {pendingSubscriptionAccessAction === "frozen" ? <Snowflake className="h-6 w-6" /> :
-                   pendingSubscriptionAccessAction === "grace" ? <Clock3 className="h-6 w-6" /> :
-                   pendingSubscriptionAccessAction === "warning" ? <BellRing className="h-6 w-6" /> :
-                   <RotateCcw className="h-6 w-6" />}
-                </div>
-                <div>
-                  <h3 id="subscription-action-title" className="text-xl font-bold text-gray-900 dark:text-white">{subscriptionAccessConfirmation.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">{subscriptionAccessConfirmation.description}</p>
-                  <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-gray-500">Store: {subscriptionStore?.businessName || subscriptionStore?.name}</p>
-                </div>
-              </div>
-
-              {subscriptionAccessError && <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{subscriptionAccessError}</p>}
-
-              <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                <button
-                  type="button"
-                  disabled={subscriptionAccessBusy}
-                  onClick={() => setPendingSubscriptionAccessAction(null)}
-                  className="rounded-lg bg-gray-100 px-3.5 py-2 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={subscriptionAccessBusy}
-                  onClick={confirmSubscriptionAccessUpdate}
-                  className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                    pendingSubscriptionAccessAction === "frozen" ? "bg-red-600 hover:bg-red-700" :
-                    pendingSubscriptionAccessAction === "grace" ? "bg-orange-500 hover:bg-orange-600" :
-                    pendingSubscriptionAccessAction === "warning" ? "bg-amber-500 text-amber-950 hover:bg-amber-400" :
-                    "bg-green-600 hover:bg-green-700"
-                  }`}
-                >
-                  {subscriptionAccessBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  {subscriptionAccessBusy ? "Wait..." : subscriptionAccessConfirmation.confirmLabel}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <SubscriptionAccessActionModal
+          action={pendingSubscriptionAccessAction}
+          storeName={subscriptionStore?.businessName || subscriptionStore?.name || "Store"}
+          title={subscriptionAccessConfirmation.title}
+          description={subscriptionAccessConfirmation.description}
+          confirmLabel={subscriptionAccessConfirmation.confirmLabel}
+          assessment={subscriptionActionAssessment}
+          assessmentLoading={subscriptionActionAssessmentLoading}
+          assessmentError={subscriptionActionAssessmentError}
+          mutationError={subscriptionAccessError}
+          busy={subscriptionAccessBusy}
+          onCancel={closeSubscriptionAccessModal}
+          onConfirm={() => void confirmSubscriptionAccessUpdate()}
+        />
       )}
 
       {showDeleteModal && (
