@@ -101,7 +101,7 @@ Hidden reviews display a clear `Hidden` status in the owner dashboard. Store-own
 
 Only the owner of the review's store, or an authorized administrator, may hide, show, or remove it. Ownership must be verified on the server from the authenticated user and store record; client-supplied role or store ownership data is not trusted.
 
-Hide/show updates use the existing review update path with database enforcement expanded to permit only the reply and moderation fields. Permanent removal uses a dedicated authenticated server operation so review ownership validation, database deletion, and image cleanup are coordinated without granting broad client-side delete access.
+Hide, show, and permanent removal use a dedicated authenticated server operation so review ownership validation, moderation metadata, database deletion, and image cleanup are coordinated without granting broad client-side update or delete access.
 
 ## Component Boundaries
 
