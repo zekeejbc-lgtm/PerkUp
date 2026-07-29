@@ -26,6 +26,12 @@ export interface AccountRestriction {
   updatedBy: string;
 }
 
+export interface SubscriptionInvoiceCycle {
+  invoiceType?: unknown;
+  periodStart?: unknown;
+  status?: unknown;
+}
+
 const DEFAULT_WARNING = "Your Perk subscription is almost ending. Please settle your balance to avoid an interruption.";
 const DEFAULT_PAYMENT_INSTRUCTIONS = "Contact Perk support for payment instructions and send your proof of payment for verification.";
 export const DEFAULT_POLICY_SUSPENSION_MESSAGE = "Access has been suspended because this store requires an administrative review. Contact Perk Support if you believe this was a mistake.";
@@ -152,6 +158,36 @@ export const getGraceTimeLabel = (value: unknown, now = new Date()) => {
   if (totalHours < 24) return `${totalHours} hour${totalHours === 1 ? "" : "s"} remaining`;
   const days = Math.ceil(totalHours / 24);
   return `${days} day${days === 1 ? "" : "s"} remaining`;
+};
+
+export const isInvoiceForCurrentSubscriptionCycle = (
+  invoice: SubscriptionInvoiceCycle | null | undefined,
+  subscriptionEnd: unknown,
+  initialPaymentRequired = false,
+) => {
+  if (!invoice) return false;
+  const invoiceType = text(invoice.invoiceType).toLowerCase();
+  if (initialPaymentRequired) return invoiceType === "initial";
+  if (invoiceType !== "renewal") return false;
+
+  const currentPeriodEnd = timestampToDate(subscriptionEnd);
+  const invoicePeriodStart = timestampToDate(invoice.periodStart);
+  return Boolean(
+    currentPeriodEnd
+    && invoicePeriodStart
+    && currentPeriodEnd.getTime() === invoicePeriodStart.getTime()
+  );
+};
+
+export const shouldConfirmPaidSubscriptionInvoice = (
+  invoice: SubscriptionInvoiceCycle | null | undefined,
+  subscriptionEnd: unknown,
+  initialPaymentRequired: boolean,
+  paymentWasOpened: boolean,
+) => {
+  return paymentWasOpened
+    && text(invoice?.status).toLowerCase() === "paid"
+    && isInvoiceForCurrentSubscriptionCycle(invoice, subscriptionEnd, initialPaymentRequired);
 };
 
 export const safePaymentLink = (value: unknown) => {

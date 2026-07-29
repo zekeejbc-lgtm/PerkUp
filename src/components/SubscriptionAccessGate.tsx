@@ -5,11 +5,13 @@ import {
   getEffectiveSubscriptionStatus,
   getGraceTimeLabel,
   clearSubscriptionPaymentPending,
+  isInvoiceForCurrentSubscriptionCycle,
   isSubscriptionPaymentPending,
   markSubscriptionPaymentPending,
   normalizeAccountRestriction,
   resolveSubscriptionAccess,
   safePaymentLink,
+  shouldConfirmPaidSubscriptionInvoice,
   subscriptionNoticeDismissKey,
   timestampToDate,
 } from "../lib/subscriptionAccess";
@@ -27,6 +29,8 @@ type FrozenInvoice = {
   nextAttemptAt?: string | null;
   paidAt?: string | null;
   periodEnd?: string | null;
+  periodStart?: string | null;
+  invoiceType?: string | null;
 };
 
 export type PaymentConfirmation = {
@@ -182,6 +186,7 @@ export function SubscriptionFrozenScreen({
   const graceEnd = timestampToDate(policy.graceEndsAt);
   const contactIsEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(policy.paymentContact);
   const initialPaymentRequired = store?.initialPaymentRequired === true;
+  const currentCycleStart = subscriptionEnd?.toISOString() || "";
   const storeCreatedAt = timestampToDate(store?.createdAt);
   const initialPaymentDeletionAt = storeCreatedAt
     ? new Date(storeCreatedAt.getTime() + 15 * 86_400_000)
@@ -196,11 +201,23 @@ export function SubscriptionFrozenScreen({
     let cancelled = false;
 
     const loadLatestInvoice = async () => {
-      const { data, error } = await supabase
+      if (!initialPaymentRequired && !currentCycleStart) {
+        setLastCheckedAt(Date.now());
+        setPaymentLookupComplete(true);
+        setLatestInvoice(null);
+        return;
+      }
+
+      let invoiceQuery = supabase
         .from("billing_invoices")
-        .select("public_id,amount_centavos,payment_url,paymongo_reference_number,status,created_at,next_attempt_at,paid_at,period_end")
+        .select("public_id,amount_centavos,payment_url,paymongo_reference_number,status,created_at,next_attempt_at,paid_at,period_start,period_end,invoice_type")
         .eq("store_id", store.id)
         .in("status", ["pending", "link_created", "failed", "paid"])
+        .eq("invoice_type", initialPaymentRequired ? "initial" : "renewal");
+      if (!initialPaymentRequired) {
+        invoiceQuery = invoiceQuery.eq("period_start", currentCycleStart);
+      }
+      const { data, error } = await invoiceQuery
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -224,10 +241,17 @@ export function SubscriptionFrozenScreen({
           createdAt: data.created_at || null,
           nextAttemptAt: data.next_attempt_at || null,
           paidAt: data.paid_at || null,
+          periodStart: data.period_start || null,
           periodEnd: data.period_end || null,
+          invoiceType: data.invoice_type || null,
         };
         setLatestInvoice(invoice);
-        if (data.status === "paid") {
+        if (shouldConfirmPaidSubscriptionInvoice(
+          invoice,
+          currentCycleStart,
+          initialPaymentRequired,
+          paymentPageOpened,
+        )) {
           clearSubscriptionPaymentPending(storeId);
           onPaymentConfirmed?.({
             amountCentavos: invoice.amountCentavos,
@@ -262,7 +286,15 @@ export function SubscriptionFrozenScreen({
       window.removeEventListener("focus", loadLatestInvoice);
       document.removeEventListener("visibilitychange", loadLatestInvoice);
     };
-  }, [onPaymentConfirmed, paymentPageOpened, role, store?.id, storeId]);
+  }, [
+    currentCycleStart,
+    initialPaymentRequired,
+    onPaymentConfirmed,
+    paymentPageOpened,
+    role,
+    store?.id,
+    storeId,
+  ]);
 
   useEffect(() => {
     if (role !== "store_owner" || !store?.id) return;
@@ -285,7 +317,9 @@ export function SubscriptionFrozenScreen({
             created_at?: string | null;
             next_attempt_at?: string | null;
             paid_at?: string | null;
+            period_start?: string | null;
             period_end?: string | null;
+            invoice_type?: string | null;
             paymongo_reference_number?: string | null;
             public_id?: string | null;
           };
@@ -302,11 +336,24 @@ export function SubscriptionFrozenScreen({
               createdAt: invoice.created_at || current?.createdAt || new Date().toISOString(),
               nextAttemptAt: invoice.next_attempt_at || current?.nextAttemptAt || null,
               paidAt: current?.paidAt || null,
+              periodStart: invoice.period_start || current?.periodStart || null,
               periodEnd: invoice.period_end || current?.periodEnd || null,
+              invoiceType: invoice.invoice_type || current?.invoiceType || null,
             }));
             return;
           }
-          if (invoice.status !== "paid") return;
+          if (
+            invoice.status !== "paid"
+            || !isInvoiceForCurrentSubscriptionCycle(
+              {
+                invoiceType: invoice.invoice_type,
+                periodStart: invoice.period_start,
+                status: invoice.status,
+              },
+              currentCycleStart,
+              initialPaymentRequired,
+            )
+          ) return;
 
           clearSubscriptionPaymentPending(storeId);
           onPaymentConfirmed?.({
@@ -322,7 +369,14 @@ export function SubscriptionFrozenScreen({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [onPaymentConfirmed, role, store?.id, storeId]);
+  }, [
+    initialPaymentRequired,
+    onPaymentConfirmed,
+    role,
+    store?.id,
+    storeId,
+    currentCycleStart,
+  ]);
 
   useEffect(() => {
     if (role !== "store_owner" || !store?.id || paymentLink || !paymentLookupComplete) return;
@@ -357,7 +411,9 @@ export function SubscriptionFrozenScreen({
           createdAt: current?.createdAt || new Date().toISOString(),
           nextAttemptAt: current?.nextAttemptAt || null,
           paidAt: current?.paidAt || null,
+          periodStart: current?.periodStart || currentCycleStart || null,
           periodEnd: current?.periodEnd || null,
+          invoiceType: current?.invoiceType || (initialPaymentRequired ? "initial" : "renewal"),
         }));
       } finally {
         inFlight = false;
@@ -369,7 +425,14 @@ export function SubscriptionFrozenScreen({
       cancelled = true;
       window.clearInterval(retryId);
     };
-  }, [paymentLink, paymentLookupComplete, role, store?.id]);
+  }, [
+    currentCycleStart,
+    initialPaymentRequired,
+    paymentLink,
+    paymentLookupComplete,
+    role,
+    store?.id,
+  ]);
 
   useEffect(() => {
     if (paymentLink || role !== "store_owner") return;

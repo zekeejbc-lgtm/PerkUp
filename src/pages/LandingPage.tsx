@@ -1,7 +1,7 @@
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { AUTH_REDIRECT_MESSAGE_KEY, GOOGLE_SIGNUP_PENDING_KEY, db } from "../lib/backend";
-import { QrCode, Star, Coffee, ArrowRight, MapPin, Pizza, Scissors, BookOpen, Shirt, Dumbbell, Glasses, Anchor, Search, Store as StoreIcon, Mail, Phone, Clock3, X } from "lucide-react";
+import { QrCode, Star, Coffee, ArrowRight, MapPin, Pizza, Scissors, BookOpen, Shirt, Dumbbell, Glasses, Anchor, Search, Store as StoreIcon, Mail, Phone, Clock3, X, UserRound } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { collection, query, where, getDocs } from "@/src/lib/dataCompat";
 import { BrandMark } from "../components/BrandMark";
@@ -15,6 +15,9 @@ import { CategorySearchInput } from "../components/CategorySearchInput";
 import { PartnerApplicationModal } from "../components/PartnerApplicationModal";
 import { PartnerApplicationTrackingModal } from "../components/PartnerApplicationTrackingModal";
 import { NewsletterForm } from "../components/NewsletterForm";
+import { GetStartedModal } from "../components/GetStartedModal";
+import { HomepageVideoPlayer } from "../components/HomepageVideoPlayer";
+import { DEFAULT_HOW_IT_WORKS_CONFIG, isValidVideoLink, normalizeHowItWorksConfig } from "../lib/homepageVideos";
 
 interface AuthNavigationState {
   authRequired?: boolean;
@@ -73,6 +76,7 @@ export default function LandingPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [openNowOnly, setOpenNowOnly] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showGetStartedModal, setShowGetStartedModal] = useState(false);
   const [showAppModal, setShowAppModal] = useState(false);
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
@@ -84,6 +88,7 @@ export default function LandingPage() {
     usePartnerStores: false,
     animateTrustedBusinesses: true,
     applicationsOpen: true,
+    howItWorks: DEFAULT_HOW_IT_WORKS_CONFIG,
     footerInfo: {
       address: "Tagum City, Davao del Norte, Philippines",
       email: "perkup.shop@youthserviceph.org",
@@ -158,6 +163,7 @@ export default function LandingPage() {
           setConfig((prev: any) => ({
             ...prev,
             ...data,
+            howItWorks: normalizeHowItWorksConfig(data.howItWorks),
             footerInfo: {
               ...prev.footerInfo,
               ...(data.footerInfo || {}),
@@ -219,6 +225,8 @@ export default function LandingPage() {
       ? config.trustedBusinesses
       : LOGOS;
   const shouldAnimateTrustedBusinesses = config.animateTrustedBusinesses !== false && trustedBusinesses.length > 0;
+  const homepageVideos = normalizeHowItWorksConfig(config.howItWorks);
+  const publishedHomepageVideos = homepageVideos.videos.filter((video) => video.enabled && isValidVideoLink(video.url));
   // Keep each half of the marquee wider than the page so a small set of
   // businesses can loop continuously without leaving an empty gap.
   const marqueeBusinesses = shouldAnimateTrustedBusinesses
@@ -274,7 +282,7 @@ export default function LandingPage() {
               </p>
 
               <button
-                onClick={() => openAuthModal('signup')}
+                onClick={() => setShowGetStartedModal(true)}
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-[#1b1b1b] dark:bg-white px-8 py-4 text-sm font-medium text-white dark:text-[#1b1b1b] shadow-sm hover:bg-black dark:hover:bg-gray-100 transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
                 Get Started
@@ -372,6 +380,44 @@ export default function LandingPage() {
             </div>
           </div>
         </section>
+
+        {homepageVideos.enabled && publishedHomepageVideos.length > 0 && (
+          <section className="border-t border-[#1b1b1b]/10 bg-gray-50 py-20 transition-colors dark:border-white/10 dark:bg-[#181818] sm:py-28" aria-labelledby="how-it-works-heading">
+            <div className="mx-auto max-w-7xl px-6">
+              <div className="mx-auto max-w-3xl text-center">
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-gray-500 dark:text-gray-400">Demo accounts</p>
+                <h2 id="how-it-works-heading" className="mt-3 text-3xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-4xl">
+                  {homepageVideos.heading}
+                </h2>
+                <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-gray-500 dark:text-gray-400 sm:text-lg">
+                  {homepageVideos.subheading}
+                </p>
+              </div>
+
+              <div className={`mx-auto mt-12 grid max-w-6xl gap-6 ${publishedHomepageVideos.length > 1 ? "lg:grid-cols-2" : "max-w-3xl"}`}>
+                {publishedHomepageVideos.map((video) => {
+                  const isBusiness = video.audience === "business";
+                  const AudienceIcon = isBusiness ? StoreIcon : UserRound;
+                  return (
+                    <article key={video.id} className="overflow-hidden rounded-[2rem] border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-gray-800 dark:bg-[#202020] sm:p-5">
+                      <HomepageVideoPlayer url={video.url} title={video.title} />
+                      <div className="px-1 pb-2 pt-5 sm:px-2">
+                        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                            <AudienceIcon className="h-4 w-4" />
+                          </span>
+                          {isBusiness ? "Owner / business demo" : "Customer demo"}
+                        </div>
+                        <h3 className="mt-4 text-xl font-bold text-gray-900 dark:text-white sm:text-2xl">{video.title}</h3>
+                        {video.description && <p className="mt-2 leading-6 text-gray-500 dark:text-gray-400">{video.description}</p>}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Map Section */}
         <section className="bg-white dark:bg-[#1b1b1b] py-20 sm:py-32 border-t border-[#1b1b1b]/10 dark:border-white/10 transition-colors">
@@ -567,6 +613,18 @@ export default function LandingPage() {
         </div>
       </footer>
 
+      <GetStartedModal
+        isOpen={showGetStartedModal}
+        onClose={() => setShowGetStartedModal(false)}
+        onCustomerSelect={() => {
+          setShowGetStartedModal(false);
+          openAuthModal("signup");
+        }}
+        onBusinessSelect={() => {
+          setShowGetStartedModal(false);
+          setShowAppModal(true);
+        }}
+      />
       <AuthModal isOpen={showAuthModal} onClose={closeAuthModal} initialMode={authMode} />
       <PartnerApplicationModal isOpen={showAppModal} onClose={() => setShowAppModal(false)} />
       <PartnerApplicationTrackingModal isOpen={showTrackingModal} onClose={() => setShowTrackingModal(false)} />

@@ -46,3 +46,12 @@ test("permits scanner audio embedded as a data URL", () => {
 
   expect(mediaSources).toContain("data:");
 });
+
+test("permits configured HTTPS video embeds and direct video links", () => {
+  const frameSources = getCatchAllCspDirectiveSources("frame-src");
+  const mediaSources = getCatchAllCspDirectiveSources("media-src");
+
+  expect(frameSources).toContain("https:");
+  expect(mediaSources).toContain("https:");
+  expect(mediaSources).toContain("blob:");
+});

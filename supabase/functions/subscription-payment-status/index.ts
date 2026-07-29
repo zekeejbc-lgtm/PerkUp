@@ -245,19 +245,27 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Subscription billing is paused while store deletion is pending." }, 409);
     }
 
-    const invoiceColumns = "id,subscription_id,store_id,owner_user_id,invoice_type,status,due_at,paymongo_link_id,payment_url,amount_centavos,currency,livemode,paid_at,period_end,paymongo_reference_number,plan_id_snapshot,plan_name_snapshot,subscription:billing_subscriptions(billing_email,plan_id,automation_enabled,renewal_mode)";
+    const currentPeriodEnd = new Date(subscription.current_period_end);
+    if (Number.isNaN(currentPeriodEnd.getTime())) {
+      throw new Error("The subscription billing period is invalid.");
+    }
+    const expectedInvoiceType = subscription.initial_payment_required === true ? "initial" : "renewal";
+    const invoiceColumns = "id,subscription_id,store_id,owner_user_id,invoice_type,status,due_at,paymongo_link_id,payment_url,amount_centavos,currency,livemode,paid_at,period_start,period_end,paymongo_reference_number,plan_id_snapshot,plan_name_snapshot,subscription:billing_subscriptions(billing_email,plan_id,automation_enabled,renewal_mode)";
     let invoiceQuery = admin.from("billing_invoices")
       .select(invoiceColumns)
       .eq("store_id", storeId)
       .in("status", ["pending", "failed", "link_created", "paid"])
+      .eq("invoice_type", expectedInvoiceType)
       .order("created_at", { ascending: false });
+    if (expectedInvoiceType === "renewal") {
+      invoiceQuery = invoiceQuery.eq("period_start", currentPeriodEnd.toISOString());
+    }
     if (ownerUserId) invoiceQuery = invoiceQuery.eq("owner_user_id", ownerUserId);
     const { data: latestInvoice, error: invoiceError } = await invoiceQuery
       .limit(1)
       .maybeSingle();
     if (invoiceError) throw invoiceError;
     let invoice = latestInvoice;
-    const currentPeriodEnd = new Date(subscription.current_period_end);
     const canPrepareManualRenewal = subscription.renewal_mode === "manual"
       && subscription.automation_enabled !== true
       && subscription.initial_payment_required !== true

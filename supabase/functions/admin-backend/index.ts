@@ -1746,6 +1746,25 @@ const handleAdminRequest = async (req: Request) => {
       const ownerId = cleanText(selectedStore.data?.ownerId, 100);
       const primaryStore = ownerId ? await getPrimaryStoreForOwner(admin, ownerId) : selectedStore;
       if (!primaryStore) return jsonResponse({ error: "Primary store was not found." }, 404);
+      if (body.validateOnly === true) {
+        const proposedStart = toIsoTimestamp(body.subscriptionStart);
+        const proposedEnd = toIsoTimestamp(body.subscriptionEnd);
+        const proposedIntervalDays = Math.max(
+          1,
+          Math.min(365, Math.trunc(Number(body.intervalDays ?? 30) || 30)),
+        );
+        if (!proposedStart || !proposedEnd) {
+          return jsonResponse({ error: "Subscription start and end dates are required." }, 400);
+        }
+        await assertSubscriptionPeriodChangeAllowed(
+          admin,
+          primaryStore.id,
+          proposedStart,
+          proposedEnd,
+          proposedIntervalDays,
+        );
+        return jsonResponse({ valid: true, storeId: primaryStore.id });
+      }
       const billingSubscription = await syncBillingSubscription(admin, primaryStore);
       return jsonResponse({ updated: true, storeId: primaryStore.id, billingSubscription });
     }
@@ -3127,9 +3146,21 @@ const handleAdminRequest = async (req: Request) => {
 
     if (action === "delete_store" || action === "delete_store_group") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
-      const lastSignInAt = new Date(String(authData.user.last_sign_in_at || ""));
-      const recentlyAuthenticated = !Number.isNaN(lastSignInAt.getTime()) && Date.now() - lastSignInAt.getTime() <= 5 * 60_000;
-      if (!recentlyAuthenticated) return jsonResponse({ error: "Please re-authenticate before deleting a store or branch." }, 401);
+      const password = String(body.password || "");
+      if (password) {
+        if (!authData.user.email || !await verifyActorPassword(supabaseUrl, anonKey, authData.user.email, password)) {
+          return jsonResponse({ error: "Administrator password is incorrect." }, 403);
+        }
+      } else {
+        // Backward compatibility for clients that re-authenticate before invoking
+        // this function. New clients send the password for server-side verification.
+        const lastSignInAt = new Date(String(authData.user.last_sign_in_at || ""));
+        const recentlyAuthenticated = !Number.isNaN(lastSignInAt.getTime())
+          && Date.now() - lastSignInAt.getTime() <= 5 * 60_000;
+        if (!recentlyAuthenticated) {
+          return jsonResponse({ error: "Please re-authenticate before deleting a store or branch." }, 401);
+        }
+      }
       const storeId = cleanText(body.storeId, 100);
       if (!storeId) return jsonResponse({ error: "Store is required." }, 400);
 
@@ -3303,9 +3334,33 @@ const handleAdminRequest = async (req: Request) => {
       const { error: referralDeleteError } = await admin.from("store_referral_redemptions").delete().in("store_id", storeIds);
       if (referralDeleteError) throw referralDeleteError;
 
+      const { data: billingSubscriptionRows, error: billingSubscriptionReadError } = await admin
+        .from("billing_subscriptions")
+        .select("id")
+        .in("store_id", storeIds);
+      if (billingSubscriptionReadError) throw billingSubscriptionReadError;
+      const billingSubscriptionIds = (billingSubscriptionRows || []).map((row: any) => String(row.id));
+
       if (primaryStoreId) {
         // Billing belongs to the store group. Preserve its subscription and
         // invoice history when a surviving branch becomes the new primary.
+        if (billingSubscriptionIds.length) {
+          const { error: linkedPlanChangeRelinkError } = await admin
+            .from("subscription_plan_changes")
+            .update({ store_id: primaryStoreId })
+            .in("subscription_id", billingSubscriptionIds);
+          if (linkedPlanChangeRelinkError) throw linkedPlanChangeRelinkError;
+          const { error: linkedInvoiceRelinkError } = await admin
+            .from("billing_invoices")
+            .update({ store_id: primaryStoreId })
+            .in("subscription_id", billingSubscriptionIds);
+          if (linkedInvoiceRelinkError) throw linkedInvoiceRelinkError;
+        }
+        const { error: planChangeRelinkError } = await admin
+          .from("subscription_plan_changes")
+          .update({ store_id: primaryStoreId })
+          .in("store_id", storeIds);
+        if (planChangeRelinkError) throw planChangeRelinkError;
         const { error: invoiceRelinkError } = await admin
           .from("billing_invoices")
           .update({ store_id: primaryStoreId })
@@ -3317,18 +3372,68 @@ const handleAdminRequest = async (req: Request) => {
           .in("store_id", storeIds);
         if (subscriptionRelinkError) throw subscriptionRelinkError;
       } else {
+        if (billingSubscriptionIds.length) {
+          // Plan changes and invoices are linked to subscriptions independently
+          // of store_id. Break both sides of their optional cycle, then delete
+          // every dependent row before deleting the subscription.
+          const { error: detachLinkedInvoiceChangeError } = await admin
+            .from("billing_invoices")
+            .update({ subscription_plan_change_id: null })
+            .in("subscription_id", billingSubscriptionIds)
+            .not("subscription_plan_change_id", "is", null);
+          if (detachLinkedInvoiceChangeError) throw detachLinkedInvoiceChangeError;
+
+          const { error: detachLinkedPlanChangeInvoiceError } = await admin
+            .from("subscription_plan_changes")
+            .update({ renewal_invoice_id: null })
+            .in("subscription_id", billingSubscriptionIds)
+            .not("renewal_invoice_id", "is", null);
+          if (detachLinkedPlanChangeInvoiceError) throw detachLinkedPlanChangeInvoiceError;
+        }
+
+        for (const [table, foreignKey] of [
+          ["billing_invoices", "subscription_plan_change_id"],
+          ["subscription_plan_changes", "renewal_invoice_id"],
+        ] as const) {
+          const { error: detachError } = await admin
+            .from(table)
+            .update({ [foreignKey]: null })
+            .in("store_id", storeIds)
+            .not(foreignKey, "is", null);
+          if (detachError) throw detachError;
+        }
+
+        if (billingSubscriptionIds.length) {
+          const { error: linkedPlanChangeDeleteError } = await admin
+            .from("subscription_plan_changes")
+            .delete()
+            .in("subscription_id", billingSubscriptionIds);
+          if (linkedPlanChangeDeleteError) throw linkedPlanChangeDeleteError;
+        }
+        const { error: remainingPlanChangeDeleteError } = await admin
+          .from("subscription_plan_changes")
+          .delete()
+          .in("store_id", storeIds);
+        if (remainingPlanChangeDeleteError) throw remainingPlanChangeDeleteError;
         // Invoices use restrictive foreign keys so deletion must be explicit
         // and must happen before subscriptions, stores, and owner profiles.
-        const { error: invoiceDeleteError } = await admin
+        if (billingSubscriptionIds.length) {
+          const { error: linkedInvoiceDeleteError } = await admin
+            .from("billing_invoices")
+            .delete()
+            .in("subscription_id", billingSubscriptionIds);
+          if (linkedInvoiceDeleteError) throw linkedInvoiceDeleteError;
+          const { error: subscriptionDeleteError } = await admin
+            .from("billing_subscriptions")
+            .delete()
+            .in("id", billingSubscriptionIds);
+          if (subscriptionDeleteError) throw subscriptionDeleteError;
+        }
+        const { error: remainingInvoiceDeleteError } = await admin
           .from("billing_invoices")
           .delete()
           .in("store_id", storeIds);
-        if (invoiceDeleteError) throw invoiceDeleteError;
-        const { error: subscriptionDeleteError } = await admin
-          .from("billing_subscriptions")
-          .delete()
-          .in("store_id", storeIds);
-        if (subscriptionDeleteError) throw subscriptionDeleteError;
+        if (remainingInvoiceDeleteError) throw remainingInvoiceDeleteError;
       }
 
       const { error: deleteStoreError } = await admin.from("stores").delete().in("id", storeIds);
@@ -4326,31 +4431,63 @@ const syncBillingSubscription = async (admin: any, primaryStore: { id: string; d
 
   const status = cleanText(access.status, 20).toLowerCase();
   const normalizedStatus = status === "frozen" ? "frozen" : status === "grace" ? "past_due" : "active";
-  const { data, error } = await admin.from("billing_subscriptions").upsert({
-    store_id: primaryStore.id,
-    owner_user_id: ownerId,
-    billing_email: billingEmail,
-    plan_id: planId,
-    amount_centavos: amountCentavos,
-    pending_amount_centavos: pendingAmountCentavos && pendingAmountCentavos >= 100
+  const { data, error } = await admin.rpc("sync_automatic_billing_subscription", {
+    p_store_id: primaryStore.id,
+    p_owner_user_id: ownerId,
+    p_billing_email: billingEmail,
+    p_plan_id: planId,
+    p_amount_centavos: amountCentavos,
+    p_pending_amount_centavos: pendingAmountCentavos && pendingAmountCentavos >= 100
       ? pendingAmountCentavos
       : null,
-    pending_amount_effective_at: pendingAmountEffectiveAt,
-    currency: "PHP",
-    interval_days: intervalDays,
-    current_period_start: periodStart,
-    current_period_end: periodEnd,
-    next_billing_at: periodEnd,
-    warning_lead_days: Math.max(0, Math.min(30, Math.trunc(Number(access.warningLeadDays ?? 7) || 0))),
-    grace_period_days: Math.max(0, Math.min(30, Math.trunc(Number(access.gracePeriodDays ?? 3) || 0))),
-    status: normalizedStatus,
-    automation_enabled: true,
-    renewal_mode: "automatic",
-    auto_renew_cancelled_at: null,
-    initial_payment_required: store.initialPaymentRequired === true,
-  }, { onConflict: "store_id" }).select("id,store_id,status,automation_enabled,renewal_mode,auto_renew_cancelled_at,next_billing_at,amount_centavos,currency,pending_amount_centavos,pending_amount_effective_at,initial_payment_required").single();
+    p_pending_amount_effective_at: pendingAmountEffectiveAt,
+    p_currency: "PHP",
+    p_interval_days: intervalDays,
+    p_current_period_start: periodStart,
+    p_current_period_end: periodEnd,
+    p_warning_lead_days: Math.max(0, Math.min(30, Math.trunc(Number(access.warningLeadDays ?? 7) || 0))),
+    p_grace_period_days: Math.max(0, Math.min(30, Math.trunc(Number(access.gracePeriodDays ?? 3) || 0))),
+    p_status: normalizedStatus,
+    p_initial_payment_required: store.initialPaymentRequired === true,
+  });
   if (error) throw error;
   return data;
+};
+
+const assertSubscriptionPeriodChangeAllowed = async (
+  admin: any,
+  storeId: string,
+  proposedStart: string,
+  proposedEnd: string,
+  proposedIntervalDays: number,
+) => {
+  const { data: subscription, error: subscriptionError } = await admin
+    .from("billing_subscriptions")
+    .select("id,current_period_start,current_period_end,interval_days")
+    .eq("store_id", storeId)
+    .maybeSingle();
+  if (subscriptionError) throw subscriptionError;
+  if (!subscription) return;
+
+  const periodChanged = new Date(subscription.current_period_start).getTime() !== new Date(proposedStart).getTime()
+    || new Date(subscription.current_period_end).getTime() !== new Date(proposedEnd).getTime()
+    || Number(subscription.interval_days) !== proposedIntervalDays;
+  if (!periodChanged) return;
+
+  const { data: activeChange, error: activeChangeError } = await admin
+    .from("subscription_plan_changes")
+    .select("id,status,target_period_start")
+    .eq("subscription_id", subscription.id)
+    .in("status", ["scheduled", "locked"])
+    .order("requested_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (activeChangeError) throw activeChangeError;
+  if (!activeChange) return;
+
+  throw new Error(
+    `ACTIVE_UPGRADE_PERIOD_CHANGE: Cancel the ${activeChange.status} subscription upgrade before changing its billing dates.`,
+  );
 };
 
 const getUserProfile = async (admin: any, userId: string): Promise<UserProfile | null> => {

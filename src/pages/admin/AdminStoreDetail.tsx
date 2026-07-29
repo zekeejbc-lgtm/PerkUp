@@ -678,6 +678,7 @@ export default function AdminStoreDetail({
   const handleUpdateStore = async () => {
     let uploadedLogoUrl = "";
     let storePersisted = false;
+    let billingDatesRolledBack = false;
     try {
       const logoUrl = pendingLogo
         ? await uploadImageFileToDriveSecure(pendingLogo, {
@@ -688,6 +689,11 @@ export default function AdminStoreDetail({
         : editData.logoUrl;
       if (pendingLogo) uploadedLogoUrl = logoUrl;
       const isPrimaryBranch = store.isPrimaryBranch !== false;
+      const subscriptionDatesChanged = isPrimaryBranch && (
+        editData.subscriptionStart !== toDateInputValue(store.subscriptionStart)
+        || editData.subscriptionEnd !== toDateInputValue(store.subscriptionEnd)
+        || Number(editData.billingIntervalDays || 30) !== Number(store.billingIntervalDays || 30)
+      );
       const dependencies = getSubscriptionDependencies(plans, editData.subscriptionLevel);
       const currentAmount = Number(store.owedAmount || 0);
       const nextPlanAmount = getSubscriptionOwedAmount(plans, editData.subscriptionLevel, currentAmount);
@@ -745,6 +751,17 @@ export default function AdminStoreDetail({
         });
       }
 
+      if (subscriptionDatesChanged && subscriptionAccessForm.automationEnabled) {
+        await invokeAdminBackend({
+          action: "sync_subscription_billing",
+          storeId,
+          validateOnly: true,
+          subscriptionStart: dateInputToDate(subscriptionStart),
+          subscriptionEnd: dateInputToDate(subscriptionEnd),
+          intervalDays: editData.billingIntervalDays,
+        });
+      }
+
       await updateDoc(doc(db, "stores", storeId), nextData);
       storePersisted = true;
       if (isPrimaryBranch && subscriptionAccessForm.automationEnabled) {
@@ -776,13 +793,28 @@ export default function AdminStoreDetail({
       setIsEditing(false);
       setPendingLogo(null);
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update store";
+      if (storePersisted && message.includes("ACTIVE_UPGRADE_PERIOD_CHANGE")) {
+        try {
+          await updateDoc(doc(db, "stores", storeId), {
+            subscriptionStart: store.subscriptionStart ?? deleteField(),
+            subscriptionEnd: store.subscriptionEnd ?? deleteField(),
+            billingIntervalDays: store.billingIntervalDays ?? deleteField(),
+          });
+          billingDatesRolledBack = true;
+        } catch (rollbackError) {
+          console.error("Could not restore the previous subscription dates", rollbackError);
+        }
+      }
       if (!storePersisted && uploadedLogoUrl) {
         await deleteImageFromDriveSecure(uploadedLogoUrl).catch(console.error);
       }
       console.error(error);
-      alert(storePersisted
-        ? `Store details were saved, but billing synchronization failed: ${(error as Error).message}`
-        : "Failed to update store");
+      alert(billingDatesRolledBack
+        ? "Other store details were saved, but the subscription dates were restored. Cancel the active upgrade before changing its billing period."
+        : storePersisted
+        ? `Store details were saved, but billing synchronization failed: ${message}`
+        : message.replace(/^ACTIVE_UPGRADE_PERIOD_CHANGE:\s*/i, ""));
     }
   };
 
@@ -908,11 +940,6 @@ export default function AdminStoreDetail({
     setIsDeleting(true);
     setDeleteError("");
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      const email = authData.user?.email;
-      if (!email) throw new Error("Your administrator email could not be verified.");
-      const { error: reauthError } = await supabase.auth.signInWithPassword({ email, password: deletePassword });
-      if (reauthError) throw new Error("Administrator password is incorrect.");
       const result = await invokeAdminBackend<{
         deleted: boolean;
         deletedStoreIds: string[];
@@ -924,6 +951,7 @@ export default function AdminStoreDetail({
       }>({
         action: deleteScope === "store" ? "delete_store_group" : "delete_store",
         storeId,
+        password: deletePassword,
       });
       onDeleted?.(result.deletedStoreIds || [storeId]);
       setShowDeleteModal(false);

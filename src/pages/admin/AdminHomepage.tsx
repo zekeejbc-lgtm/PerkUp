@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from "react";
 import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Layout, Save, Upload, Plus, Trash2, Loader2, ImagePlus, RefreshCcw, CheckCircle2, XCircle, Edit3, QrCode, Star, Coffee, ArrowRight, Store as StoreIcon, Search, MapPin, Mail, Phone } from "lucide-react";
+import { Layout, Save, Upload, Plus, Trash2, Loader2, ImagePlus, RefreshCcw, CheckCircle2, XCircle, Edit3, QrCode, Star, Coffee, ArrowRight, Store as StoreIcon, Search, MapPin, Mail, Phone, Video, Link2 } from "lucide-react";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { BrandMark } from "../../components/BrandMark";
+import { HomepageVideoPlayer } from "../../components/HomepageVideoPlayer";
+import {
+  DEFAULT_HOW_IT_WORKS_CONFIG,
+  HowItWorksConfig,
+  HomepageVideoConfig,
+  isValidVideoLink,
+  normalizeHowItWorksConfig,
+} from "../../lib/homepageVideos";
 
 type HomepageConfig = {
   heroHeadline: string;
@@ -24,6 +32,7 @@ type HomepageConfig = {
     };
   };
   applicationsOpen: boolean;
+  howItWorks: HowItWorksConfig;
 };
 
 const DEFAULT_CONFIG: HomepageConfig = {
@@ -45,7 +54,8 @@ const DEFAULT_CONFIG: HomepageConfig = {
       twitter: ""
     }
   },
-  applicationsOpen: true
+  applicationsOpen: true,
+  howItWorks: DEFAULT_HOW_IT_WORKS_CONFIG,
 };
 
 const cloneConfig = (value: HomepageConfig): HomepageConfig => JSON.parse(JSON.stringify(value));
@@ -57,6 +67,7 @@ const mergeHomepageConfig = (data: Partial<HomepageConfig> = {}): HomepageConfig
   usePartnerStores: data.usePartnerStores ?? DEFAULT_CONFIG.usePartnerStores,
   animateTrustedBusinesses: data.animateTrustedBusinesses ?? DEFAULT_CONFIG.animateTrustedBusinesses,
   applicationsOpen: data.applicationsOpen ?? DEFAULT_CONFIG.applicationsOpen,
+  howItWorks: normalizeHowItWorksConfig(data.howItWorks),
   footerInfo: {
     ...DEFAULT_CONFIG.footerInfo,
     ...(data.footerInfo || {}),
@@ -180,6 +191,23 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
           </div>
         </section>
 
+        {config.howItWorks.enabled && config.howItWorks.videos.some((video) => video.enabled && isValidVideoLink(video.url)) && (
+          <section className="border-t border-gray-100 bg-gray-50 px-5 py-12 dark:border-gray-800 dark:bg-gray-950/40">
+            <div className="mx-auto max-w-4xl text-center">
+              <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">{config.howItWorks.heading}</h2>
+              <p className="mx-auto mt-2 max-w-xl text-sm text-gray-500 dark:text-gray-400">{config.howItWorks.subheading}</p>
+              <div className="mt-7 grid gap-5 md:grid-cols-2">
+                {config.howItWorks.videos.filter((video) => video.enabled && isValidVideoLink(video.url)).slice(0, 2).map((video) => (
+                  <div key={video.id} className="rounded-2xl border border-gray-200 bg-white p-3 text-left dark:border-gray-800 dark:bg-[#1b1b1b]">
+                    <HomepageVideoPlayer url={video.url} title={video.title} compact />
+                    <p className="mt-3 text-xs font-semibold text-gray-900 dark:text-white">{video.title}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
         <section className="bg-white dark:bg-[#1b1b1b] py-12 border-t border-gray-100 dark:border-gray-800">
           <div className="px-5">
             <div className="text-center max-w-lg mx-auto mb-8">
@@ -257,6 +285,7 @@ export default function AdminHomepage() {
   const [config, setConfig] = useState<HomepageConfig>(DEFAULT_CONFIG);
   const [savedConfig, setSavedConfig] = useState<HomepageConfig>(DEFAULT_CONFIG);
   const [pendingImageFiles, setPendingImageFiles] = useState<Record<string, File>>({});
+  const [videoUrlErrors, setVideoUrlErrors] = useState<Record<string, boolean>>({});
 
   const loadConfig = async () => {
     setLoading(true);
@@ -327,6 +356,7 @@ export default function AdminHomepage() {
     setPendingImageFiles({});
     setConfig(cloneConfig(savedConfig));
     setUrlErrors({ facebook: false, instagram: false, twitter: false });
+    setVideoUrlErrors({});
     setIsEditing(false);
   };
 
@@ -362,11 +392,20 @@ export default function AdminHomepage() {
       newErrors.twitter = true;
       hasErrors = true;
     }
+
+    const nextVideoErrors: Record<string, boolean> = {};
+    config.howItWorks.videos.forEach((video) => {
+      if ((video.enabled || video.url.trim()) && !isValidVideoLink(video.url)) {
+        nextVideoErrors[video.id] = true;
+        hasErrors = true;
+      }
+    });
+    setVideoUrlErrors(nextVideoErrors);
     
     setUrlErrors(newErrors);
     
     if (hasErrors) {
-      showToast("Please enter valid URLs for social media links.", "error");
+      showToast("Please fix the highlighted links before saving.", "error");
       return;
     }
 
@@ -438,6 +477,57 @@ export default function AdminHomepage() {
     const newBusinesses = [...config.trustedBusinesses];
     newBusinesses[index] = { ...newBusinesses[index], [field]: value };
     setConfig({ ...config, trustedBusinesses: newBusinesses });
+  };
+
+  const handleAddVideo = (audience: HomepageVideoConfig["audience"] = "customer") => {
+    const id = crypto.randomUUID();
+    setConfig({
+      ...config,
+      howItWorks: {
+        ...config.howItWorks,
+        videos: [
+          ...config.howItWorks.videos,
+          {
+            id,
+            audience,
+            title: audience === "business" ? "Business owner demo" : "Customer demo",
+            description: audience === "business"
+              ? "See how business owners manage rewards and grow customer loyalty."
+              : "See how customers collect stamps and redeem rewards.",
+            url: "",
+            enabled: true,
+          },
+        ],
+      },
+    });
+  };
+
+  const handleVideoChange = (id: string, changes: Partial<HomepageVideoConfig>) => {
+    setConfig({
+      ...config,
+      howItWorks: {
+        ...config.howItWorks,
+        videos: config.howItWorks.videos.map((video) => video.id === id ? { ...video, ...changes } : video),
+      },
+    });
+    if (changes.url !== undefined && videoUrlErrors[id]) {
+      setVideoUrlErrors((current) => ({ ...current, [id]: false }));
+    }
+  };
+
+  const handleRemoveVideo = (id: string) => {
+    setConfig({
+      ...config,
+      howItWorks: {
+        ...config.howItWorks,
+        videos: config.howItWorks.videos.filter((video) => video.id !== id),
+      },
+    });
+    setVideoUrlErrors((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
   };
 
   if (loading) return <PageSkeleton variant="homepage" />;
@@ -522,6 +612,130 @@ export default function AdminHomepage() {
                  <p className="text-white/80 text-xs mt-1">{config.heroSubheadline}</p>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* How It Works Videos */}
+        <div className="space-y-5 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-800/50">
+          <div className="flex flex-col gap-4 border-b border-gray-100 pb-4 dark:border-gray-800 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Video className="h-4 w-4 text-gray-500" />
+                <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">How does it work?</h4>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                Add customer and business-owner demos using YouTube, Facebook, Google Drive, Vimeo, Loom, direct video files, or another public link.
+              </p>
+            </div>
+            <label className="relative inline-flex shrink-0 cursor-pointer items-center gap-3">
+              <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">Show on homepage</span>
+              <input
+                type="checkbox"
+                className="peer sr-only"
+                checked={config.howItWorks.enabled}
+                onChange={(event) => setConfig({
+                  ...config,
+                  howItWorks: { ...config.howItWorks, enabled: event.target.checked },
+                })}
+              />
+              <div className="h-6 w-11 rounded-full bg-gray-200 after:absolute after:right-5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-[#1b1b1b] peer-checked:after:translate-x-full peer-checked:after:border-white dark:bg-gray-700 dark:peer-checked:bg-white dark:peer-checked:after:bg-[#1b1b1b]" />
+            </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-500">Section heading</label>
+              <input
+                type="text"
+                value={config.howItWorks.heading}
+                onChange={(event) => setConfig({
+                  ...config,
+                  howItWorks: { ...config.howItWorks, heading: event.target.value },
+                })}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-500">Section description</label>
+              <input
+                type="text"
+                value={config.howItWorks.subheading}
+                onChange={(event) => setConfig({
+                  ...config,
+                  howItWorks: { ...config.howItWorks, subheading: event.target.value },
+                })}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => handleAddVideo("customer")} className="inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-200 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-700">
+              <Plus className="h-3.5 w-3.5" /> Add customer video
+            </button>
+            <button type="button" onClick={() => handleAddVideo("business")} className="inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-200 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-700">
+              <Plus className="h-3.5 w-3.5" /> Add business video
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {config.howItWorks.videos.map((video, index) => (
+              <div key={video.id} className="grid gap-5 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/70 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.85fr)]">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Video {index + 1}</span>
+                    <div className="flex items-center gap-3">
+                      <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
+                        <input type="checkbox" checked={video.enabled} onChange={(event) => handleVideoChange(video.id, { enabled: event.target.checked })} />
+                        Published
+                      </label>
+                      <button type="button" onClick={() => handleRemoveVideo(video.id)} aria-label={`Remove ${video.title}`} className="rounded-lg p-2 text-red-500 transition hover:bg-red-50 dark:hover:bg-red-950/30">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-gray-500">Demo account type</label>
+                      <select value={video.audience} onChange={(event) => handleVideoChange(video.id, { audience: event.target.value as HomepageVideoConfig["audience"] })} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800">
+                        <option value="customer">Customer</option>
+                        <option value="business">Business owner</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-gray-500">Video title</label>
+                      <input type="text" value={video.title} onChange={(event) => handleVideoChange(video.id, { title: event.target.value })} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className={`mb-1 flex items-center gap-1.5 text-xs font-semibold ${videoUrlErrors[video.id] ? "text-red-500" : "text-gray-500"}`}>
+                      <Link2 className="h-3.5 w-3.5" /> Public video link
+                    </label>
+                    <input
+                      type="url"
+                      value={video.url}
+                      placeholder="https://youtube.com/watch?v=... or any public video page"
+                      onChange={(event) => handleVideoChange(video.id, { url: event.target.value })}
+                      className={`w-full rounded-lg border bg-white px-3 py-2 text-sm dark:bg-gray-800 ${videoUrlErrors[video.id] ? "border-red-500" : "border-gray-200 dark:border-gray-700"}`}
+                    />
+                    {videoUrlErrors[video.id] && <p className="mt-1 text-[11px] text-red-500">Enter a complete public http:// or https:// link.</p>}
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-gray-500">Short description</label>
+                    <textarea rows={2} value={video.description} onChange={(event) => handleVideoChange(video.id, { description: event.target.value })} className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" />
+                  </div>
+                </div>
+                <div className="self-center">
+                  <HomepageVideoPlayer url={video.url} title={video.title || `Video ${index + 1}`} compact />
+                  <p className="mt-2 text-center text-[11px] text-gray-500">Live embed preview</p>
+                </div>
+              </div>
+            ))}
+            {config.howItWorks.videos.length === 0 && (
+              <div className="rounded-2xl border-2 border-dashed border-gray-200 px-6 py-10 text-center text-sm text-gray-500 dark:border-gray-700">
+                No demo videos yet. Add one for customers and one for business owners.
+              </div>
+            )}
           </div>
         </div>
 
