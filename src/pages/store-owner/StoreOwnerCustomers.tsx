@@ -8,6 +8,10 @@ import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { Pagination } from "../../components/Pagination";
 import { formatCustomerCode } from "../../lib/customerId";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
+import {
+  getCustomerLoyaltyLabel,
+  getCustomerLoyaltySegment,
+} from "../../lib/customerLoyaltySegment";
 
 const CUSTOMERS_PER_PAGE = 12;
 const SCROLL_PANEL_CLASS = "overflow-y-auto pr-1";
@@ -106,7 +110,6 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
         let avatarUrl = "";
         let bio = "";
         let joinedAt = null;
-        let lifetimeStars = Number(card.stars || 0);
         const customerScans = scansByCustomer[card.customerId] || [];
         let favorites = buildUsuals(customerScans);
         let recentHistory = buildScanActivity(customerScans);
@@ -132,7 +135,6 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
            }
            if (customerSnap.exists()) {
                const customer = customerSnap.data() as any;
-               lifetimeStars = Number(customer.lifetimeStars ?? lifetimeStars);
                joinedAt = joinedAt || customer.createdAt || null;
                bio = bio || customer.bio || "";
            }
@@ -149,7 +151,6 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
           avatarUrl,
           bio,
           joinedAt,
-          lifetimeStars,
           stars: card.stars || 0,
           updatedAt: card.updatedAt,
           favorites,
@@ -247,7 +248,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
     const terms = search.toLocaleLowerCase().split(",").map((term) => term.trim()).filter(Boolean);
     if (!terms.length) return customers;
     return customers.filter((customer) => {
-      const segment = customer.lifetimeStars > 20 ? "loyal" : customer.lifetimeStars > 5 ? "regular" : "new";
+      const segment = getCustomerLoyaltySegment(Number(customer.stars || 0));
       const status = customer.accountDeleted ? "deleted" : "active";
       const searchable = [
         customer.name,
@@ -279,8 +280,8 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
   if (loading) return <PageSkeleton variant="table" />;
 
   if (selectedCustomer) {
-    const isLoyal = selectedCustomer.lifetimeStars > 20;
-    const customerSegment = isLoyal ? 'Loyal Regular' : (selectedCustomer.lifetimeStars > 5 ? 'Regular Customer' : 'New Customer');
+    const isLoyal = getCustomerLoyaltySegment(Number(selectedCustomer.stars || 0)) === "loyal";
+    const customerSegment = getCustomerLoyaltyLabel(Number(selectedCustomer.stars || 0));
 
     return (
       <div className="space-y-6 pb-20">
@@ -349,12 +350,6 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                     <div>
                       <p className="text-xs text-gray-500 mb-0.5">Email Address</p>
                       <p className="font-semibold text-gray-900 dark:text-white truncate">{selectedCustomer.email || 'No email provided'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 mb-0.5">Lifetime Points Earned</p>
-                      <p className="font-semibold text-gray-900 dark:text-white flex items-center gap-1">
-                        {selectedCustomer.lifetimeStars} <Star className="w-3 h-3 text-[#1b1b1b] dark:text-white" />
-                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500 mb-0.5">Member Since</p>
@@ -568,8 +563,8 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                     {c.accountDeleted ? "Deleted" : formatCustomerCode(c.customerId)}
                   </span>
                   <span className="text-gray-300 dark:text-gray-700">&bull;</span>
-                  <span className={`${c.lifetimeStars > 20 ? 'text-[#1b1b1b] dark:text-white font-bold' : 'text-gray-400'}`}>
-                    {c.lifetimeStars > 20 ? 'Loyal' : (c.lifetimeStars > 5 ? 'Regular' : 'New')}
+                  <span className={`${getCustomerLoyaltySegment(Number(c.stars || 0)) === "loyal" ? 'text-[#1b1b1b] dark:text-white font-bold' : 'text-gray-400'}`}>
+                    {getCustomerLoyaltySegment(Number(c.stars || 0)) === "loyal" ? 'Loyal' : (getCustomerLoyaltySegment(Number(c.stars || 0)) === "regular" ? 'Regular' : 'New')}
                   </span>
                 </div>
               </div>
