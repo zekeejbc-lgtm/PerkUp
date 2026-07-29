@@ -1,4 +1,14 @@
-import { AlertTriangle, ArrowUpCircle, Loader2, LockKeyhole, RotateCcw, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  Archive,
+  ArrowUpCircle,
+  ChevronDown,
+  Loader2,
+  LockKeyhole,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { formatPhpCentavos } from "../lib/subscriptionUpgrade";
 import { ScrollableRegion } from "./ScrollableRegion";
 import { Pagination } from "./Pagination";
@@ -69,7 +79,13 @@ export function AdminSubscriptionPlanChanges({
   onRefresh,
   onRequestCancel,
 }: Props) {
-  const changePagination = useCollectionPagination(changes, 6);
+  const [showCancelled, setShowCancelled] = useState(false);
+  const cancelledCount = changes.filter((change) => change.status === "cancelled").length;
+  const visibleChanges = useMemo(
+    () => changes.filter((change) => showCancelled || change.status !== "cancelled"),
+    [changes, showCancelled],
+  );
+  const changePagination = useCollectionPagination(visibleChanges, 6);
 
   return (
     <section className="rounded-2xl border border-gray-100 bg-gray-50 p-6 shadow-sm dark:border-gray-800 dark:bg-gray-800/50 sm:p-7">
@@ -115,7 +131,33 @@ export function AdminSubscriptionPlanChanges({
         </p>
       ) : (
         <>
-        <ScrollableRegion label="Subscription plan change history" className="mt-5 space-y-4 pr-1">
+        {cancelledCount > 0 && (
+          <button
+            type="button"
+            aria-expanded={showCancelled}
+            onClick={() => setShowCancelled((current) => !current)}
+            className="mt-5 flex w-full items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-left text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            <span className="flex items-center gap-2">
+              <Archive className="h-4 w-4 text-gray-500" />
+              Archived cancelled upgrades
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                {cancelledCount}
+              </span>
+            </span>
+            <ChevronDown
+              className={`h-4 w-4 text-gray-500 transition-transform ${showCancelled ? "rotate-180" : ""}`}
+            />
+          </button>
+        )}
+
+        {visibleChanges.length === 0 ? (
+          <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
+            No active plan changes.
+          </p>
+        ) : (
+          <>
+        <ScrollableRegion label="Subscription plan change history" className={`${cancelledCount > 0 ? "mt-4" : "mt-5"} space-y-4 pr-1`}>
           {changePagination.pageItems.map((change) => {
             const fromName = change.from_plan_snapshot?.name || change.from_plan_snapshot?.id || "Previous plan";
             const toName = change.to_plan_snapshot?.name || change.to_plan_snapshot?.id || "Target plan";
@@ -210,6 +252,8 @@ export function AdminSubscriptionPlanChanges({
           })}
         </ScrollableRegion>
         <Pagination page={changePagination.page} pageSize={changePagination.pageSize} totalItems={changePagination.totalItems} onPageChange={changePagination.setPage} itemLabel="plan changes" />
+          </>
+        )}
         </>
       )}
     </section>

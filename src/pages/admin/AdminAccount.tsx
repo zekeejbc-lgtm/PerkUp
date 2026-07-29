@@ -3,7 +3,7 @@ import { collection, query, where, getDocs, doc, updateDoc } from "@/src/lib/dat
 import { db, logOut } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
 import { useAuth } from "../../contexts/AuthContext";
-import { User, Mail, Plus, Trash2, Shield, Save, X, AtSign, Phone, Calendar, FileText, ImagePlus, LogOut, CheckCircle2 } from "lucide-react";
+import { User, Mail, Plus, Trash2, Shield, Save, X, AtSign, Phone, Calendar, FileText, ImagePlus, LogOut, CheckCircle2, Loader2 } from "lucide-react";
 import AccountSecurity from "@/src/components/AccountSecurity";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
@@ -16,8 +16,10 @@ import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { Pagination } from "../../components/Pagination";
 import { useCollectionPagination } from "../../hooks/useCollectionPagination";
 import { CustomDropdown } from "../../components/CustomDropdown";
+import { useToast } from "../../components/ToastProvider";
 
 export default function AdminAccount() {
+  const toast = useToast();
   const { user, refreshUser } = useAuth();
   const [admins, setAdmins] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +34,7 @@ export default function AdminAccount() {
   const [myBirthday, setMyBirthday] = useState(user?.birthday || "");
   const [myAvatarUrl, setMyAvatarUrl] = useState(user?.avatarUrl || user?.photoURL || "");
   const [myAccountSaved, setMyAccountSaved] = useState(false);
+  const [isSavingMyAccount, setIsSavingMyAccount] = useState(false);
   const [pendingMyAvatarFile, setPendingMyAvatarFile] = useState<File | null>(null);
 
   // New admin state
@@ -85,44 +88,51 @@ export default function AdminAccount() {
   }, [user]);
 
   const handleUpdateMyAccount = async () => {
+    if (!user?.id || isSavingMyAccount) return;
+    setIsSavingMyAccount(true);
+    const progressToastId = toast.progress("Saving your profile…", { title: "Updating account" });
     let uploadedAvatarUrl = "";
     let profilePersisted = false;
     try {
-      if (user?.id) {
-        const avatarUrl = pendingMyAvatarFile
-          ? await uploadImageFileToDriveSecure(pendingMyAvatarFile, {
-              owner: myUsername || myEmail || user.id,
-              purpose: "admin-avatar",
-            })
-          : myAvatarUrl;
-        if (pendingMyAvatarFile) uploadedAvatarUrl = avatarUrl;
-        await updateDoc(doc(db, "users", user.id), {
-          name: myName,
-          username: myUsername,
-          phone: myPhone,
-          number: myPhone,
-          bio: myBio,
-          birthday: myBirthday,
-          avatarUrl,
-          photoURL: avatarUrl,
-        });
-        profilePersisted = true;
-        const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
-        if (previousAvatarUrl && previousAvatarUrl !== avatarUrl) {
-          await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
-        }
-        await refreshUser();
-        setPendingMyAvatarFile(null);
+      const avatarUrl = pendingMyAvatarFile
+        ? await uploadImageFileToDriveSecure(pendingMyAvatarFile, {
+            owner: myUsername || myEmail || user.id,
+            purpose: "admin-avatar",
+          })
+        : myAvatarUrl;
+      if (pendingMyAvatarFile) uploadedAvatarUrl = avatarUrl;
+      await updateDoc(doc(db, "users", user.id), {
+        name: myName,
+        username: myUsername,
+        phone: myPhone,
+        number: myPhone,
+        bio: myBio,
+        birthday: myBirthday,
+        avatarUrl,
+        photoURL: avatarUrl,
+      });
+      profilePersisted = true;
+      const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
+      if (previousAvatarUrl && previousAvatarUrl !== avatarUrl) {
+        await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
       }
+      await refreshUser();
+      setPendingMyAvatarFile(null);
       setIsEditingMyAccount(false);
       setMyAccountSaved(true);
       window.setTimeout(() => setMyAccountSaved(false), 3000);
+      toast.update(progressToastId, "Your profile was saved successfully.", "success", { title: "Profile updated" });
     } catch (e) {
       if (!profilePersisted && uploadedAvatarUrl) {
         await deleteImageFromDriveSecure(uploadedAvatarUrl).catch(console.error);
       }
       console.error(e);
-      alert("Failed to update account.");
+      toast.update(progressToastId, "Your account could not be updated.", "error", {
+        error: e,
+        context: { operation: "update_admin_profile", userId: user.id },
+      });
+    } finally {
+      setIsSavingMyAccount(false);
     }
   };
 
@@ -297,7 +307,7 @@ export default function AdminAccount() {
                   {isEditingMyAccount && (
                     <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
                       <ImagePlus className="w-5 h-5" />
-                      <input type="file" accept="image/*" className="hidden" onChange={handleMyAvatarUpload} />
+                      <input type="file" accept="image/*" className="hidden" onChange={handleMyAvatarUpload} disabled={isSavingMyAccount} />
                     </label>
                   )}
                 </div>
@@ -319,13 +329,13 @@ export default function AdminAccount() {
                 </button>
               ) : (
                 <div className="flex gap-2">
-                  <button type="button" onClick={handleCancelMyAccountEdit} className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800">
+                  <button type="button" onClick={handleCancelMyAccountEdit} disabled={isSavingMyAccount} className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800">
                     <X className="w-4 h-4" />
                     Cancel
                   </button>
-                  <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 dark:bg-white dark:text-gray-900">
-                    <Save className="w-4 h-4" />
-                    Save
+                  <button type="submit" disabled={isSavingMyAccount} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 disabled:cursor-wait disabled:opacity-60 dark:bg-white dark:text-gray-900">
+                    {isSavingMyAccount ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {isSavingMyAccount ? "Saving…" : "Save"}
                   </button>
                 </div>
               )}

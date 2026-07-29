@@ -41,7 +41,10 @@ export default function AdminRuntimeControl() {
       await refreshRuntimeMode();
       toast.success(`${mode === "production" ? "Production" : "Development"} Mode is active.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Runtime mode could not be changed.", { error, reportable: false });
+      toast.error(error instanceof Error ? error.message : "Runtime mode could not be changed.", {
+        error,
+        context: { operation: "set_runtime_mode", mode },
+      });
     } finally {
       setWorkingMode("");
       setPendingMode(null);
@@ -67,7 +70,10 @@ export default function AdminRuntimeControl() {
       await refreshRuntimeMode();
       window.location.reload();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Maintenance mode could not be initiated.", { error, reportable: false });
+      toast.error(error instanceof Error ? error.message : "Maintenance mode could not be initiated.", {
+        error,
+        context: { operation: "initiate_maintenance_mode" },
+      });
       setWorkingMode("");
     }
   };
@@ -96,7 +102,10 @@ export default function AdminRuntimeControl() {
         confirmation: "",
       });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Maintenance mode could not be ended.", { error, reportable: false });
+      toast.error(error instanceof Error ? error.message : "Maintenance mode could not be ended.", {
+        error,
+        context: { operation: "end_maintenance_mode" },
+      });
     } finally {
       setWorkingMode("");
     }
@@ -129,7 +138,7 @@ export default function AdminRuntimeControl() {
         error instanceof Error
           ? error.message
           : "Subscription upgrade availability could not be changed.",
-        { error, reportable: false },
+        { error, context: { operation: "set_subscription_upgrades_enabled", enabled } },
       );
     } finally {
       setUpgradeWorking(false);

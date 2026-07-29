@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState } from "react";
-import { Store, FileText, Layout, CreditCard, Menu, UserCircle, Scale, Inbox, ReceiptText, Users, ShieldCheck, ServerCog, FlaskConical, RadioTower } from "lucide-react";
+import { Store, FileText, Layout, CreditCard, Menu, UserCircle, Scale, Inbox, ReceiptText, Users, ScrollText, ServerCog, FlaskConical, RadioTower } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { PageSkeleton } from "../components/LoadingSkeleton";
 import { useAuth } from "../contexts/AuthContext";
@@ -12,7 +12,7 @@ const AdminHomepage = lazy(() => import("./admin/AdminHomepage"));
 const AdminSubscriptions = lazy(() => import("./admin/AdminSubscriptions"));
 const AdminInvoices = lazy(() => import("./admin/AdminInvoices"));
 const AdminAccounts = lazy(() => import("./admin/AdminAccounts"));
-const AdminAudit = lazy(() => import("./admin/AdminAudit"));
+const AdminLogs = lazy(() => import("./admin/AdminAudit"));
 const AdminSystemHealth = lazy(() => import("./admin/AdminSystemHealth"));
 const AdminDemoManagement = lazy(() => import("./admin/AdminDemoManagement"));
 const AdminRuntimeControl = lazy(() => import("./admin/AdminRuntimeControl"));
@@ -39,10 +39,10 @@ export default function AdminDashboard() {
     requestedTab === 'accounts' ||
     requestedTab === 'inbox' ||
     requestedTab === 'legal' ||
+    (requestedTab === 'logs' && ["admin", "assistant_admin", "auditor"].includes(user?.role || "")) ||
     (requestedTab === 'demos' && user?.role === 'auditor') ||
     (requestedTab === 'health' && user?.role === 'auditor') ||
-    (requestedTab === 'runtime' && user?.role === 'auditor') ||
-    (requestedTab === 'audit' && user?.role === 'auditor')
+    (requestedTab === 'runtime' && user?.role === 'auditor')
       ? requestedTab
       : 'stores';
 
@@ -63,9 +63,9 @@ export default function AdminDashboard() {
     { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
     { id: 'invoices', label: 'Issued Invoices', icon: ReceiptText },
     { id: 'accounts', label: 'Account Management', icon: Users },
+    { id: 'logs', label: 'Logs', icon: ScrollText },
     ...(user?.role === "auditor"
       ? [
-          { id: 'audit' as const, label: 'Audit Center', icon: ShieldCheck },
           { id: 'demos' as const, label: 'Demo Management', icon: FlaskConical },
           { id: 'runtime' as const, label: 'Runtime Modes', icon: RadioTower },
           { id: 'health' as const, label: 'System Diagnosis', icon: ServerCog },
@@ -93,7 +93,7 @@ export default function AdminDashboard() {
     activeTab === 'subscriptions' ? 'subscriptions' :
     activeTab === 'invoices' ? 'table' :
     activeTab === 'accounts' ? 'table' :
-    activeTab === 'audit' ? 'table' :
+    activeTab === 'logs' ? 'table' :
     activeTab === 'demos' ? 'table' :
     activeTab === 'health' ? 'table' :
     activeTab === 'runtime' ? 'form' :
@@ -139,7 +139,7 @@ export default function AdminDashboard() {
           user?.role === "assistant_admin" ? "Assistant admin access" :
           "Admin access"
         }
-        primaryItemIds={user?.role === "auditor" ? ["stores", "audit", "demos", "health"] : undefined}
+        primaryItemIds={user?.role === "auditor" ? ["stores", "logs", "demos", "health"] : undefined}
         items={navigation.map((item) => ({
           id: item.id,
           label: item.label,
@@ -147,7 +147,7 @@ export default function AdminDashboard() {
             item.id === "stores" ? "Stores" :
             item.id === "applications" ? "Apps" :
             item.id === "homepage" ? "Homepage" :
-            item.id === "audit" ? "Audit" :
+            item.id === "logs" ? "Logs" :
             item.id === "demos" ? "Demos" :
             item.id === "health" ? "Health" :
             item.label,
@@ -176,7 +176,7 @@ export default function AdminDashboard() {
               {activeTab === 'subscriptions' && <AdminSubscriptions />}
               {activeTab === 'invoices' && <AdminInvoices />}
               {activeTab === 'accounts' && <AdminAccounts />}
-              {activeTab === 'audit' && <AdminAudit />}
+              {activeTab === 'logs' && <AdminLogs />}
               {activeTab === 'demos' && <AdminDemoManagement />}
               {activeTab === 'health' && <AdminSystemHealth />}
               {activeTab === 'runtime' && <AdminRuntimeControl />}

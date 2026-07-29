@@ -13,6 +13,7 @@ import {
   getCustomerLoyaltyLabel,
   getCustomerLoyaltySegment,
 } from "../../lib/customerLoyaltySegment";
+import { useToast } from "../../components/ToastProvider";
 
 const CUSTOMERS_PER_PAGE = 12;
 const SCROLL_PANEL_CLASS = "overflow-y-auto pr-1";
@@ -57,6 +58,7 @@ const buildUsuals = (scans: any[]) => {
 };
 
 export default function StoreOwnerCustomers({ store }: { store: any }) {
+  const toast = useToast();
   const [customers, setCustomers] = useState<any[]>([]);
   const [promotions, setPromotions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +66,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [updatingPromotionId, setUpdatingPromotionId] = useState<string | null>(null);
+  const [updatingPoints, setUpdatingPoints] = useState(false);
   const [promotionCooldowns, setPromotionCooldowns] = useState<Record<string, boolean>>({});
 
   const fetchPromotions = async () => {
@@ -175,7 +178,8 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
   }, [store]);
 
   const updateStars = async (delta: number) => {
-    if (!selectedCustomer) return;
+    if (!selectedCustomer || updatingPoints) return;
+    setUpdatingPoints(true);
     try {
       const result = await invokeAdminBackend<{ stars: number }>({
         action: "adjust_card_stars",
@@ -193,8 +197,14 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
       };
       setSelectedCustomer(updatedCustomer);
       setCustomers(customers.map(c => c.id === selectedCustomer.id ? updatedCustomer : c));
+      toast.success(delta > 0 ? "Point added successfully." : "Point removed successfully.");
     } catch (e) {
-      alert("Failed to update points");
+      toast.error("The customer’s points could not be updated.", {
+        error: e,
+        context: { operation: "adjust_card_stars", cardId: selectedCustomer.id, delta },
+      });
+    } finally {
+      setUpdatingPoints(false);
     }
   };
 
@@ -237,9 +247,13 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
           });
         }, STAMP_COOLDOWN_MS);
       }
+      toast.success(delta > 0 ? `Stamp added to ${promoTitle}.` : `Stamp removed from ${promoTitle}.`);
     } catch (e) {
       console.error(e);
-      alert("Failed to update stamp card.");
+      toast.error("The customer’s stamp card could not be updated.", {
+        error: e,
+        context: { operation: "adjust_card_promotion", cardId: selectedCustomer.id, promotionId: promoId, delta },
+      });
     } finally {
       setUpdatingPromotionId(null);
     }
@@ -330,11 +344,12 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm">
                   <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest mb-4">Manage Points</h3>
                   <div className="flex items-center justify-center gap-3">
-                    <button disabled={selectedCustomer.accountDeleted} onClick={() => updateStars(-1)} className="flex-1 h-12 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:cursor-not-allowed disabled:opacity-40 transition-colors">
-                      <Minus className="w-5 h-5" />
+                    <button disabled={selectedCustomer.accountDeleted || updatingPoints} onClick={() => updateStars(-1)} className="flex-1 h-12 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:cursor-not-allowed disabled:opacity-40 transition-colors">
+                      {updatingPoints ? <Loader2 className="h-5 w-5 animate-spin" /> : <Minus className="w-5 h-5" />}
                     </button>
-                    <button disabled={selectedCustomer.accountDeleted} onClick={() => updateStars(1)} className="flex-[2] h-12 rounded-xl bg-[#1b1b1b] text-white font-bold flex items-center justify-center gap-2 hover:bg-black disabled:cursor-not-allowed disabled:opacity-40 transition-colors shadow-sm">
-                      <Plus className="w-5 h-5" /> Add Point
+                    <button disabled={selectedCustomer.accountDeleted || updatingPoints} onClick={() => updateStars(1)} className="flex-[2] h-12 rounded-xl bg-[#1b1b1b] text-white font-bold flex items-center justify-center gap-2 hover:bg-black disabled:cursor-not-allowed disabled:opacity-40 transition-colors shadow-sm">
+                      {updatingPoints ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="w-5 h-5" />}
+                      {updatingPoints ? "Updating…" : "Add Point"}
                     </button>
                   </div>
                </div>

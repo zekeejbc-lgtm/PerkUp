@@ -45,6 +45,7 @@ import { AlreadyPaidControl } from "../../components/AlreadyPaidControl";
 import { CategoryInput } from "../../components/CategoryInput";
 import { FEATURED_STORE_CATEGORIES } from "../../lib/storeDirectory";
 import { getPartnerApplicationStoreDefaults } from "../../lib/partnerApplicationStore";
+import { useToast } from "../../components/ToastProvider";
 
 const APPLICATIONS_PER_PAGE = 8;
 
@@ -82,6 +83,7 @@ const formatApplicationDateTime = (value: any) => {
 };
 
 export default function AdminApplications() {
+  const toast = useToast();
   const [applications, setApplications] = useState<any[]>([]);
   const [storesById, setStoresById] = useState<Record<string, any>>({});
   const [loadingApps, setLoadingApps] = useState(true);
@@ -113,6 +115,7 @@ export default function AdminApplications() {
   const [payMongoDefaultsEnabled, setPayMongoDefaultsEnabled] = useState(false);
   const [alreadyPaid, setAlreadyPaid] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [rejectingApplicationId, setRejectingApplicationId] = useState("");
 
   const billingPlans = subscriptionPlans.length > 0 ? subscriptionPlans : DEFAULT_SUBSCRIPTION_PLANS;
   const selectedOwedAmount = getSubscriptionOwedAmount(billingPlans, subLevel);
@@ -255,12 +258,20 @@ export default function AdminApplications() {
   };
 
   const handleRejectApplication = async (appId: string) => {
+    if (rejectingApplicationId) return;
+    setRejectingApplicationId(appId);
     try {
       await invokeAdminBackend<{ rejected: boolean }>({ action: "reject_application", applicationId: appId });
       setApplications((current) => current.map((app) => app.id === appId ? { ...app, status: "rejected" } : app));
+      toast.success("Partner application rejected.");
     } catch (error) {
       console.error("Application rejection failed", error);
-      alert("Failed to reject application.");
+      toast.error("The partner application could not be rejected.", {
+        error,
+        context: { operation: "reject_partner_application", applicationId: appId },
+      });
+    } finally {
+      setRejectingApplicationId("");
     }
   };
 
@@ -448,11 +459,14 @@ export default function AdminApplications() {
                           event.stopPropagation();
                           handleRejectApplication(app.id);
                         }}
-                        className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-100 px-4 py-2 text-sm font-medium text-red-700 transition-colors dark:bg-red-900/30 dark:text-red-400 lg:flex-none lg:rounded-full lg:bg-transparent lg:p-2 lg:text-transparent lg:hover:bg-red-100 dark:lg:bg-transparent dark:lg:hover:bg-red-900/50"
+                        disabled={Boolean(rejectingApplicationId)}
+                        className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-100 px-4 py-2 text-sm font-medium text-red-700 transition-colors disabled:cursor-wait disabled:opacity-50 dark:bg-red-900/30 dark:text-red-400 lg:flex-none lg:rounded-full lg:bg-transparent lg:p-2 lg:text-transparent lg:hover:bg-red-100 dark:lg:bg-transparent dark:lg:hover:bg-red-900/50"
                         title="Reject Application"
                       >
-                        <Ban className="h-5 w-5 lg:text-red-600 dark:lg:text-red-500" />
-                        <span className="lg:hidden">Reject</span>
+                        {rejectingApplicationId === app.id
+                          ? <Loader2 className="h-5 w-5 animate-spin lg:text-red-600 dark:lg:text-red-500" />
+                          : <Ban className="h-5 w-5 lg:text-red-600 dark:lg:text-red-500" />}
+                        <span className="lg:hidden">{rejectingApplicationId === app.id ? "Rejecting…" : "Reject"}</span>
                       </button>
                     </>
                   )}
@@ -641,9 +655,11 @@ export default function AdminApplications() {
                     onClick={async () => {
                       await handleRejectApplication(detailApplication.id);
                     }}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/70"
+                    disabled={Boolean(rejectingApplicationId)}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-wait disabled:opacity-50 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/70"
                   >
-                    <Ban className="h-4 w-4" /> Reject
+                    {rejectingApplicationId === detailApplication.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                    {rejectingApplicationId === detailApplication.id ? "Rejecting…" : "Reject"}
                   </button>
                   <button type="button" onClick={() => handleApproveApplication(detailApplication)} className="rounded-xl bg-[#1b1b1b] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-black dark:border dark:border-white/10">
                     Process Setup

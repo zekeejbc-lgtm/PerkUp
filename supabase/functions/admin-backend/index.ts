@@ -387,6 +387,88 @@ const handleAdminRequest = async (req: Request) => {
       return jsonResponse({ error: "Demo administrator access is a read-only sandbox preview." }, 403);
     }
 
+    if (action === "get_activity_log_overview") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Administrator access required." }, 403);
+      const { data, error } = await admin.rpc("get_activity_log_overview");
+      if (error) throw error;
+      if (!data || typeof data !== "object") {
+        throw new Error("Activity log overview returned an invalid response.");
+      }
+      return jsonResponse(data);
+    }
+
+    if (action === "list_log_stores") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Administrator access required." }, 403);
+      const { data, error } = await admin
+        .from("stores")
+        .select("id,public_id,data")
+        .or("data->>isDemo.is.null,data->>isDemo.eq.false")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return jsonResponse({
+        stores: (data || []).map((row: any) => ({
+          id: String(row.id),
+          publicId: cleanText(row.public_id, 40),
+          name: cleanText(row.data?.businessName || row.data?.name || "Unnamed shop", 160),
+        })).sort((left: any, right: any) => left.name.localeCompare(right.name)),
+      });
+    }
+
+    if (action === "list_activity_logs") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Administrator access required." }, 403);
+      const allowedOutcomes = new Set(["all", "success", "failure", "blocked"]);
+      const allowedSources = new Set(["all", "database", "admin_backend", "auth", "billing", "system"]);
+      const allowedActorRoles = new Set([
+        "all",
+        "admin",
+        "assistant_admin",
+        "auditor",
+        "store_owner",
+        "staff",
+        "customer",
+        "service_role",
+        "system",
+        "legacy_unattributed",
+      ]);
+      const outcome = cleanText(body.outcome, 40).toLowerCase() || "all";
+      const source = cleanText(body.source, 40).toLowerCase() || "all";
+      const actorRole = cleanText(body.actorRole, 40).toLowerCase() || "all";
+      const entityType = cleanText(body.entityType, 80).toLowerCase() || "all";
+      const storeId = cleanText(body.storeId, 160) || "all";
+      const page = Math.max(1, Math.trunc(Number(body.page) || 1));
+      const pageSize = Math.max(10, Math.min(100, Math.trunc(Number(body.pageSize) || 25)));
+      const parseOptionalDate = (value: unknown) => {
+        const text = cleanText(value, 60);
+        if (!text) return null;
+        const parsed = new Date(text);
+        if (Number.isNaN(parsed.getTime())) {
+          throw new Error("Select a valid log date range.");
+        }
+        return parsed.toISOString();
+      };
+      if (!allowedOutcomes.has(outcome) || !allowedSources.has(source) || !allowedActorRoles.has(actorRole)) {
+        return jsonResponse({ error: "Select valid activity log filters." }, 400);
+      }
+      const { data, error } = await admin.rpc("list_activity_logs", {
+        p_search: cleanText(body.search, 160).toLowerCase(),
+        p_outcome: outcome,
+        p_source: source,
+        p_actor_role: actorRole,
+        p_entity_type: entityType,
+        p_store_id: storeId,
+        p_date_from: parseOptionalDate(body.dateFrom),
+        p_date_to: parseOptionalDate(body.dateTo),
+        p_page: page,
+        p_page_size: pageSize,
+        p_include_sensitive: actor.role === "auditor",
+      });
+      if (error) throw error;
+      if (!data || typeof data !== "object") {
+        throw new Error("Activity logs returned an invalid response.");
+      }
+      return jsonResponse(data);
+    }
+
     if (action === "list_accounts") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
 

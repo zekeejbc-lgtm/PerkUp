@@ -47,6 +47,7 @@ import {
   type SubscriptionAccessAssessment,
 } from "../../components/SubscriptionAccessActionModal";
 import { createAssessmentRequestController } from "../../lib/subscriptionAccessAssessmentRequest";
+import { useToast } from "../../components/ToastProvider";
 
 const ACTIVITY_LOGS_PER_PAGE = 8;
 type SubscriptionAccessAction = "active" | "warning" | "grace" | "frozen";
@@ -64,6 +65,7 @@ export default function AdminStoreDetail({
   onBack: () => void;
   onDeleted?: (deletedStoreIds: string[]) => void;
 }) {
+  const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const [store, setStore] = useState<any>(null);
   const [owner, setOwner] = useState<any>(null);
@@ -95,6 +97,7 @@ export default function AdminStoreDetail({
 
   // Edit store state
   const [isEditing, setIsEditing] = useState(false);
+  const [isSavingStore, setIsSavingStore] = useState(false);
   const [editData, setEditData] = useState<any>({});
   const [pendingLogo, setPendingLogo] = useState<File | null>(null);
   const [newBranchName, setNewBranchName] = useState("");
@@ -103,6 +106,7 @@ export default function AdminStoreDetail({
   const [newBranchLongitude, setNewBranchLongitude] = useState(125.8078);
   const [newBranchLocationSelected, setNewBranchLocationSelected] = useState(false);
   const [branchBusy, setBranchBusy] = useState(false);
+  const [branchBusyAction, setBranchBusyAction] = useState("");
   const [branchError, setBranchError] = useState("");
   const [branchRequestsOpen, setBranchRequestsOpen] = useState(true);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -420,9 +424,14 @@ export default function AdminStoreDetail({
       if (store?.id === result.storeId) setStore({ ...store, accountRestriction: result.accountRestriction });
       setBranches((current) => current.map((branch) => branch.id === result.storeId ? { ...branch, accountRestriction: result.accountRestriction } : branch));
       setRestrictionMessage(status === "suspended" ? "Administrative suspension applied. Payments cannot restore access." : "Administrative suspension lifted.");
+      toast.success(status === "suspended" ? "Administrative suspension applied." : "Administrative suspension lifted.");
       setPendingRestrictionAction(null);
     } catch (error) {
       setRestrictionError((error as Error).message);
+      toast.error((error as Error).message || "The account restriction could not be updated.", {
+        error,
+        context: { operation: "update_account_restriction", storeId: subscriptionStore.id, status },
+      });
     } finally {
       setRestrictionBusy(false);
     }
@@ -512,9 +521,14 @@ export default function AdminStoreDetail({
       setPlanChangeCancelTarget(null);
       setPlanChangeCancelReason("");
       setSubscriptionPlanChangeMessage("The scheduled upgrade was cancelled. No invoice or PayMongo payment was changed.");
+      toast.success("The scheduled subscription upgrade was cancelled.");
       await loadSubscriptionPlanChanges();
     } catch (error) {
       setSubscriptionPlanChangeError((error as Error).message);
+      toast.error((error as Error).message || "The scheduled upgrade could not be cancelled.", {
+        error,
+        context: { operation: "cancel_scheduled_plan_change", planChangeId: planChangeCancelTarget.id },
+      });
     } finally {
       setPlanChangeCancelBusy(false);
     }
@@ -547,9 +561,19 @@ export default function AdminStoreDetail({
         status === "grace" ? `Grace access started for ${subscriptionAccessForm.gracePeriodDays} day${subscriptionAccessForm.gracePeriodDays === 1 ? "" : "s"}.` :
         "Store owner and staff access frozen.",
       );
+      toast.success(
+        status === "active" ? "Store access restored." :
+        status === "warning" ? "Subscription warning published." :
+        status === "grace" ? "Grace access started." :
+        "Store access frozen for non-payment.",
+      );
       return true;
     } catch (error) {
       setSubscriptionAccessError((error as Error).message);
+      toast.error((error as Error).message || "Subscription access could not be updated.", {
+        error,
+        context: { operation: "update_subscription_access", storeId: subscriptionStore.id, status },
+      });
       return false;
     } finally {
       setSubscriptionAccessBusy(false);
@@ -597,9 +621,14 @@ export default function AdminStoreDetail({
     try {
       await invokeAdminBackend({ action: "retry_billing_invoice", invoiceId });
       setSubscriptionAccessMessage("Billing retry queued. The hourly worker will process it safely.");
+      toast.success("Billing retry queued.");
       await loadBillingInvoices();
     } catch (error) {
       setSubscriptionAccessError((error as Error).message);
+      toast.error((error as Error).message || "The billing retry could not be queued.", {
+        error,
+        context: { operation: "retry_billing_invoice", invoiceId },
+      });
     } finally {
       setBillingRetryId("");
     }
@@ -662,10 +691,15 @@ export default function AdminStoreDetail({
       )));
       setSubscriptionAccessForm(normalizeSubscriptionAccess(updatedAccess));
       setSubscriptionAccessMessage("Manual payment recorded. The invoice is paid and subscription access is active.");
+      toast.success("Manual payment recorded and subscription access activated.");
       setManualPaymentInvoiceId("");
       await loadBillingInvoices();
     } catch (error) {
       setManualPaymentError((error as Error).message);
+      toast.error((error as Error).message || "The manual payment could not be recorded.", {
+        error,
+        context: { operation: "record_manual_payment", invoiceId: invoice.id },
+      });
     } finally {
       setManualPaymentBusy(false);
     }
@@ -678,6 +712,11 @@ export default function AdminStoreDetail({
   };
 
   const handleUpdateStore = async () => {
+    if (isSavingStore) return;
+    setIsSavingStore(true);
+    const progressToastId = toast.progress("Saving store details and synchronizing billing…", {
+      title: "Updating store",
+    });
     let uploadedLogoUrl = "";
     let storePersisted = false;
     let billingDatesRolledBack = false;
@@ -794,6 +833,9 @@ export default function AdminStoreDetail({
       });
       setIsEditing(false);
       setPendingLogo(null);
+      toast.update(progressToastId, "Store details and billing settings were saved.", "success", {
+        title: "Store updated",
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to update store";
       if (storePersisted && message.includes("ACTIVE_UPGRADE_PERIOD_CHANGE")) {
@@ -812,11 +854,17 @@ export default function AdminStoreDetail({
         await deleteImageFromDriveSecure(uploadedLogoUrl).catch(console.error);
       }
       console.error(error);
-      alert(billingDatesRolledBack
+      const failureMessage = billingDatesRolledBack
         ? "Other store details were saved, but the subscription dates were restored. Cancel the active upgrade before changing its billing period."
         : storePersisted
         ? `Store details were saved, but billing synchronization failed: ${message}`
-        : message.replace(/^ACTIVE_UPGRADE_PERIOD_CHANGE:\s*/i, ""));
+        : message.replace(/^ACTIVE_UPGRADE_PERIOD_CHANGE:\s*/i, "");
+      toast.update(progressToastId, failureMessage, "error", {
+        error,
+        context: { operation: "update_store", storeId, storePersisted, billingDatesRolledBack },
+      });
+    } finally {
+      setIsSavingStore(false);
     }
   };
 
@@ -870,8 +918,9 @@ export default function AdminStoreDetail({
   };
 
   const handleAddBranch = async () => {
-    if (!owner || !newBranchName.trim() || !newBranchAddress.trim() || !newBranchLocationSelected) return;
+    if (!owner || branchBusy || !newBranchName.trim() || !newBranchAddress.trim() || !newBranchLocationSelected) return;
     setBranchBusy(true);
+    setBranchBusyAction("add");
     setBranchError("");
     try {
       const result = await invokeAdminBackend<{ store: any }>({
@@ -892,15 +941,23 @@ export default function AdminStoreDetail({
       setNewBranchName("");
       setNewBranchAddress("");
       setNewBranchLocationSelected(false);
+      toast.success(`${result.store.branchName || result.store.name || "Branch"} was created.`);
     } catch (error) {
       setBranchError((error as Error).message);
+      toast.error((error as Error).message || "The branch could not be created.", {
+        error,
+        context: { operation: "create_branch", ownerId: owner.id },
+      });
     } finally {
       setBranchBusy(false);
+      setBranchBusyAction("");
     }
   };
 
   const handleBranchRequestDecision = async (requestId: string, decision: "approved" | "denied") => {
+    if (branchBusy) return;
     setBranchBusy(true);
+    setBranchBusyAction(`${decision}:${requestId}`);
     setBranchError("");
     try {
       const result = await invokeAdminBackend<{ request: any; store?: any }>({
@@ -910,10 +967,16 @@ export default function AdminStoreDetail({
       });
       setBranchRequests(branchRequests.map(request => request.id === requestId ? result.request : request));
       if (result.store) setBranches([...branches, result.store]);
+      toast.success(decision === "approved" ? "Branch request approved." : "Branch request denied.");
     } catch (error) {
       setBranchError((error as Error).message);
+      toast.error((error as Error).message || "The branch request could not be updated.", {
+        error,
+        context: { operation: "decide_branch_request", requestId, decision },
+      });
     } finally {
       setBranchBusy(false);
+      setBranchBusyAction("");
     }
   };
 
@@ -1080,11 +1143,12 @@ export default function AdminStoreDetail({
                   </button>
                 ) : (
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={handleCancelEdit} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800">
+                    <button type="button" onClick={handleCancelEdit} disabled={isSavingStore} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800">
                       <X className="h-4 w-4" /> Cancel
                     </button>
-                    <button type="button" onClick={handleUpdateStore} className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-green-700">
-                      <Save className="h-4 w-4" /> Save changes
+                    <button type="button" onClick={handleUpdateStore} disabled={isSavingStore} className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-green-700 disabled:cursor-wait disabled:opacity-60">
+                      {isSavingStore ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      {isSavingStore ? "Saving…" : "Save changes"}
                     </button>
                   </div>
                 )}
@@ -1253,11 +1317,12 @@ export default function AdminStoreDetail({
                   </button>
                 ) : (
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={handleCancelEdit} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800">
+                    <button type="button" onClick={handleCancelEdit} disabled={isSavingStore} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800">
                       <X className="h-3.5 w-3.5" /> Cancel
                     </button>
-                    <button type="button" onClick={handleUpdateStore} className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-green-700">
-                      <Save className="h-3.5 w-3.5" /> Save
+                    <button type="button" onClick={handleUpdateStore} disabled={isSavingStore} className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-green-700 disabled:cursor-wait disabled:opacity-60">
+                      {isSavingStore ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                      {isSavingStore ? "Saving…" : "Save"}
                     </button>
                   </div>
                 ))}
@@ -1732,10 +1797,12 @@ export default function AdminStoreDetail({
                       </div>
                       <div className="flex gap-2">
                         <button type="button" disabled={branchBusy || branches.length >= branchLimit} onClick={() => handleBranchRequestDecision(request.id, "approved")} className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                          <Check className="h-4 w-4" /> Confirm
+                          {branchBusyAction === `approved:${request.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                          {branchBusyAction === `approved:${request.id}` ? "Approving…" : "Confirm"}
                         </button>
                         <button type="button" disabled={branchBusy} onClick={() => handleBranchRequestDecision(request.id, "denied")} className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                          <X className="h-4 w-4" /> Deny
+                          {branchBusyAction === `denied:${request.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                          {branchBusyAction === `denied:${request.id}` ? "Denying…" : "Deny"}
                         </button>
                       </div>
                     </div>
@@ -1771,7 +1838,8 @@ export default function AdminStoreDetail({
                   </p>
                 </div>
                 <button type="button" disabled={branchBusy || !newBranchName.trim() || !newBranchAddress.trim() || !newBranchLocationSelected || branches.length >= branchLimit} onClick={handleAddBranch} className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 sm:w-auto">
-                  <Plus className="h-4 w-4" /> Add branch
+                  {branchBusyAction === "add" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  {branchBusyAction === "add" ? "Adding branch…" : "Add branch"}
                 </button>
                   </div>
                   {branchError && <p className="mt-3 text-sm text-red-600">{branchError}</p>}
