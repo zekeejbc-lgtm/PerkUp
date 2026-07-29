@@ -118,16 +118,22 @@ describe("AdminSubscriptions tier hierarchy", () => {
     expect(screen.getByRole("button", { name: "Move Standard lower" })).toBeInTheDocument();
   });
 
-  it("keeps the auditor hierarchy view read-only", async () => {
+  it("lets an auditor edit and save subscription offers", async () => {
     mocks.role.current = "auditor";
+    const user = userEvent.setup();
     render(<AdminSubscriptions />);
 
-    expect(await screen.findByText(/read-only hierarchy review/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Edit Offers" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /move .* (lower|higher)/i })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Edit Offers" }));
+    expect(screen.getByRole("button", { name: "Move Testing Plan higher" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await user.click(await screen.findByRole("button", { name: "Save hierarchy" }));
+
+    await waitFor(() => expect(mocks.setDoc).toHaveBeenCalled());
+    expect(screen.queryByText(/auditor access is read-only/i)).not.toBeInTheDocument();
   });
 
-  it("does not let an auditor initialize a missing subscription catalog", async () => {
+  it("lets an auditor initialize a missing subscription catalog", async () => {
     mocks.role.current = "auditor";
     mocks.getDoc.mockResolvedValue({
       exists: () => false,
@@ -136,8 +142,16 @@ describe("AdminSubscriptions tier hierarchy", () => {
 
     render(<AdminSubscriptions />);
 
+    await waitFor(() => expect(mocks.setDoc).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: "Edit Offers" })).toBeInTheDocument();
+  });
+
+  it("keeps non-administrative roles read-only", async () => {
+    mocks.role.current = "customer";
+    render(<AdminSubscriptions />);
+
     expect(await screen.findByText(/read-only hierarchy review/i)).toBeInTheDocument();
-    expect(mocks.setDoc).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Edit Offers" })).not.toBeInTheDocument();
   });
 
   it("requires impact confirmation before persisting explicit ranks", async () => {

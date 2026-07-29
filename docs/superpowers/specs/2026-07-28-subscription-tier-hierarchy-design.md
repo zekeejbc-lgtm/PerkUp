@@ -2,12 +2,11 @@
 
 ## Goal
 
-Give PerkUp administrators an explicit, safe way to declare subscription tier hierarchy so upgrade eligibility never depends on accidental plan insertion order. Auditors can review the hierarchy but cannot change it.
+Give Perk administrators and auditors an explicit, safe way to declare subscription tier hierarchy so upgrade eligibility never depends on accidental plan insertion order.
 
 ## Roles and governance
 
-- Administrators and assistant administrators may edit and save tier hierarchy.
-- Auditors see the same hierarchy, prices, intervals, and limits in read-only mode.
+- Administrators, assistant administrators, and auditors may edit and save tier hierarchy.
 - Store owners cannot declare or override hierarchy.
 - PayMongo invoice creation, payment links, webhook verification, and renewal settlement remain unchanged.
 
@@ -41,7 +40,7 @@ The Admin Dashboard's **Subscriptions** page displays a visible **Tier hierarchy
 - Saving is blocked for duplicate ranks, invalid ranks, duplicate plan IDs, invalid prices, or empty names.
 - Before persistence, a confirmation panel explains that hierarchy changes affect which future upgrades are offered, lists the resulting order, and reports the number of existing primary subscriptions whose catalog configuration may be affected.
 
-Auditors see the hierarchy and an explicit read-only notice. Edit and save controls are unavailable.
+Auditors use the same hierarchy editing, validation, impact confirmation, and save controls as administrators.
 
 ## Upgrade eligibility
 
@@ -75,7 +74,7 @@ The frontend also normalizes legacy catalogs defensively so an older cached docu
 ## Verification
 
 - Unit tests prove legacy rank inference, explicit rank use, and rank-based upgrade eligibility.
-- UI tests prove administrator controls, auditor read-only behavior, validation, and save confirmation.
+- UI tests prove administrator and auditor controls, non-administrative read-only behavior, validation, and save confirmation.
 - Existing subscription upgrade, TypeScript, auditor, build, Deno, and PayMongo regression suites must pass.
 - A database query verifies the migrated catalog order and ranks.
 - Deployed Edge Function source and the live frontend bundle must contain the hierarchy behavior.

@@ -23,6 +23,16 @@ vi.mock("@/src/lib/dataCompat", () => ({
 
 vi.mock("../../lib/backend", () => ({ db: {} }));
 vi.mock("../../lib/adminBackend", () => ({ invokeAdminBackend: vi.fn() }));
+vi.mock("../../contexts/AuthContext", () => ({
+  useAuth: () => ({
+    user: {
+      id: "admin-user",
+      email: "admin@perk.test",
+      name: "Admin",
+      role: "admin",
+    },
+  }),
+}));
 
 import AdminSubscriptions from "./AdminSubscriptions";
 

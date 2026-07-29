@@ -59,6 +59,33 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   },
 ];
 
+export function getPreferredSubscriptionPlanIndex(plans: SubscriptionPlan[]) {
+  if (plans.length === 0) return -1;
+  const explicitIndex = plans.findIndex((plan) => plan.preferred === true);
+  return explicitIndex >= 0 ? explicitIndex : plans.length - 1;
+}
+
+export function getPreferredSubscriptionPlan(plans: SubscriptionPlan[]) {
+  const preferredIndex = getPreferredSubscriptionPlanIndex(plans);
+  return preferredIndex >= 0 ? plans[preferredIndex] : undefined;
+}
+
+export function normalizePreferredSubscriptionPlans(plans: SubscriptionPlan[]) {
+  const preferredIndex = getPreferredSubscriptionPlanIndex(plans);
+  return plans.map((plan, index) => ({ ...plan, preferred: index === preferredIndex }));
+}
+
+export function setPreferredSubscriptionPlan(
+  plans: SubscriptionPlan[],
+  preferredIndex: number,
+) {
+  if (preferredIndex < 0 || preferredIndex >= plans.length) {
+    return normalizePreferredSubscriptionPlans(plans);
+  }
+
+  return plans.map((plan, index) => ({ ...plan, preferred: index === preferredIndex }));
+}
+
 const hasConfiguredTierRank = (plan: SubscriptionPlan) =>
   plan.tierRank !== undefined && plan.tierRank !== null && plan.tierRank !== "";
 

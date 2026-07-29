@@ -16,12 +16,20 @@ import {
   getNextPaymentDate,
   getSubscriptionDependencies,
   getSubscriptionOwedAmount,
+  moveSubscriptionPlanTier,
+  normalizePreferredSubscriptionPlans,
+  normalizeSubscriptionTierHierarchy,
   normalizeSubscriptionDependencies,
+  setPreferredSubscriptionPlan,
+  validateSubscriptionTierHierarchy,
 } from "../../lib/subscriptionBilling";
 
 export default function AdminSubscriptions() {
   const { user } = useAuth();
-  const canManagePlans = user?.role === "admin" || user?.role === "assistant_admin";
+  const canManagePlans =
+    user?.role === "admin"
+    || user?.role === "assistant_admin"
+    || user?.role === "auditor";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -68,10 +76,38 @@ export default function AdminSubscriptions() {
 
     setSaving(true);
     try {
-      const normalizedPlans = normalizePreferredSubscriptionPlans(plans);
       const storeSnap = await getDocs(collection(db, "stores"));
       const stores = storeSnap.docs.map((storeDoc) => ({ id: storeDoc.id, ...storeDoc.data() }));
-      await setDoc(doc(db, "settings", "subscriptions"), { plans, updatedAt: serverTimestamp() }, { merge: true });
+      const configuredPlanNames = new Set(
+        plans.map((plan) => String(plan.name || "").trim().toLocaleLowerCase()),
+      );
+      const affectedCount = stores.filter((store) =>
+        store.isPrimaryBranch !== false
+        && configuredPlanNames.has(String(store.subscriptionLevel || "").trim().toLocaleLowerCase())
+      ).length;
+      setPendingSaveStores(stores);
+      setAffectedSubscriptionCount(affectedCount);
+      setShowSaveConfirmation(true);
+    } catch (error) {
+      console.error(error);
+      setValidationErrors(["The hierarchy impact could not be calculated. Try again."]);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!canManagePlans) return;
+    const orderedPlans = normalizePreferredSubscriptionPlans(
+      normalizeSubscriptionTierHierarchy(plans),
+    );
+    setSaving(true);
+    try {
+      await setDoc(
+        doc(db, "settings", "subscriptions"),
+        { plans: orderedPlans, updatedAt: serverTimestamp() },
+        { merge: true },
+      );
 
       await Promise.all(pendingSaveStores.map(async (store) => {
         if (store.isPrimaryBranch === false) {
@@ -91,8 +127,8 @@ export default function AdminSubscriptions() {
 
         const subscriptionLevel = String(store.subscriptionLevel || "");
         const previousAmount = getSubscriptionOwedAmount(originalPlans, subscriptionLevel, Number(store.owedAmount || 0));
-        const nextAmount = getSubscriptionOwedAmount(plans, subscriptionLevel, previousAmount);
-        const dependencies = getSubscriptionDependencies(plans, subscriptionLevel);
+        const nextAmount = getSubscriptionOwedAmount(orderedPlans, subscriptionLevel, previousAmount);
+        const dependencies = getSubscriptionDependencies(orderedPlans, subscriptionLevel);
         const nextPaymentDate = getNextPaymentDate(store.paymentSchedule, store.subscriptionStart, store.subscriptionEnd);
         const currentAmount = Number(store.owedAmount);
         const updates: Record<string, unknown> = {
@@ -126,7 +162,8 @@ export default function AdminSubscriptions() {
           await invokeAdminBackend({ action: "sync_subscription_billing", storeId: store.id });
         }
       }));
-      setOriginalPlans(plans);
+      setPlans(orderedPlans);
+      setOriginalPlans(orderedPlans);
       setIsEditing(false);
       setShowSaveConfirmation(false);
       setPendingSaveStores([]);
@@ -307,16 +344,54 @@ export default function AdminSubscriptions() {
             const dependenciesId = `plan-dependencies-${planKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
             const dependenciesOpen = Boolean(expandedDependencies[planKey]);
             const dependencies = normalizeSubscriptionDependencies(plan.dependencies);
+            const isPreferred = getPreferredSubscriptionPlanIndex(plans) === planIndex;
+            const tierLabel =
+              planIndex === 0
+                ? "Lowest tier"
+                : planIndex === plans.length - 1
+                  ? "Highest tier"
+                  : `Higher tier ${planIndex + 1}`;
 
             return (
               <div key={planKey} className="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-0.5 hover:border-gray-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800/50 dark:hover:border-gray-600">
-                {isEditing && (
+                {isEditing && canManagePlans && (
                   <button onClick={() => handleRemovePlan(planIndex)} aria-label={`Remove ${plan.name || "plan"}`} className="absolute right-4 top-4 z-[1] rounded-lg bg-gray-100 p-2 text-red-500 transition-colors hover:bg-red-50 dark:bg-gray-800 dark:hover:bg-red-500/10">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 )}
 
                 <div className="space-y-4 border-b border-gray-100 p-6 dark:border-gray-800">
+                  <div className="rounded-xl border border-teal-200 bg-teal-50/70 p-3 dark:border-teal-900/60 dark:bg-teal-950/20">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">{tierLabel}</p>
+                        <p className="mt-1 text-sm font-semibold text-teal-950 dark:text-teal-100">Tier {Number(plan.tierRank)}</p>
+                      </div>
+                      {isEditing && canManagePlans && (
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            aria-label={`Move ${plan.name || "plan"} lower`}
+                            disabled={planIndex === 0}
+                            onClick={() => handleMovePlan(String(plan.id), "lower")}
+                            className="rounded-lg border border-teal-200 bg-white p-2 text-teal-800 transition hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-35 dark:border-teal-800 dark:bg-gray-900 dark:text-teal-200 dark:hover:bg-teal-950"
+                          >
+                            <ArrowDown className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Move ${plan.name || "plan"} higher`}
+                            disabled={planIndex === plans.length - 1}
+                            onClick={() => handleMovePlan(String(plan.id), "higher")}
+                            className="rounded-lg border border-teal-200 bg-white p-2 text-teal-800 transition hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-35 dark:border-teal-800 dark:bg-gray-900 dark:text-teal-200 dark:hover:bg-teal-950"
+                          >
+                            <ArrowUp className="h-4 w-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {isEditing ? (
                     <>
                       <div className="pr-10">
