@@ -90,6 +90,9 @@ const BRAND = {
 
 const invoiceNumber = (id: string) => `PU-${id.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
 
+export const billingDocumentTitleFontSize = (kind: "invoice" | "receipt") =>
+  kind === "receipt" ? 16 : 26;
+
 const formatPdfDate = (value?: string | null, includeTime = false) => {
   if (!value) return "Not available";
   const date = new Date(value);
@@ -167,7 +170,7 @@ export async function downloadBillingDocumentPdf(data: UniversalBillingDocumentD
   }
   doc.setTextColor(...BRAND.ink);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(26);
+  doc.setFontSize(billingDocumentTitleFontSize(document.kind));
   doc.text(title, 196, 21, { align: "right" });
   doc.setFontSize(8.5);
   doc.setTextColor(...BRAND.muted);
