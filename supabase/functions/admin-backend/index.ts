@@ -27,6 +27,12 @@ import {
 } from "../_shared/subscription-upgrade-token.ts";
 import { authorizeSubscriptionUpgradeToggle } from "../_shared/subscription-upgrade-control.ts";
 import { isStaleSubscriptionUpgradeError } from "../_shared/subscription-upgrade-error.ts";
+import {
+  assessSubscriptionAccessAction,
+  subscriptionAccessAssessmentAuditMetadata,
+  type SubscriptionAccessAction,
+  type SubscriptionAccessAssessment,
+} from "../_shared/subscription-access-assessment.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
@@ -1902,6 +1908,27 @@ const handleAdminRequest = async (req: Request) => {
       return jsonResponse({ updated: true, fulfillment });
     }
 
+    if (action === "assess_subscription_access_action") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
+      const storeId = cleanText(body.storeId, 100);
+      const requestedAccess = body.subscriptionAccess && typeof body.subscriptionAccess === "object"
+        ? body.subscriptionAccess as Record<string, unknown>
+        : {};
+      const status = cleanText(requestedAccess.status, 20).toLowerCase();
+      if (!storeId || !["active", "warning", "grace", "frozen"].includes(status)) {
+        return jsonResponse({ error: "A valid store and subscription access status are required." }, 400);
+      }
+      const primaryStore = await getPrimaryStoreByRequestedId(admin, storeId);
+      if (!primaryStore) return jsonResponse({ error: "Store was not found." }, 404);
+      const assessment = await loadSubscriptionAccessAssessment(
+        admin,
+        primaryStore,
+        status as SubscriptionAccessAction,
+        requestedAccess,
+      );
+      return jsonResponse({ storeId: primaryStore.id, assessment });
+    }
+
     if (action === "update_subscription_access") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
       const storeId = cleanText(body.storeId, 100);
@@ -1931,6 +1958,12 @@ const handleAdminRequest = async (req: Request) => {
       if (primaryStore.data?.initialPaymentRequired === true && status !== "frozen") {
         return jsonResponse({ error: "This store is waiting for its initial PayMongo payment and must remain frozen until payment is confirmed." }, 409);
       }
+      const assessment = await loadSubscriptionAccessAssessment(
+        admin,
+        primaryStore,
+        status as SubscriptionAccessAction,
+        input,
+      );
 
       const now = new Date();
       const existingAccess = primaryStore.data?.subscriptionAccess && typeof primaryStore.data.subscriptionAccess === "object"
@@ -1967,7 +2000,7 @@ const handleAdminRequest = async (req: Request) => {
         data: { ...primaryStore.data, subscriptionAccess },
       });
 
-      return jsonResponse({ updated: true, storeId: primaryStore.id, subscriptionAccess, billingSubscription });
+      return jsonResponse({ updated: true, storeId: primaryStore.id, subscriptionAccess, billingSubscription, assessment });
     }
 
     if (action === "update_account_restriction") {
@@ -3842,6 +3875,13 @@ const mutationAuditMetadata = (
       ? body.subscriptionAccess as Record<string, unknown>
       : {};
     metadata.status = cleanText(access.status, 40) || null;
+    const assessment = responseBody.assessment && typeof responseBody.assessment === "object"
+      ? responseBody.assessment as SubscriptionAccessAssessment
+      : null;
+    if (assessment) {
+      Object.assign(metadata, subscriptionAccessAssessmentAuditMetadata(assessment));
+    }
+    metadata.overrideAcknowledged = body.overrideAcknowledged === true;
   }
   if (action === "update_account_restriction") {
     const restriction = body.accountRestriction && typeof body.accountRestriction === "object"
@@ -3920,6 +3960,100 @@ const getPrimaryStoreForOwner = async (admin: any, ownerId: string) => {
     stores.find((row: any) => !cleanText(row.data?.parentStoreId, 100)) ||
     stores[0] ||
     null;
+};
+
+const getPrimaryStoreByRequestedId = async (admin: any, storeId: string) => {
+  const { data: selectedStore, error } = await admin
+    .from("stores")
+    .select("id,data")
+    .eq("id", storeId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!selectedStore) return null;
+  const ownerId = cleanText(selectedStore.data?.ownerId, 100);
+  return ownerId ? await getPrimaryStoreForOwner(admin, ownerId) : selectedStore;
+};
+
+const loadSubscriptionAccessAssessment = async (
+  admin: any,
+  primaryStore: any,
+  action: SubscriptionAccessAction,
+  requestedAccess: Record<string, unknown>,
+) => {
+  const { data: subscription, error: subscriptionError } = await admin
+    .from("billing_subscriptions")
+    .select("id,current_period_end,warning_lead_days,grace_period_days,initial_payment_required,status")
+    .eq("store_id", primaryStore.id)
+    .maybeSingle();
+  if (subscriptionError && subscriptionError.code !== "42P01") throw subscriptionError;
+
+  let invoice: any = null;
+  if (subscription?.id) {
+    const [openResult, latestResult] = await Promise.all([
+      admin.from("billing_invoices")
+        .select("id,status,due_at,paid_at")
+        .eq("subscription_id", subscription.id)
+        .in("status", ["pending", "link_created", "failed", "expired"])
+        .order("due_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      admin.from("billing_invoices")
+        .select("id,status,due_at,paid_at")
+        .eq("subscription_id", subscription.id)
+        .order("due_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (openResult.error) throw openResult.error;
+    if (latestResult.error) throw latestResult.error;
+    invoice = openResult.data || latestResult.data;
+  }
+
+  const storedAccess = primaryStore.data?.subscriptionAccess &&
+      typeof primaryStore.data.subscriptionAccess === "object"
+    ? primaryStore.data.subscriptionAccess as Record<string, unknown>
+    : {};
+  const rawStatus = cleanText(storedAccess.status, 20).toLowerCase();
+  const currentStatus: SubscriptionAccessAction =
+    rawStatus === "warning" || rawStatus === "grace" || rawStatus === "frozen"
+      ? rawStatus
+      : subscription?.status === "frozen"
+      ? "frozen"
+      : subscription?.status === "past_due"
+      ? "grace"
+      : "active";
+  const subscriptionEnd =
+    toIsoTimestamp(subscription?.current_period_end) ||
+    toIsoTimestamp(primaryStore.data?.subscriptionEnd) ||
+    null;
+  const warningLeadDays = Math.max(0, Math.min(
+    365,
+    Math.trunc(Number(requestedAccess.warningLeadDays ?? subscription?.warning_lead_days ?? storedAccess.warningLeadDays ?? 7) || 0),
+  ));
+  const gracePeriodDays = Math.max(0, Math.min(
+    365,
+    Math.trunc(Number(requestedAccess.gracePeriodDays ?? subscription?.grace_period_days ?? storedAccess.gracePeriodDays ?? 3) || 0),
+  ));
+
+  return assessSubscriptionAccessAction({
+    action,
+    now: new Date().toISOString(),
+    currentStatus,
+    warningLeadDays,
+    gracePeriodDays,
+    initialPaymentRequired:
+      primaryStore.data?.initialPaymentRequired === true ||
+      subscription?.initial_payment_required === true,
+    subscriptionEnd,
+    invoice: invoice
+      ? {
+        id: cleanText(invoice.id, 160),
+        status: cleanText(invoice.status, 40),
+        dueAt: toIsoTimestamp(invoice.due_at),
+        paidAt: toIsoTimestamp(invoice.paid_at) || null,
+      }
+      : null,
+  });
 };
 
 type SubscriptionUpgradeState = {
