@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(4);
+select plan(5);
 
 insert into public.customers(id, data)
 values (
@@ -35,7 +35,8 @@ select is(
 );
 
 select ok(
-  not exists (select 1 from public.customers where data ? 'lifetimeStars'),
+  not exists (select 1 from public.customers where data ? 'lifetimeStars')
+  and not exists (select 1 from public.users where data ? 'lifetimeStars'),
   'stored customer data and general loyalty credit contain no lifetime points'
 );
 
@@ -49,6 +50,19 @@ select ok(
   not has_function_privilege('anon', 'public.increment_loyalty_totals(text,text,integer,text)', 'execute')
   and not has_function_privilege('authenticated', 'public.increment_loyalty_totals(text,text,integer,text)', 'execute'),
   'only privileged backend callers can execute the loyalty RPC'
+);
+
+select ok(
+  position(
+    'lifetimeStars' in coalesce((
+      select with_check
+      from pg_policies
+      where schemaname = 'public'
+        and tablename = 'users'
+        and policyname = 'users scoped update'
+    ), '')
+  ) = 0,
+  'the user profile update policy has no lifetime-points dependency'
 );
 
 select * from finish();

@@ -2,6 +2,29 @@ update public.customers
 set data = data - 'lifetimeStars'
 where data ? 'lifetimeStars';
 
+update public.users
+set data = data - 'lifetimeStars'
+where data ? 'lifetimeStars';
+
+drop policy if exists "users scoped update" on public.users;
+create policy "users scoped update"
+on public.users
+for update to authenticated
+using (
+  (select private.current_user_role()) = 'admin'
+  or id = (select auth.uid())::text
+)
+with check (
+  (select private.current_user_role()) = 'admin'
+  or (
+    id = (select auth.uid())::text
+    and coalesce(data->>'role', '') = coalesce((select private.current_user_role()), '')
+    and coalesce(data->>'storeId', '') = coalesce((select private.current_user_store_id()), '')
+    and coalesce(data->'qrVersion', '1'::jsonb) = coalesce((select private.current_user_data())->'qrVersion', '1'::jsonb)
+    and coalesce(data->'forcePasswordReset', 'false'::jsonb) = coalesce((select private.current_user_data())->'forcePasswordReset', 'false'::jsonb)
+  )
+);
+
 create or replace function public.increment_loyalty_totals(
   p_customer_id text,
   p_card_id text,
