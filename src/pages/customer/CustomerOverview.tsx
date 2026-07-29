@@ -3,7 +3,7 @@ import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../../contexts/AuthContext";
 import { doc, getDoc, collection, query, where, getCountFromServer } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
-import { Star, ShieldCheck, CreditCard, Gift, Info, Download, RotateCcw, X, AlertTriangle, AtSign, CheckCircle2, Pencil, Save } from "lucide-react";
+import { ShieldCheck, CreditCard, Gift, Info, Download, RotateCcw, X, AlertTriangle, AtSign, CheckCircle2, Pencil, Save } from "lucide-react";
 import { Link } from "react-router-dom";
 import { buildCustomerQrPayload, issueCustomerQr, IssuedCustomerQr, updateCustomerProfile } from "@/src/lib/secureQr";
 import { getUsernameValidationMessage, normalizeUsername } from "@/src/lib/username";
@@ -77,7 +77,6 @@ const missingQrProfileFields = (user: ReturnType<typeof useAuth>["user"]) => {
 
 export default function CustomerOverview() {
   const { user, refreshUser } = useAuth();
-  const [lifetimeStars, setLifetimeStars] = useState<number>(0);
   const [activeCards, setActiveCards] = useState<number>(0);
   const [appContact, setAppContact] = useState<AppContact | null>(null);
   const [qrTicket, setQrTicket] = useState<IssuedCustomerQr | null>(null);
@@ -99,12 +98,6 @@ export default function CustomerOverview() {
     async function fetchCustomerData() {
       if (!user) return;
       try {
-        const custRef = doc(db, "customers", user.id);
-        const custSnap = await getDoc(custRef);
-        if (custSnap.exists()) {
-          setLifetimeStars(custSnap.data().lifetimeStars || 0);
-        }
-
         const cardsQuery = query(collection(db, "cards"), where("customerId", "==", user.id));
         const cardsSnapshot = await getCountFromServer(cardsQuery);
         setActiveCards(cardsSnapshot.data().count);
@@ -364,16 +357,6 @@ export default function CustomerOverview() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-[2rem] border border-gray-200 dark:border-gray-800 shadow-sm transition-colors flex items-center gap-4 xl:gap-6 min-w-0">
-          <div className="w-12 h-12 xl:w-14 xl:h-14 bg-gray-100 dark:bg-white/10 rounded-2xl flex items-center justify-center shrink-0">
-            <Star className="w-6 h-6 xl:w-7 xl:h-7 text-[#1b1b1b] fill-[#1b1b1b] dark:text-white dark:fill-white" />
-          </div>
-          <div className="min-w-0">
-            <h3 className="text-xs xl:text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-widest truncate">Lifetime Stars</h3>
-            <p className="text-2xl xl:text-3xl font-bold text-gray-900 dark:text-white mt-1 truncate">{lifetimeStars}</p>
-          </div>
-        </div>
-
         <div className="bg-white dark:bg-gray-900 p-6 rounded-[2rem] border border-gray-200 dark:border-gray-800 shadow-sm transition-colors flex items-center gap-4 xl:gap-6 min-w-0">
           <div className="w-12 h-12 xl:w-14 xl:h-14 bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl flex items-center justify-center shrink-0">
             <CreditCard className="w-6 h-6 xl:w-7 xl:h-7 text-indigo-500 dark:text-indigo-400" />

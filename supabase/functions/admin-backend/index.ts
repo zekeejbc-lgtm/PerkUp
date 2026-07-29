@@ -3583,7 +3583,6 @@ const createDemoAccount = async (
         isDemo: true,
         demoTenantId: input.tenantId,
         demoExpiresAt: input.expiresAt,
-        lifetimeStars: 0,
         qrVersion: 1,
         createdAt: now,
         updatedAt: now,

@@ -15,13 +15,12 @@
     },
     "Customer": {
       "title": "Customer",
-      "description": "Loyalty data for a customer.",
+      "description": "Profile and reward metadata for a customer.",
       "type": "object",
       "properties": {
-        "lifetimeStars": { "type": "number" },
         "updatedAt": { "type": "timestamp" }
       },
-      "required": ["lifetimeStars", "updatedAt"]
+      "required": ["updatedAt"]
     },
     "CustomerCard": {
       "title": "CustomerCard",
@@ -96,7 +95,7 @@
     },
     "/customers/{customerId}": {
       "schema": { "$ref": "#/entities/Customer" },
-      "description": "Customer lifetime tracking."
+      "description": "Customer profile and reward metadata."
     },
     "/customers/{customerId}/cards/{cardId}": {
       "schema": { "$ref": "#/entities/CustomerCard" },

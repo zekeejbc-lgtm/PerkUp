@@ -159,7 +159,6 @@ Deno.serve(async (req) => {
       ...((customerRow?.data || {}) as Record<string, unknown>),
       ...payload,
       userId: authData.user.id,
-      lifetimeStars: (customerRow?.data as Record<string, unknown> | undefined)?.lifetimeStars || 0,
     };
 
     const { error: userUpdateError } = await admin
