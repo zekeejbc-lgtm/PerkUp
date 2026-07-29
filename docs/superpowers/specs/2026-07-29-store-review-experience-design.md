@@ -6,7 +6,7 @@ Make public store reviews compact and easy to browse while keeping full review t
 
 ## Scope
 
-This change covers the public store detail page and a new public all-reviews page. It does not change review storage, owner replies, review eligibility, image upload limits, or the rule that only customer accounts can submit reviews.
+This change covers the public store detail page, a new public all-reviews page, and store-owner review moderation. It does not change review eligibility, image upload limits, or the rule that only customer accounts can submit reviews.
 
 ## Store Page Review Montage
 
@@ -87,7 +87,21 @@ The new public route `/store/:storeId/reviews` displays:
 - The same anonymous identity protection.
 - Empty, loading, and missing-store states consistent with existing public store pages.
 
-Review data remains fetched by `storeId`; no schema or migration is required.
+Review data remains fetched by `storeId`. Hidden reviews are excluded from public results and public rating summaries.
+
+## Store-Owner Moderation
+
+The store-owner feedback dashboard will add two actions to each review:
+
+- `Hide review` is reversible. It records `hidden`, `hiddenAt`, and `hiddenBy` metadata, removes the review from public store pages and public rating summaries, and leaves it visible in the owning store's dashboard.
+- `Show review` reverses a hidden review and clears its moderation metadata.
+- `Remove review` is permanent. It requires an explicit destructive confirmation, deletes the review record, and attempts to delete every registered uploaded review image.
+
+Hidden reviews display a clear `Hidden` status in the owner dashboard. Store-owner analytics continue to include hidden reviews so moderation does not rewrite historical feedback metrics.
+
+Only the owner of the review's store, or an authorized administrator, may hide, show, or remove it. Ownership must be verified on the server from the authenticated user and store record; client-supplied role or store ownership data is not trusted.
+
+Hide/show updates use the existing review update path with database enforcement expanded to permit only the reply and moderation fields. Permanent removal uses a dedicated authenticated server operation so review ownership validation, database deletion, and image cleanup are coordinated without granting broad client-side delete access.
 
 ## Component Boundaries
 
@@ -100,6 +114,8 @@ The review presentation will be split into focused units:
 - `ReviewMontage` owns duplication rules, animation state, hover/focus pausing, and reduced-motion behavior.
 - `ReviewFormModal` owns review creation UI while submission and persistence remain coordinated by the store page.
 - `StoreReviewsPage` owns public all-review fetching, summary, and grid layout.
+- Store-owner feedback controls own hide/show state and destructive confirmation UI.
+- The store-review moderation server operation owns authorization and permanent review/image deletion.
 
 These units should follow the project’s existing Tailwind, React Router, dark-mode, and modal patterns.
 
@@ -121,6 +137,8 @@ When the full-image modal is opened from the full-review modal, Escape closes on
 - Broken or absent optional review images do not prevent text content from rendering.
 - Existing upload rollback behavior remains unchanged when review persistence fails.
 - A missing or non-public store uses the existing public missing-store behavior.
+- A failed hide/show operation leaves the review's current visibility unchanged and reports the failure.
+- A failed permanent removal leaves the review in the dashboard unless the database deletion has already succeeded. Image cleanup is best-effort after database deletion and logs individual cleanup failures for operational follow-up.
 
 ## Testing
 
@@ -136,5 +154,10 @@ Automated tests will verify:
 - The all-reviews page renders every fetched review in newest-first order.
 - `Create feedback` opens the form modal and successful submission closes it.
 - Escape and close controls dismiss the correct modal layer.
+- Public review lists and rating summaries exclude hidden reviews.
+- Store owners can hide and restore only reviews belonging to their stores.
+- Hidden reviews remain visible and labeled in the owner dashboard.
+- Permanent removal requires confirmation, removes the review from the dashboard, and invokes cleanup for each review image.
+- Unauthorized moderation attempts are rejected by database or server-side authorization.
 
-The project TypeScript check, targeted Vitest tests, and production build must pass before completion.
+The project TypeScript check, targeted Vitest tests, Supabase database tests, and production build must pass before completion.
