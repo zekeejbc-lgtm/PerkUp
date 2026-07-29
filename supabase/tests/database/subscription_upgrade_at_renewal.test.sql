@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(40);
+select plan(41);
 
 select has_table(
   'public',
@@ -175,6 +175,36 @@ update public.system_runtime_config
 set subscription_upgrades_enabled = true
 where id = 'global';
 
+update public.settings
+set updated_at = date_trunc('milliseconds', updated_at) + interval '1 microsecond'
+where id = 'subscriptions';
+
+select lives_ok(
+  $$select public.confirm_subscription_upgrade(
+    'upgrade-test-store-b',
+    '00000000-0000-0000-0000-0000000000b1',
+    '{"id":"standard","name":"Standard","order":0,"priceCentavos":99900,"interval":"month","intervalDays":30,"features":["Basic analytics"],"dependencies":{"customerLimit":1000,"staffLimit":1,"branchLimit":1,"galleryPhotoLimit":3}}',
+    '{"id":"premium","name":"Premium","order":1,"priceCentavos":199900,"interval":"month","intervalDays":30,"features":["Basic analytics","Priority support"],"dependencies":{"customerLimit":10000,"staffLimit":5,"branchLimit":3,"galleryPhotoLimit":6}}',
+    99900,
+    199900,
+    '2026-07-31T00:00:00Z',
+    '2026-08-30T00:00:00Z',
+    'subscription-upgrade-v1',
+    'fingerprint-millisecond-catalog-0001',
+    date_trunc(
+      'milliseconds',
+      (select updated_at from public.settings where id = 'subscriptions')
+    ),
+    null,
+    null,
+    '2026-07-20T00:00:00Z'
+  )$$,
+  'PostgreSQL microseconds and JavaScript milliseconds represent the same catalog version'
+);
+
+delete from public.subscription_plan_changes
+where store_id = 'upgrade-test-store-b';
+
 select throws_ok(
   $$select public.confirm_subscription_upgrade(
     'upgrade-test-store-a',
@@ -192,7 +222,7 @@ select throws_ok(
     null,
     '2026-07-20T00:00:00Z'
   )$$,
-  '40001',
+  'PUG01',
   null,
   'a stale plan catalog version cannot be confirmed'
 );

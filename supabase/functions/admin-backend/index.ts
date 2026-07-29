@@ -26,6 +26,7 @@ import {
   type SubscriptionUpgradeQuoteClaims,
 } from "../_shared/subscription-upgrade-token.ts";
 import { authorizeSubscriptionUpgradeToggle } from "../_shared/subscription-upgrade-control.ts";
+import { isStaleSubscriptionUpgradeError } from "../_shared/subscription-upgrade-error.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
@@ -1641,7 +1642,7 @@ const handleAdminRequest = async (req: Request) => {
             code: "UPGRADE_ALREADY_SCHEDULED",
           }, 409);
         }
-        if (String(changeError.code) === "40001") {
+        if (isStaleSubscriptionUpgradeError(changeError)) {
           return jsonResponse({
             error: "The subscription changed before confirmation. Request and review a new quote.",
             code: "STALE_UPGRADE_QUOTE",
