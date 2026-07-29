@@ -582,7 +582,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div 
-        className={`relative mx-4 w-full overflow-hidden rounded-[2rem] border border-gray-100 bg-white shadow-xl transition-all dark:border-gray-800 dark:bg-gray-900 ${
+        className={`relative w-full overflow-hidden rounded-[2rem] border border-gray-100 bg-white shadow-xl transition-all dark:border-gray-800 dark:bg-gray-900 ${
           mode === 'forgot'
             ? 'max-w-lg'
             : 'h-[min(760px,90vh)] max-h-[90vh] max-w-3xl'
@@ -602,8 +602,8 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
           mode === 'signup' && !hasAgreedToPrivacy
             ? 'h-full'
             : mode === 'forgot'
-              ? 'overflow-y-auto p-8 sm:p-10'
-              : 'h-full overflow-y-auto p-8 sm:p-10'
+              ? 'overflow-y-auto p-5 sm:p-10'
+              : 'h-full overflow-y-auto p-5 sm:p-10'
         }>
           {mode === 'signup' && !hasAgreedToPrivacy ? (
             <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]">
@@ -673,7 +673,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
           </div>
 
           {(error || message) && (
-            <div className={`p-3 rounded-xl mb-4 text-sm ${error ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400'}`}>
+            <div className={`mb-4 break-words rounded-xl p-3 text-sm [overflow-wrap:anywhere] ${error ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400'}`}>
               {error || message}
             </div>
           )}
@@ -1032,7 +1032,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
                     setError('');
                     setMessage('');
                   }}
-                  className="w-1/3 rounded-xl border border-gray-200 bg-white px-4 py-3 font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                  className="w-1/3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
                 >
                   Back
                 </button>
@@ -1040,7 +1040,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium py-3 px-4 rounded-xl hover:bg-gray-800 dark:hover:bg-gray-100 transition-all active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+                className="flex-1 rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white transition-all hover:bg-gray-800 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
               >
                 {loading
                   ? 'Please wait...'
@@ -1050,7 +1050,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
                       ? signupStep === 4
                         ? 'Continue to email verification'
                         : signupStep === 5
-                          ? 'Verify & create account'
+                          ? 'Create account'
                           : 'Continue'
                       : 'Send reset link'}
               </button>
