@@ -6,6 +6,7 @@ import { User, Star, ArrowLeft, Minus, Plus, Users, Clock, MessageSquare, Heart,
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { formatCustomerCode } from "../../lib/customerId";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
 import {
@@ -530,7 +531,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
         className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-12 text-sm text-gray-900 shadow-sm outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
       />
 
-      <div id="customer-database-results" className="scroll-mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <ScrollableRegion label="Customer database" id="customer-database-results" className="scroll-mt-6 grid grid-cols-1 gap-4 pr-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {filtered.length === 0 ? (
            <div className="col-span-full text-center py-16 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl">
              <Users className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-700 mb-4" />
@@ -571,7 +572,7 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
             </button>
           ))
         )}
-      </div>
+      </ScrollableRegion>
       <Pagination
         page={currentPage}
         pageSize={CUSTOMERS_PER_PAGE}

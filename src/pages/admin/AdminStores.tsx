@@ -26,6 +26,7 @@ import { TimeInput } from "../../components/TimeInput";
 import { formatStoreHours } from "../../lib/dateTime";
 import { CategoryInput } from "../../components/CategoryInput";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
 import { PayMongoDefaultsControl } from "../../components/PayMongoDefaultsControl";
 import { PAYMONGO_STANDARD_ACCESS } from "../../lib/subscriptionAccess";
@@ -419,7 +420,7 @@ export default function AdminStores() {
             />
           </div>
 
-          <div id="admin-store-search-results" className="scroll-mt-6 divide-y divide-gray-100 dark:divide-gray-800/50">
+          <ScrollableRegion label="Managed stores" id="admin-store-search-results" className="scroll-mt-6 divide-y divide-gray-100 dark:divide-gray-800/50">
             {filteredStoreGroups.length > 0 ? paginatedStoreGroups.map(({ id, primaryStore, branches }) => {
               const storeCategories = splitStoreCategories(primaryStore.category);
               const businessName = primaryStore.businessName || primaryStore.name;
@@ -440,7 +441,7 @@ export default function AdminStores() {
                 }}>
                   <div className="flex min-w-0 flex-1 items-center gap-4 sm:gap-4">
                     {primaryStore.logoUrl ? (
-                      <img src={getDisplayImageUrl(primaryStore.logoUrl)} alt="Store Logo" className="h-14 w-14 shrink-0 rounded-full border border-gray-200 object-cover dark:border-gray-700 sm:h-12 sm:w-12" />
+                      <img src={getDisplayImageUrl(primaryStore.logoUrl)} alt="Store Logo" loading="lazy" decoding="async" className="h-14 w-14 shrink-0 rounded-full border border-gray-200 object-cover dark:border-gray-700 sm:h-12 sm:w-12" />
                     ) : (
                       <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-gray-100 text-lg font-bold text-[#1b1b1b] dark:border-white/15 dark:bg-white/10 dark:text-white sm:h-12 sm:w-12 sm:text-base">
                         {businessName?.charAt(0) || <Store className="h-6 w-6 sm:h-5 sm:w-5" />}
@@ -522,7 +523,7 @@ export default function AdminStores() {
                 )}
               </div>
             )}
-          </div>
+          </ScrollableRegion>
           <Pagination
             page={currentPage}
             pageSize={STORES_PER_PAGE}

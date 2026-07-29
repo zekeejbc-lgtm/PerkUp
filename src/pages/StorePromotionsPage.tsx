@@ -25,6 +25,9 @@ import { CustomDropdown } from "../components/CustomDropdown";
 import { ViewModeButton } from "../components/ViewModeButton";
 import { Seo } from "../components/Seo";
 import { isStorePubliclyVisible } from "../lib/storeDirectory";
+import { ScrollableRegion, ScrollableTableRegion } from "../components/ScrollableRegion";
+import { Pagination } from "../components/Pagination";
+import { useCollectionPagination } from "../hooks/useCollectionPagination";
 
 const promotionViewOptions = [
   { value: "tiles", label: "Card", icon: Grid2X2 },
@@ -150,6 +153,7 @@ export default function StorePromotionsPage() {
   }, [maxStamps, minStamps, offerType, promotions, search, sortBy]);
 
   const hasActiveFilters = Boolean(search || minStamps || maxStamps || offerType !== "all");
+  const promotionPagination = useCollectionPagination(filteredPromotions, 12);
   const clearFilters = () => {
     setSearch("");
     setOfferType("all");
@@ -157,7 +161,7 @@ export default function StorePromotionsPage() {
     setMaxStamps("");
   };
 
-  if (loading) return <PageSkeleton variant="promotions" />;
+  if (loading) return <PageSkeleton variant="public-promotions" />;
 
   if (storeMissing || !store) {
     return (
@@ -296,11 +300,11 @@ export default function StorePromotionsPage() {
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Try changing your search or filters.</p>
           </div>
         ) : viewMode === "tiles" ? (
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filteredPromotions.map((promotion) => (
+          <ScrollableRegion label={`${store.name} promotions`} className="mt-6 grid gap-4 pr-1 sm:grid-cols-2 lg:grid-cols-3">
+             {promotionPagination.pageItems.map((promotion) => (
               <article key={promotion.id} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
                 <div className="relative flex h-52 items-center justify-center bg-gray-100 dark:bg-gray-800">
-                  {promotion.bannerImageUrl ? <img src={getDisplayImageUrl(promotion.bannerImageUrl)} alt="" loading="lazy" className="h-full w-full object-cover" /> : <ImageIcon className="h-8 w-8 text-gray-300 dark:text-gray-600" />}
+                  {promotion.bannerImageUrl ? <img src={getDisplayImageUrl(promotion.bannerImageUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <ImageIcon className="h-8 w-8 text-gray-300 dark:text-gray-600" />}
                   <span className="absolute right-3 top-3 rounded-full bg-emerald-600 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">Running now</span>
                 </div>
                 <div className="p-5">
@@ -317,17 +321,17 @@ export default function StorePromotionsPage() {
                 </div>
               </article>
             ))}
-          </div>
+          </ScrollableRegion>
         ) : (
-          <div className="mt-6 overflow-x-auto rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <ScrollableTableRegion label={`${store.name} promotions table`} className="mt-6 rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <table className="w-full min-w-[48rem] text-left">
               <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wider text-gray-500 dark:border-gray-800 dark:bg-gray-800/60 dark:text-gray-400">
                 <tr><th className="px-5 py-4 font-bold">Promotion</th><th className="px-5 py-4 font-bold">Reward</th><th className="px-5 py-4 font-bold">Schedule</th><th className="px-5 py-4 text-right font-bold">Required stamps</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {filteredPromotions.map((promotion) => (
+                {promotionPagination.pageItems.map((promotion) => (
                   <tr key={promotion.id}>
-                    <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">{promotion.bannerImageUrl ? <img src={getDisplayImageUrl(promotion.bannerImageUrl)} alt="" loading="lazy" className="h-full w-full object-cover" /> : <Gift className="h-5 w-5 text-gray-300" />}</div><div><p className="font-bold text-gray-900 dark:text-white">{promotionTitle(promotion)}</p><p className="mt-0.5 max-w-xs truncate text-xs text-gray-500 dark:text-gray-400">{promotion.description || "No additional details"}</p></div></div></td>
+                    <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">{promotion.bannerImageUrl ? <img src={getDisplayImageUrl(promotion.bannerImageUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <Gift className="h-5 w-5 text-gray-300" />}</div><div><p className="font-bold text-gray-900 dark:text-white">{promotionTitle(promotion)}</p><p className="mt-0.5 max-w-xs truncate text-xs text-gray-500 dark:text-gray-400">{promotion.description || "No additional details"}</p></div></div></td>
                     <td className="px-5 py-4 text-sm text-gray-500 dark:text-gray-400">{promotion.linkedProductName || "Other reward"}</td>
                     <td className="px-5 py-4 text-sm text-gray-500 dark:text-gray-400">{promotion.startDate ? promotionDate(promotion.startDate) : "Available now"} – {promotion.endDate ? promotionDate(promotion.endDate) : "No end date"}</td>
                     <td className="px-5 py-4 text-right font-black text-gray-900 dark:text-white">{requiredStampCount(promotion)}</td>
@@ -335,8 +339,9 @@ export default function StorePromotionsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollableTableRegion>
         )}
+        <Pagination page={promotionPagination.page} pageSize={promotionPagination.pageSize} totalItems={promotionPagination.totalItems} onPageChange={promotionPagination.setPage} itemLabel="promotions" />
       </main>
       <PublicSiteFooter />
     </div>

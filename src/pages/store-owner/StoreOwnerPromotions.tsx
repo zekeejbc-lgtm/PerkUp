@@ -11,6 +11,7 @@ import { MapBaseLayers } from "../../components/MapBaseLayers";
 import { formatPhilippineDateTime, getPhilippineDateTimeMillis, toDate } from "../../lib/dateTime";
 import { getCompletedPromotionCount, getRemainingPromotionClaimsLabel } from "../../lib/promotionProgress";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { ViewModeButton } from "../../components/ViewModeButton";
 import { AnimatePresence, motion } from "motion/react";
@@ -497,7 +498,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
         className="group cursor-pointer overflow-hidden rounded-xl border border-gray-200 bg-gray-100 text-gray-600 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-300 dark:focus-visible:ring-white"
       >
         {promo.bannerImageUrl && (
-          <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" className="h-24 w-full object-cover grayscale" />
+          <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" decoding="async" className="h-24 w-full object-cover grayscale" />
         )}
         <div className="p-4">
           <div className="mb-3 flex items-start justify-between gap-3">
@@ -1008,7 +1009,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
         </p>
       </section>
 
-      <div className={`grid gap-4 ${viewMode === "grid" ? "sm:grid-cols-2 lg:grid-cols-2" : "grid-cols-1"}`}>
+      <ScrollableRegion label="Store promotions" className={`grid gap-4 pr-1 ${viewMode === "grid" ? "sm:grid-cols-2 lg:grid-cols-2" : "grid-cols-1"}`}>
         {visibleActivePromotions.length === 0 ? (
           <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-[#1b1b1b] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
             <Gift className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-700 mb-3" />
@@ -1019,7 +1020,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
           paginatedPromotions.map((promo) => (
             <div key={promo.id} className={`bg-white dark:bg-gray-900 border rounded-2xl overflow-hidden ${viewMode === "list" ? "sm:grid sm:grid-cols-[minmax(180px,260px)_minmax(0,1fr)]" : ""} ${(promo.active ?? true) ? "border-gray-300 dark:border-white/15 shadow-sm" : "border-gray-200 dark:border-gray-800 opacity-75"}`}>
               {promo.bannerImageUrl && (
-                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" className={viewMode === "list" ? "h-48 w-full object-cover sm:h-full sm:min-h-64" : "h-36 w-full object-cover"} />
+                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" decoding="async" className={viewMode === "list" ? "h-48 w-full object-cover sm:h-full sm:min-h-64" : "h-36 w-full object-cover"} />
               )}
               <div className={`p-6 ${viewMode === "list" && !promo.bannerImageUrl ? "sm:col-span-2" : ""}`}>
                 <div className="flex justify-between items-start gap-4 mb-4">
@@ -1114,7 +1115,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
             </div>
           ))
         )}
-      </div>
+      </ScrollableRegion>
       <Pagination
         page={currentPage}
         pageSize={PROMOTIONS_PER_PAGE}

@@ -6,6 +6,10 @@ import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveS
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { BrandMark } from "../../components/BrandMark";
 import { HomepageVideoPlayer } from "../../components/HomepageVideoPlayer";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
+import { Pagination } from "../../components/Pagination";
+import { useCollectionPagination } from "../../hooks/useCollectionPagination";
+import { CustomDropdown } from "../../components/CustomDropdown";
 import {
   DEFAULT_HOW_IT_WORKS_CONFIG,
   HowItWorksConfig,
@@ -530,6 +534,9 @@ export default function AdminHomepage() {
     });
   };
 
+  const videoPagination = useCollectionPagination(config.howItWorks.videos, 6);
+  const businessPagination = useCollectionPagination(config.trustedBusinesses, 9);
+
   if (loading) return <PageSkeleton variant="homepage" />;
 
   return (
@@ -678,8 +685,10 @@ export default function AdminHomepage() {
             </button>
           </div>
 
-          <div className="space-y-4">
-            {config.howItWorks.videos.map((video, index) => (
+          <ScrollableRegion label="Homepage videos" className="space-y-4 pr-1">
+            {videoPagination.pageItems.map((video) => {
+              const index = config.howItWorks.videos.findIndex((item) => item.id === video.id);
+              return (
               <div key={video.id} className="grid gap-5 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/70 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.85fr)]">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
@@ -697,10 +706,15 @@ export default function AdminHomepage() {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
                       <label className="mb-1 block text-xs font-semibold text-gray-500">Demo account type</label>
-                      <select value={video.audience} onChange={(event) => handleVideoChange(video.id, { audience: event.target.value as HomepageVideoConfig["audience"] })} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800">
-                        <option value="customer">Customer</option>
-                        <option value="business">Business owner</option>
-                      </select>
+                      <CustomDropdown
+                        value={video.audience}
+                        onChange={(value) => handleVideoChange(video.id, { audience: value as HomepageVideoConfig["audience"] })}
+                        ariaLabel={`Demo account type for ${video.title || `video ${index + 1}`}`}
+                        options={[
+                          { label: "Customer", value: "customer" },
+                          { label: "Business owner", value: "business" },
+                        ]}
+                      />
                     </div>
                     <div>
                       <label className="mb-1 block text-xs font-semibold text-gray-500">Video title</label>
@@ -730,13 +744,15 @@ export default function AdminHomepage() {
                   <p className="mt-2 text-center text-[11px] text-gray-500">Live embed preview</p>
                 </div>
               </div>
-            ))}
+              );
+            })}
             {config.howItWorks.videos.length === 0 && (
               <div className="rounded-2xl border-2 border-dashed border-gray-200 px-6 py-10 text-center text-sm text-gray-500 dark:border-gray-700">
                 No demo videos yet. Add one for customers and one for business owners.
               </div>
             )}
-          </div>
+          </ScrollableRegion>
+          <Pagination page={videoPagination.page} pageSize={videoPagination.pageSize} totalItems={videoPagination.totalItems} onPageChange={videoPagination.setPage} itemLabel="videos" />
         </div>
 
         {/* Trusted By Showcase */}
@@ -778,15 +794,18 @@ export default function AdminHomepage() {
               The homepage will automatically fetch and display active partner stores here.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {config.trustedBusinesses.map((b, i) => (
+            <>
+            <ScrollableRegion label="Trusted businesses" className="grid grid-cols-1 gap-4 pr-1 sm:grid-cols-2 lg:grid-cols-3">
+              {businessPagination.pageItems.map((b) => {
+                const i = config.trustedBusinesses.indexOf(b);
+                return (
                 <div key={i} className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-700 relative group">
                   <button onClick={() => handleRemoveBusiness(i)} className="absolute top-2 right-2 p-1.5 bg-white dark:bg-gray-800 text-red-500 rounded-md opacity-0 group-hover:opacity-100 transition-opacity shadow-sm border border-gray-200 dark:border-gray-700 hover:bg-red-50">
                     <Trash2 className="w-3 h-3" />
                   </button>
                   <div className="flex flex-col items-center text-center space-y-3">
                     <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-200 border-2 border-white dark:border-gray-800 shadow-sm relative group/img cursor-pointer">
-                      <img src={getDisplayImageUrl(b.logoUrl)} alt={b.name} className="w-full h-full object-cover" />
+                      <img src={getDisplayImageUrl(b.logoUrl)} alt={b.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                       <label className="absolute inset-0 bg-black/50 opacity-0 group-hover/img:opacity-100 flex items-center justify-center transition-opacity cursor-pointer text-white">
                         <Upload className="w-5 h-5" />
                         <input type="file" accept="image/*" onChange={(e) => handleBusinessLogoUpload(i, e)} className="hidden" />
@@ -797,11 +816,14 @@ export default function AdminHomepage() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
               {config.trustedBusinesses.length === 0 && (
                 <div className="col-span-full py-8 text-center text-gray-500 text-sm">No businesses featured yet.</div>
               )}
-            </div>
+            </ScrollableRegion>
+            <Pagination page={businessPagination.page} pageSize={businessPagination.pageSize} totalItems={businessPagination.totalItems} onPageChange={businessPagination.setPage} itemLabel="businesses" />
+            </>
           )}
         </div>
 

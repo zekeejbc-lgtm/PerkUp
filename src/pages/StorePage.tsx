@@ -26,6 +26,9 @@ import { ReviewImageModal } from "../components/store-reviews/ReviewImageModal";
 import { StoreContactInformation } from "../components/StoreContactInformation";
 import type { StoreSocialLink } from "../lib/storeSocialLinks";
 import { ReviewFormModal } from "../components/store-reviews/ReviewFormModal";
+import { ScrollableRegion } from "../components/ScrollableRegion";
+import { Pagination } from "../components/Pagination";
+import { useCollectionPagination } from "../hooks/useCollectionPagination";
 
 interface StoreContent {
   id: string;
@@ -460,6 +463,8 @@ export default function StorePage() {
     }
   };
 
+  const branchPagination = useCollectionPagination(branches, 9);
+
   if (loading) {
     return <PageSkeleton variant="store" />;
   }
@@ -722,8 +727,8 @@ export default function StorePage() {
             </div>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {branches.map((branch) => (
+          <ScrollableRegion label={`${store.name} branch locations`} className="grid gap-4 pr-1 sm:grid-cols-2 lg:grid-cols-3">
+            {branchPagination.pageItems.map((branch) => (
               <article
                 key={branch.id}
                 className={`rounded-3xl border p-5 shadow-sm ${
@@ -761,7 +766,8 @@ export default function StorePage() {
                 </div>
               </article>
             ))}
-          </div>
+          </ScrollableRegion>
+          <Pagination page={branchPagination.page} pageSize={branchPagination.pageSize} totalItems={branchPagination.totalItems} onPageChange={branchPagination.setPage} itemLabel="branches" />
         </section>
 
         {Array.isArray(store.images) && store.images.length > 0 && (

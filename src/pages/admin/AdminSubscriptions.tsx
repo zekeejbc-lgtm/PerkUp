@@ -5,6 +5,9 @@ import { ArrowDown, ArrowUp, Check, ChevronDown, CreditCard, Edit3, Loader2, Plu
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
+import { Pagination } from "../../components/Pagination";
+import { useCollectionPagination } from "../../hooks/useCollectionPagination";
 import { useAuth } from "../../contexts/AuthContext";
 import { invokeAdminBackend } from "../../lib/adminBackend";
 import {
@@ -270,6 +273,8 @@ export default function AdminSubscriptions() {
     }));
   };
 
+  const planPagination = useCollectionPagination(plans, 6);
+
   if (loading) return <PageSkeleton variant="subscriptions" />;
 
   return (
@@ -338,8 +343,9 @@ export default function AdminSubscriptions() {
           </p>
         )}
 
-        <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {plans.map((plan, planIndex) => {
+        <ScrollableRegion label="Subscription plans" className="grid grid-cols-1 items-start gap-6 pr-1 md:grid-cols-2 lg:grid-cols-3">
+          {planPagination.pageItems.map((plan) => {
+            const planIndex = plans.indexOf(plan);
             const planKey = getPlanKey(plan, planIndex);
             const dependenciesId = `plan-dependencies-${planKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
             const dependenciesOpen = Boolean(expandedDependencies[planKey]);
@@ -544,7 +550,8 @@ export default function AdminSubscriptions() {
               )}
             </div>
           )}
-        </div>
+        </ScrollableRegion>
+        <Pagination page={planPagination.page} pageSize={planPagination.pageSize} totalItems={planPagination.totalItems} onPageChange={planPagination.setPage} itemLabel="plans" />
       </div>
     </div>
     <ConfirmationModal

@@ -8,6 +8,7 @@ import { Pagination } from "../../components/Pagination";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { formatCustomerCode } from "../../lib/customerId";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
+import { ScrollableTableRegion } from "../../components/ScrollableRegion";
 
 const CUSTOMERS_PER_PAGE = 10;
 
@@ -192,7 +193,7 @@ export default function StaffCustomers({ store }: { store: any }) {
         </div>
       ) : (
         <div id="staff-store-customers-results" className="scroll-mt-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
+          <ScrollableTableRegion label="Store customers">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
@@ -278,7 +279,7 @@ export default function StaffCustomers({ store }: { store: any }) {
                 })}
               </tbody>
             </table>
-          </div>
+          </ScrollableTableRegion>
           <Pagination
             page={currentPage}
             pageSize={CUSTOMERS_PER_PAGE}

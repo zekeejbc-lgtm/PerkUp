@@ -17,10 +17,13 @@ import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { PasswordVisibilityButton } from "../../components/PasswordVisibilityButton";
 import { useToast } from "../../components/ToastProvider";
 import { invokeAdminBackend } from "../../lib/adminBackend";
+import { canAssignAccountRole, canManageAccountRole } from "../../lib/accountRoleHierarchy";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
+import { useAuth } from "../../contexts/AuthContext";
 import {
   generateStrongPassword,
   sanitizePasswordInput,
@@ -51,6 +54,7 @@ type ManagedAccount = {
   lastAccessedAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+  isPrimaryAuditor: boolean;
   isPermanentAuditor: boolean;
 };
 
@@ -113,6 +117,8 @@ const STATUS_OPTIONS = [
 
 const titleCase = (value: string) =>
   value.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
+const roleLabel = (value: ManagedRole) =>
+  value === "admin" ? "Super Administrator" : titleCase(value);
 
 const formatDateTime = (value: string | null) => {
   if (!value) return "Never";
@@ -133,6 +139,7 @@ const statusClasses = (status: AccountStatus) => {
 
 export default function AdminAccounts() {
   const toast = useToast();
+  const { user } = useAuth();
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [stores, setStores] = useState<AssignmentStore[]>([]);
   const [summary, setSummary] = useState<Record<string, number>>({});
@@ -210,6 +217,10 @@ export default function AdminAccounts() {
       value: store.id,
     })),
   ], [stores]);
+  const assignableRoleOptions = useMemo(
+    () => ROLE_OPTIONS.filter((option) => canAssignAccountRole(user?.role, option.value)),
+    [user?.role],
+  );
 
   const openCreate = () => {
     setEditingAccount(null);
@@ -277,7 +288,7 @@ export default function AdminAccounts() {
           storeId: needsStore ? form.storeId : "",
           forcePasswordReset: true,
         });
-        toast.success(`${titleCase(form.role)} account created.`);
+        toast.success(`${roleLabel(form.role)} account created.`);
       }
       closeForm();
       await loadAccounts(true);
@@ -321,26 +332,29 @@ export default function AdminAccounts() {
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Account management</h2>
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400">
-            Create, review, update, reassign, suspend, ban, restore, and delete customer, staff, store-owner, administrator, and auditor accounts.
+            Manage accounts below your role. Primary Auditor authority is reassigned only through the protected transfer workflow on the Account page.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={() => void loadAccounts(true)}
             disabled={refreshing}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            aria-label="Refresh accounts"
+            title="Refresh accounts"
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            Refresh
           </button>
           <button
             type="button"
             onClick={openCreate}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 text-sm font-semibold text-white hover:bg-black dark:bg-white dark:text-gray-900"
+            className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-gray-900 px-3 text-sm font-semibold leading-none text-white hover:bg-black dark:bg-white dark:text-gray-900"
+            aria-label="Add account"
+            title="Add account"
           >
             <Plus className="h-4 w-4" />
-            Add account
+            Add
           </button>
         </div>
       </div>
@@ -390,8 +404,13 @@ export default function AdminAccounts() {
         </div>
 
         {accounts.length ? (
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
-            {accounts.map((account) => (
+          <ScrollableRegion label="Administrative accounts" className="divide-y divide-gray-100 dark:divide-gray-800">
+            {accounts.map((account) => {
+              const isSelf = account.id === user?.id;
+              const canManage = canManageAccountRole(user?.role, account.role);
+              const canEdit = isSelf || canManage;
+              const canDelete = !isSelf && !account.isPrimaryAuditor && canManage;
+              return (
               <article
                 key={account.id}
                 className="grid gap-4 p-4 transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-800/30 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.9fr)_auto] xl:items-center"
@@ -399,16 +418,16 @@ export default function AdminAccounts() {
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-100 text-sm font-bold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
                     {account.avatarUrl
-                      ? <img src={getDisplayImageUrl(account.avatarUrl)} alt="" className="h-full w-full object-cover" />
+                      ? <img src={getDisplayImageUrl(account.avatarUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                       : account.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="truncate font-bold text-gray-900 dark:text-white">{account.name}</p>
-                      {account.isPermanentAuditor && (
+                      {account.isPrimaryAuditor && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
                           <ShieldCheck className="h-3 w-3" />
-                          Permanent
+                          Primary Auditor
                         </span>
                       )}
                     </div>
@@ -419,7 +438,7 @@ export default function AdminAccounts() {
                 </div>
 
                 <div>
-                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{titleCase(account.role)}</p>
+                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{roleLabel(account.role)}</p>
                   <p className="mt-1 truncate text-xs text-gray-500">{account.storeName || "Not assigned to a store"}</p>
                 </div>
 
@@ -437,7 +456,9 @@ export default function AdminAccounts() {
                   <button
                     type="button"
                     onClick={() => openEdit(account)}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-gray-200 px-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                    disabled={!canEdit}
+                    title={canEdit ? "Edit account" : "You can only manage accounts below your role."}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-gray-200 px-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-35 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
                   >
                     <Pencil className="h-4 w-4" />
                     Edit
@@ -445,8 +466,14 @@ export default function AdminAccounts() {
                   <button
                     type="button"
                     onClick={() => setAccountToDelete(account)}
-                    disabled={account.isPermanentAuditor}
-                    title={account.isPermanentAuditor ? "The permanent auditor cannot be deleted." : "Delete account"}
+                    disabled={!canDelete}
+                    title={account.isPrimaryAuditor
+                      ? "Transfer primary auditor authority before deleting this account."
+                      : isSelf
+                        ? "You cannot delete your own privileged account."
+                        : canManage
+                          ? "Delete account"
+                          : "You can only delete accounts below your role."}
                     className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-red-200 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-35 dark:border-red-900/60 dark:hover:bg-red-950/30"
                     aria-label={`Delete ${account.name}`}
                   >
@@ -454,8 +481,9 @@ export default function AdminAccounts() {
                   </button>
                 </div>
               </article>
-            ))}
-          </div>
+              );
+            })}
+          </ScrollableRegion>
         ) : (
           <div className="px-6 py-16 text-center">
             <Users className="mx-auto h-10 w-10 text-gray-300" />
@@ -485,9 +513,9 @@ export default function AdminAccounts() {
               <h3 className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                 {editingAccount ? editingAccount.name : "Create an account"}
               </h3>
-              {editingAccount?.isPermanentAuditor && (
+              {editingAccount?.isPrimaryAuditor && (
                 <p className="mt-3 rounded-xl bg-violet-50 p-3 text-sm text-violet-700 dark:bg-violet-950/30 dark:text-violet-300">
-                  This is the permanent auditor. Its email, role, and active status are protected by the backend and database.
+                  This is the primary Auditor. Transfer authority to an active administrator before changing its role or status.
                 </p>
               )}
             </div>
@@ -497,7 +525,7 @@ export default function AdminAccounts() {
                 <input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className={INPUT_CLASSES} />
               </Field>
               <Field label="Email">
-                <input required type="email" readOnly={editingAccount?.isPermanentAuditor} value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} className={`${INPUT_CLASSES} read-only:cursor-not-allowed read-only:opacity-60`} />
+                <input required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} className={`${INPUT_CLASSES} read-only:cursor-not-allowed read-only:opacity-60`} />
               </Field>
               <Field label="Phone / number">
                 <input type="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} className={INPUT_CLASSES} />
@@ -506,8 +534,10 @@ export default function AdminAccounts() {
                 <CustomDropdown
                   value={form.role}
                   onChange={(value) => setForm({ ...form, role: value as ManagedRole, storeId: ["staff", "store_owner"].includes(value) ? form.storeId : "" })}
-                  options={ROLE_OPTIONS}
-                  disabled={editingAccount?.isPermanentAuditor}
+                  options={editingAccount
+                    ? ROLE_OPTIONS.filter((option) => option.value === editingAccount.role || canAssignAccountRole(user?.role, option.value))
+                    : assignableRoleOptions}
+                  disabled={Boolean(editingAccount && (editingAccount.id === user?.id || editingAccount.isPrimaryAuditor))}
                 />
               </Field>
               {(form.role === "staff" || form.role === "store_owner") && (
@@ -521,7 +551,7 @@ export default function AdminAccounts() {
                     value={form.accountStatus}
                     onChange={(value) => setForm({ ...form, accountStatus: value as AccountStatus })}
                     options={STATUS_OPTIONS}
-                    disabled={editingAccount.isPermanentAuditor}
+                    disabled={editingAccount.id === user?.id || editingAccount.isPrimaryAuditor}
                   />
                 </Field>
               )}

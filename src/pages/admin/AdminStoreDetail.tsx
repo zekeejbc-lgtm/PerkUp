@@ -36,6 +36,8 @@ import { StoreBranchesMap } from "../../components/StoreBranchesMap";
 import { PasswordVisibilityButton } from "../../components/PasswordVisibilityButton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { TemporaryPasswordField } from "../../components/TemporaryPasswordField";
+import { ScrollableRegion, ScrollableTableRegion } from "../../components/ScrollableRegion";
+import { useCollectionPagination } from "../../hooks/useCollectionPagination";
 import {
   AdminSubscriptionPlanChanges,
   type AdminSubscriptionPlanChange,
@@ -1021,6 +1023,13 @@ export default function AdminStoreDetail({
     setResetPasswordError("");
   };
 
+  const pendingBranchRequests = branchRequests.filter((request) => request.status === "pending");
+  const billingPagination = useCollectionPagination(billingInvoices, 6);
+  const branchPagination = useCollectionPagination(branches, 9);
+  const requestPagination = useCollectionPagination(pendingBranchRequests, 6);
+  const analyticsPagination = useCollectionPagination(branchAnalytics, 8);
+  const reviewPagination = useCollectionPagination(selectedBranchReviews, 10);
+
   if (loading) {
     return <PageSkeleton variant="form" />;
   }
@@ -1533,8 +1542,9 @@ export default function AdminStoreDetail({
               {billingInvoicesLoading ? (
                 <div className="mt-5 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading payment history…</div>
               ) : billingInvoices.length ? (
-                <div className="mt-5 space-y-3">
-                  {billingInvoices.map((invoice) => (
+                <>
+                <ScrollableRegion label="Subscription payment history" className="mt-5 space-y-3 pr-1">
+                  {billingPagination.pageItems.map((invoice) => (
                     <div key={invoice.id} className={`rounded-xl border p-4 ${invoice.last_error ? "border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/20" : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"}`}>
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
@@ -1587,19 +1597,21 @@ export default function AdminStoreDetail({
                           <div className="grid gap-3 sm:grid-cols-2">
                             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
                               Payment method <span className="text-red-500">*</span>
-                              <select
+                              <CustomDropdown
                                 value={manualPaymentForm.paymentMethod}
-                                onChange={(event) => setManualPaymentForm({ ...manualPaymentForm, paymentMethod: event.target.value })}
+                                onChange={(value) => setManualPaymentForm({ ...manualPaymentForm, paymentMethod: value })}
                                 disabled={manualPaymentBusy}
-                                className="mt-1.5 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                              >
-                                <option value="bank_transfer">Bank transfer</option>
-                                <option value="cash">Cash</option>
-                                <option value="gcash">GCash</option>
-                                <option value="maya">Maya</option>
-                                <option value="cheque">Cheque</option>
-                                <option value="other">Other</option>
-                              </select>
+                                ariaLabel="Manual payment method"
+                                className="mt-1.5 font-normal"
+                                options={[
+                                  { label: "Bank transfer", value: "bank_transfer" },
+                                  { label: "Cash", value: "cash" },
+                                  { label: "GCash", value: "gcash" },
+                                  { label: "Maya", value: "maya" },
+                                  { label: "Cheque", value: "cheque" },
+                                  { label: "Other", value: "other" },
+                                ]}
+                              />
                             </label>
                             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
                               Paid date and time <span className="text-red-500">*</span>
@@ -1643,7 +1655,9 @@ export default function AdminStoreDetail({
                       {invoice.last_error && <p className="mt-3 break-words text-xs leading-5 text-red-700 dark:text-red-300">{invoice.last_error}</p>}
                     </div>
                   ))}
-                </div>
+                </ScrollableRegion>
+                <Pagination page={billingPagination.page} pageSize={billingPagination.pageSize} totalItems={billingPagination.totalItems} onPageChange={billingPagination.setPage} itemLabel="invoices" />
+                </>
               ) : (
                 <p className="mt-5 rounded-xl bg-white px-4 py-3 text-sm text-gray-600 dark:bg-gray-900 dark:text-gray-300">No billing invoice has been issued for this store yet.</p>
               )}
@@ -1669,8 +1683,8 @@ export default function AdminStoreDetail({
                 </div>
                 <StoreBranchesMap branches={branches} onOpenBranch={openBranchDashboard} />
               </div>
-              <div className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {branches.map(branch => (
+              <ScrollableRegion label="Store branches" className="mb-5 grid gap-2 pr-1 sm:grid-cols-2 lg:grid-cols-3">
+                {branchPagination.pageItems.map(branch => (
                   <button
                     key={branch.id}
                     type="button"
@@ -1687,7 +1701,8 @@ export default function AdminStoreDetail({
                     <p className="mt-2 text-xs font-medium text-green-600">Open branch dashboard</p>
                   </button>
                 ))}
-              </div>
+              </ScrollableRegion>
+              <Pagination page={branchPagination.page} pageSize={branchPagination.pageSize} totalItems={branchPagination.totalItems} onPageChange={branchPagination.setPage} itemLabel="branches" />
               <div className="mb-6 border-t border-gray-200 pt-5 dark:border-gray-700">
                 <button
                   type="button"
@@ -1704,10 +1719,10 @@ export default function AdminStoreDetail({
                 </button>
                 <div id="admin-branch-requests" className={`grid transition-[grid-template-rows,opacity] duration-500 ease-in-out motion-reduce:transition-none ${branchRequestsOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
                   <div className="min-h-0 overflow-hidden">
-                  <div className="mt-3 space-y-3">
-                  {branchRequests.filter(request => request.status === "pending").length === 0 ? (
+                  <ScrollableRegion label="Pending branch requests" className="mt-3 space-y-3 pr-1">
+                  {pendingBranchRequests.length === 0 ? (
                     <p className="text-sm text-gray-500">No pending branch requests.</p>
-                  ) : branchRequests.filter(request => request.status === "pending").map(request => (
+                  ) : requestPagination.pageItems.map(request => (
                     <div key={request.id} className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/60 dark:bg-amber-950/20 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="font-semibold text-gray-900 dark:text-white">{request.branchName}</p>
@@ -1725,7 +1740,8 @@ export default function AdminStoreDetail({
                       </div>
                     </div>
                   ))}
-                  </div>
+                  </ScrollableRegion>
+                  <Pagination page={requestPagination.page} pageSize={requestPagination.pageSize} totalItems={requestPagination.totalItems} onPageChange={requestPagination.setPage} itemLabel="requests" />
                   <div className="mt-6 space-y-3 border-t border-gray-200 pt-5 dark:border-gray-700">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="space-y-1 text-xs font-semibold text-gray-500">
@@ -1880,7 +1896,7 @@ export default function AdminStoreDetail({
               <section className="rounded-2xl border border-gray-100 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-800/50">
                 <div className="mb-5"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">Branch performance chart</h4><p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Customers and completed scans across the whole store.</p></div>
                 <div className="space-y-5">
-                  {branchAnalytics.map((branch) => {
+                  {analyticsPagination.pageItems.map((branch) => {
                     const scale = Math.max(1, ...branchAnalytics.flatMap((row) => [row.customers, row.claims]));
                     return <div key={branch.id}>
                       <div className="mb-2 flex items-center justify-between gap-3"><span className="truncate text-sm font-semibold text-gray-900 dark:text-white">{branch.name}</span><span className="text-xs text-gray-600 dark:text-gray-400">{branch.customers} customers · {branch.claims} scans</span></div>
@@ -1897,13 +1913,14 @@ export default function AdminStoreDetail({
 
               <section className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
                 <div className="border-b border-gray-200 p-5 dark:border-gray-700"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">Branch analytics table</h4><p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Cumulative totals are shown above; this table provides the branch breakdown.</p></div>
-                <div className="overflow-x-auto">
+                <ScrollableTableRegion label="Branch analytics">
                   <table className="w-full whitespace-nowrap text-left text-sm">
                     <thead className="bg-gray-100 text-xs uppercase tracking-wider text-gray-600 dark:bg-gray-900 dark:text-gray-300"><tr><th className="px-5 py-3">Branch</th><th className="px-4 py-3 text-right">Customers</th><th className="px-4 py-3 text-right">Promotions</th><th className="px-4 py-3 text-right">Scans</th><th className="px-5 py-3 text-right">Reviews</th></tr></thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">{branchAnalytics.map((branch) => <tr key={branch.id}><td className="px-5 py-3 font-semibold text-gray-900 dark:text-white">{branch.name}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.customers}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.promotions}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.claims}</td><td className="px-5 py-3 text-right text-gray-600 dark:text-gray-300">{branch.reviews}</td></tr>)}</tbody>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">{analyticsPagination.pageItems.map((branch) => <tr key={branch.id}><td className="px-5 py-3 font-semibold text-gray-900 dark:text-white">{branch.name}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.customers}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.promotions}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.claims}</td><td className="px-5 py-3 text-right text-gray-600 dark:text-gray-300">{branch.reviews}</td></tr>)}</tbody>
                     <tfoot className="border-t-2 border-gray-300 bg-white font-bold text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-white"><tr><td className="px-5 py-3">All branches</td><td className="px-4 py-3 text-right">{analytics.customers}</td><td className="px-4 py-3 text-right">{analytics.promotions}</td><td className="px-4 py-3 text-right">{analytics.claims}</td><td className="px-5 py-3 text-right">{reviews.length}</td></tr></tfoot>
                   </table>
-                </div>
+                </ScrollableTableRegion>
+                <Pagination page={analyticsPagination.page} pageSize={analyticsPagination.pageSize} totalItems={analyticsPagination.totalItems} onPageChange={analyticsPagination.setPage} itemLabel="branches" />
               </section>
             </div>
 
@@ -1911,7 +1928,7 @@ export default function AdminStoreDetail({
                <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-black/20">
                  <h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">System Activity Log</h4>
                </div>
-               <div className="p-0 overflow-x-auto">
+               <ScrollableTableRegion label="System activity log">
                  <table className="w-full text-sm text-left whitespace-nowrap">
                    <thead className="bg-gray-100 text-gray-600 dark:bg-gray-800/80 dark:text-gray-300">
                      <tr>
@@ -1930,7 +1947,7 @@ export default function AdminStoreDetail({
                      ))}
                    </tbody>
                  </table>
-               </div>
+               </ScrollableTableRegion>
                <Pagination
                  page={activityPage}
                  pageSize={ACTIVITY_LOGS_PER_PAGE}
@@ -1964,15 +1981,15 @@ export default function AdminStoreDetail({
               </section>
               <section className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
                 <div className="border-b border-gray-200 p-5 dark:border-gray-700"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Analytics table</h4></div>
-                <table className="w-full text-sm"><thead className="bg-gray-100 text-left text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-900"><tr><th className="px-5 py-3">Metric</th><th className="px-5 py-3 text-right">Total</th><th className="px-5 py-3">Branch context</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{[
+                <ScrollableTableRegion label="Branch analytics metrics"><table className="w-full text-sm"><thead className="bg-gray-100 text-left text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-900"><tr><th className="px-5 py-3">Metric</th><th className="px-5 py-3 text-right">Total</th><th className="px-5 py-3">Branch context</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{[
                   ["Unique customers", selectedBranchAnalytics.customers, "Loyalty cards"], ["Published promotions", selectedBranchAnalytics.promotions, "All promotion records"], ["Completed scans", selectedBranchAnalytics.claims, "Staff transactions"], ["Customer reviews", selectedBranchReviews.length, selectedBranchReviews.length ? `${selectedBranchAverageRating.toFixed(1)} average` : "No ratings"],
-                ].map(([label, value, context]) => <tr key={String(label)}><td className="px-5 py-4 font-semibold text-gray-900 dark:text-white">{label}</td><td className="px-5 py-4 text-right font-bold text-gray-900 dark:text-white">{value}</td><td className="px-5 py-4 text-gray-500">{context}</td></tr>)}</tbody></table>
+                ].map(([label, value, context]) => <tr key={String(label)}><td className="px-5 py-4 font-semibold text-gray-900 dark:text-white">{label}</td><td className="px-5 py-4 text-right font-bold text-gray-900 dark:text-white">{value}</td><td className="px-5 py-4 text-gray-500">{context}</td></tr>)}</tbody></table></ScrollableTableRegion>
               </section>
             </div>
 
             <section className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
               <div className="border-b border-gray-200 p-5 dark:border-gray-700"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Branch activity log</h4></div>
-              <div className="overflow-x-auto"><table className="w-full whitespace-nowrap text-left text-sm"><thead className="bg-gray-100 text-gray-500 dark:bg-gray-900"><tr><th className="px-6 py-3">Date</th><th className="px-6 py-3">Event</th><th className="px-6 py-3">Actor</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{paginatedActivityRows.map((row) => <tr key={row.id}><td className="px-6 py-3 font-mono text-xs text-gray-500">{row.date}</td><td className="px-6 py-3 font-medium text-gray-900 dark:text-white">{row.event}</td><td className="px-6 py-3 text-gray-500">{row.actor}</td></tr>)}</tbody></table></div>
+              <ScrollableTableRegion label="Branch activity log"><table className="w-full whitespace-nowrap text-left text-sm"><thead className="bg-gray-100 text-gray-500 dark:bg-gray-900"><tr><th className="px-6 py-3">Date</th><th className="px-6 py-3">Event</th><th className="px-6 py-3">Actor</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{paginatedActivityRows.map((row) => <tr key={row.id}><td className="px-6 py-3 font-mono text-xs text-gray-500">{row.date}</td><td className="px-6 py-3 font-medium text-gray-900 dark:text-white">{row.event}</td><td className="px-6 py-3 text-gray-500">{row.actor}</td></tr>)}</tbody></table></ScrollableTableRegion>
               <Pagination page={activityPage} pageSize={ACTIVITY_LOGS_PER_PAGE} totalItems={visibleActivityRows.length} itemLabel="events" onPageChange={setActivityPage} />
             </section>
           </div>
@@ -1995,7 +2012,8 @@ export default function AdminStoreDetail({
 
             <section className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
               <div className="border-b border-gray-200 p-5 dark:border-gray-700"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Customer feedback table</h4></div>
-              {selectedBranchReviews.length ? <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-gray-100 text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-900"><tr><th className="px-5 py-3">Customer</th><th className="px-5 py-3">Rating</th><th className="px-5 py-3">Comment</th><th className="px-5 py-3">Response</th><th className="px-5 py-3">Date</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{selectedBranchReviews.map((review) => <tr key={review.id}><td className="px-5 py-4 font-semibold text-gray-900 dark:text-white">{review.anonymous ? "Anonymous" : review.customerName || "Customer"}</td><td className="px-5 py-4"><span className="inline-flex items-center gap-1 font-bold text-amber-600">{Number(review.rating || 0)} <Star className="h-3.5 w-3.5 fill-current" /></span></td><td className="max-w-sm px-5 py-4 text-gray-600 dark:text-gray-300"><p className="line-clamp-3">{review.comment || "No written comment"}</p></td><td className="px-5 py-4">{review.ownerReply ? <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-700 dark:bg-green-950/40 dark:text-green-300">Responded</span> : <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">Awaiting response</span>}</td><td className="px-5 py-4 text-xs text-gray-500">{formatPhilippineDateTime(review.createdAt)}</td></tr>)}</tbody></table></div> : <div className="p-12 text-center"><MessageSquare className="mx-auto h-10 w-10 text-gray-300" /><p className="mt-3 font-semibold text-gray-900 dark:text-white">No ratings or feedback yet</p><p className="mt-1 text-sm text-gray-500">Customer reviews for this branch will appear here.</p></div>}
+              {selectedBranchReviews.length ? <ScrollableTableRegion label="Customer feedback"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-gray-100 text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-900"><tr><th className="px-5 py-3">Customer</th><th className="px-5 py-3">Rating</th><th className="px-5 py-3">Comment</th><th className="px-5 py-3">Response</th><th className="px-5 py-3">Date</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{reviewPagination.pageItems.map((review) => <tr key={review.id}><td className="px-5 py-4 font-semibold text-gray-900 dark:text-white">{review.anonymous ? "Anonymous" : review.customerName || "Customer"}</td><td className="px-5 py-4"><span className="inline-flex items-center gap-1 font-bold text-amber-600">{Number(review.rating || 0)} <Star className="h-3.5 w-3.5 fill-current" /></span></td><td className="max-w-sm px-5 py-4 text-gray-600 dark:text-gray-300"><p className="line-clamp-3">{review.comment || "No written comment"}</p></td><td className="px-5 py-4">{review.ownerReply ? <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-700 dark:bg-green-950/40 dark:text-green-300">Responded</span> : <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">Awaiting response</span>}</td><td className="px-5 py-4 text-xs text-gray-500">{formatPhilippineDateTime(review.createdAt)}</td></tr>)}</tbody></table></ScrollableTableRegion> : <div className="p-12 text-center"><MessageSquare className="mx-auto h-10 w-10 text-gray-300" /><p className="mt-3 font-semibold text-gray-900 dark:text-white">No ratings or feedback yet</p><p className="mt-1 text-sm text-gray-500">Customer reviews for this branch will appear here.</p></div>}
+              <Pagination page={reviewPagination.page} pageSize={reviewPagination.pageSize} totalItems={reviewPagination.totalItems} onPageChange={reviewPagination.setPage} itemLabel="reviews" />
             </section>
           </div>
         )}

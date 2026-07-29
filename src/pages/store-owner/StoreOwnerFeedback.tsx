@@ -7,6 +7,7 @@ import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { Pagination } from "../../components/Pagination";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
 import { moderateStoreReview } from "../../lib/storeReviewModeration";
+import { ScrollableRegion, ScrollableTableRegion } from "../../components/ScrollableRegion";
 
 const REVIEWS_PER_PAGE = 6;
 
@@ -363,7 +364,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
               <h3 id="monthly-performance-heading" className="text-sm font-bold uppercase tracking-widest text-gray-900 dark:text-white">Monthly Performance</h3>
               <p className="mt-1 text-xs text-gray-500">Volume, average rating, and response coverage</p>
             </div>
-            <div className="overflow-x-auto">
+            <ScrollableTableRegion label="Monthly review performance">
               <table className="w-full min-w-[32rem] text-left text-sm">
                 <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500 dark:bg-gray-800/60">
                   <tr><th className="px-5 py-3">Month</th><th className="px-4 py-3 text-right">Reviews</th><th className="px-4 py-3 text-right">Avg. rating</th><th className="px-5 py-3 text-right">Response rate</th></tr>
@@ -379,7 +380,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollableTableRegion>
           </section>
         </div>
 
@@ -409,7 +410,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
               </div>
             </div>
 
-            <div className="grid gap-4">
+            <ScrollableRegion label="Customer feedback" className="grid gap-4 pr-1">
           {paginatedFeedback.map((item) => {
             const createdAt = toDate(item.createdAt);
             const replyUpdatedAt = toDate(item.ownerReplyUpdatedAt);
@@ -525,7 +526,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
               <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">No reviews match this filter.</p>
             </div>
           )}
-            </div>
+            </ScrollableRegion>
             <Pagination
               page={currentPage}
               pageSize={REVIEWS_PER_PAGE}

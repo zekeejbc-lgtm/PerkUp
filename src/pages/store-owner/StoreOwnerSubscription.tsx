@@ -18,6 +18,9 @@ import { useAuth } from "../../contexts/AuthContext";
 import { BackendOperationError, invokeAdminBackend } from "../../lib/adminBackend";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { SubscriptionUpgradeTermsModal } from "../../components/SubscriptionUpgradeTermsModal";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
+import { Pagination } from "../../components/Pagination";
+import { useCollectionPagination } from "../../hooks/useCollectionPagination";
 import {
   cancelSubscriptionUpgrade,
   confirmSubscriptionUpgrade,
@@ -318,6 +321,8 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
     return () => { cancelled = true; };
   }, [subscriptionStore?.id]);
 
+  const invoicePagination = useCollectionPagination(billingInvoices, 6);
+
   return (
     <div className="max-w-3xl space-y-6">
       <div>
@@ -570,8 +575,9 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
             {billingLoading ? (
               <div className="flex items-center gap-2 py-8 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading billing history...</div>
             ) : billingInvoices.length ? (
-              <div className="mt-5 space-y-3">
-                {billingInvoices.map((invoice) => (
+              <>
+              <ScrollableRegion label="Payment history" className="mt-5 space-y-3 pr-1">
+                {invoicePagination.pageItems.map((invoice) => (
                   <div key={invoice.id} className="flex flex-col gap-3 rounded-2xl border border-gray-200 p-4 transition-colors hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">{invoice.status === "paid" ? "Receipt" : "Invoice"} {invoiceNumber(invoice)}</p>
@@ -601,7 +607,9 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                     </div>
                   </div>
                 ))}
-              </div>
+              </ScrollableRegion>
+              <Pagination page={invoicePagination.page} pageSize={invoicePagination.pageSize} totalItems={invoicePagination.totalItems} onPageChange={invoicePagination.setPage} itemLabel="invoices" />
+              </>
             ) : (
               <div className="mt-5 rounded-2xl bg-gray-50 p-4 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">
                 {manualRenewal

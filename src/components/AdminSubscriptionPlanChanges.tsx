@@ -1,5 +1,8 @@
 import { AlertTriangle, ArrowUpCircle, Loader2, LockKeyhole, RotateCcw, X } from "lucide-react";
 import { formatPhpCentavos } from "../lib/subscriptionUpgrade";
+import { ScrollableRegion } from "./ScrollableRegion";
+import { Pagination } from "./Pagination";
+import { useCollectionPagination } from "../hooks/useCollectionPagination";
 
 type PlanSnapshot = {
   id?: string;
@@ -66,6 +69,8 @@ export function AdminSubscriptionPlanChanges({
   onRefresh,
   onRequestCancel,
 }: Props) {
+  const changePagination = useCollectionPagination(changes, 6);
+
   return (
     <section className="rounded-2xl border border-gray-100 bg-gray-50 p-6 shadow-sm dark:border-gray-800 dark:bg-gray-800/50 sm:p-7">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -109,8 +114,9 @@ export function AdminSubscriptionPlanChanges({
           No subscription plan changes have been requested.
         </p>
       ) : (
-        <div className="mt-5 space-y-4">
-          {changes.map((change) => {
+        <>
+        <ScrollableRegion label="Subscription plan change history" className="mt-5 space-y-4 pr-1">
+          {changePagination.pageItems.map((change) => {
             const fromName = change.from_plan_snapshot?.name || change.from_plan_snapshot?.id || "Previous plan";
             const toName = change.to_plan_snapshot?.name || change.to_plan_snapshot?.id || "Target plan";
             const cancellable = change.status === "scheduled" && !change.renewal_invoice_id;
@@ -202,7 +208,9 @@ export function AdminSubscriptionPlanChanges({
               </article>
             );
           })}
-        </div>
+        </ScrollableRegion>
+        <Pagination page={changePagination.page} pageSize={changePagination.pageSize} totalItems={changePagination.totalItems} onPageChange={changePagination.setPage} itemLabel="plan changes" />
+        </>
       )}
     </section>
   );

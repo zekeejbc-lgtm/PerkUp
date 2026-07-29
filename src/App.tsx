@@ -10,7 +10,6 @@ import { BrandMark } from "./components/BrandMark";
 import { ProfileAvatarImage } from "./components/ProfileAvatarImage";
 import { getMfaPromptReason, TrustedLoginProfile } from "./lib/trustedDevice";
 import { FirstLoginPasswordChange } from "./components/FirstLoginPasswordChange";
-import { PublicSiteFooter } from "./components/PublicPageShell";
 import { GlobalImageViewer } from "./components/GlobalImageViewer";
 import { RouteSeo } from "./components/Seo";
 import { PwaPrompts } from "./components/PwaPrompts";
@@ -354,8 +353,8 @@ function Layout({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-white dark:bg-[#1b1b1b] transition-colors">
-      <nav className="sticky top-0 z-40 bg-white/85 dark:bg-[#1b1b1b]/85 backdrop-blur-xl border-b border-[#1b1b1b]/10 dark:border-white/10">
+    <div className="flex min-h-screen flex-col bg-white transition-colors dark:bg-[#1b1b1b] md:h-screen md:min-h-0 md:overflow-hidden">
+      <nav className="sticky top-0 z-40 shrink-0 border-b border-[#1b1b1b]/10 bg-white/85 backdrop-blur-xl dark:border-white/10 dark:bg-[#1b1b1b]/85">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 justify-between items-center">
             <div className="flex items-center gap-4">
@@ -395,12 +394,9 @@ function Layout({ children }: { children: ReactNode }) {
           </div>
         </div>
       </nav>
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 md:min-h-0 md:overflow-y-auto lg:px-8">
         {children}
       </main>
-      <div className="hidden md:block">
-        <PublicSiteFooter />
-      </div>
     </div>
   );
 }
@@ -439,9 +435,9 @@ export default function App() {
       <Route path="/reset-password" element={<Suspense fallback={<PageSkeleton variant="auth" />}><ResetPasswordPage /></Suspense>} />
       <Route path="/stores" element={<Suspense fallback={<PageSkeleton variant="directory" />}><StoresPage /></Suspense>} />
       <Route path="/store/:storeId" element={<Suspense fallback={<PageSkeleton variant="store" />}><StorePage /></Suspense>} />
-      <Route path="/store/:storeId/reviews" element={<Suspense fallback={<PageSkeleton variant="content" />}><StoreReviewsPage /></Suspense>} />
-      <Route path="/store/:storeId/products" element={<Suspense fallback={<PageSkeleton variant="products" />}><StoreProductsPage /></Suspense>} />
-      <Route path="/store/:storeId/promotions" element={<Suspense fallback={<PageSkeleton variant="promotions" />}><StorePromotionsPage /></Suspense>} />
+      <Route path="/store/:storeId/reviews" element={<Suspense fallback={<PageSkeleton variant="reviews" />}><StoreReviewsPage /></Suspense>} />
+      <Route path="/store/:storeId/products" element={<Suspense fallback={<PageSkeleton variant="public-products" />}><StoreProductsPage /></Suspense>} />
+      <Route path="/store/:storeId/promotions" element={<Suspense fallback={<PageSkeleton variant="public-promotions" />}><StorePromotionsPage /></Suspense>} />
       <Route path="/privacy" element={<Suspense fallback={<PageSkeleton variant="content" />}><PrivacyPolicyPage /></Suspense>} />
       <Route path="/data-deletion" element={<Suspense fallback={<PageSkeleton variant="content" />}><DataDeletionPage /></Suspense>} />
       <Route path="/terms" element={<Suspense fallback={<PageSkeleton variant="content" />}><TermsOfServicePage /></Suspense>} />
@@ -450,7 +446,7 @@ export default function App() {
       <Route path="/customers" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />
       <Route path="/businesses" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />
       <Route path="/pricing" element={<Suspense fallback={<PageSkeleton variant="pricing" />}><PricingPage /></Suspense>} />
-      <Route path="/scan" element={<Suspense fallback={<PageSkeleton variant="content" />}><CustomerQrLandingPage /></Suspense>} />
+      <Route path="/scan" element={<Suspense fallback={<PageSkeleton variant="qr-landing" />}><CustomerQrLandingPage /></Suspense>} />
       <Route path="/dashboard" element={<RoleRouter />} />
       
       <Route path="/customer/*" element={

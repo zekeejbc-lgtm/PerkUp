@@ -32,6 +32,8 @@ import {
 import { Pagination } from "../../components/Pagination";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
+import { useCollectionPagination } from "../../hooks/useCollectionPagination";
 
 const STORE_GROUPS_PER_PAGE = 6;
 const QUERY_PAGE_SIZE = 1000;
@@ -101,6 +103,7 @@ export default function CustomerTickets() {
       });
     return sortOrder === "newest" ? [...matching].reverse() : matching;
   }, [dateFrom, dateTo, searchQuery, selectedGroup, sortOrder]);
+  const ticketPagination = useCollectionPagination(filteredTickets, 12);
 
   const hasActiveFilters = Boolean(dateFrom) || Boolean(dateTo) || sortOrder !== "oldest";
 
@@ -362,9 +365,10 @@ export default function CustomerTickets() {
             <p className="text-sm font-medium text-gray-600 dark:text-gray-300" aria-live="polite">
               Showing {filteredTickets.length} of {selectedGroup.tickets.length} {selectedGroup.tickets.length === 1 ? "ticket" : "tickets"} · {sortOrder === "oldest" ? "oldest to newest" : "newest to oldest"}
             </p>
-            <div className="grid gap-4 lg:grid-cols-2">
-              {filteredTickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} />)}
-            </div>
+            <ScrollableRegion label={`${selectedGroup.storeName} ticket history`} className="grid gap-4 pr-1 lg:grid-cols-2">
+              {ticketPagination.pageItems.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} />)}
+            </ScrollableRegion>
+            <Pagination page={ticketPagination.page} pageSize={ticketPagination.pageSize} totalItems={ticketPagination.totalItems} onPageChange={ticketPagination.setPage} itemLabel="tickets" />
           </>
         ) : (
           <EmptyState
@@ -379,7 +383,7 @@ export default function CustomerTickets() {
           <p className="text-sm font-medium text-gray-600 dark:text-gray-300" aria-live="polite">
             {tickets.length} {tickets.length === 1 ? "ticket" : "tickets"} across {groups.length} {groups.length === 1 ? "store" : "stores"}
           </p>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <ScrollableRegion label="Ticket stores" className="grid gap-4 pr-1 sm:grid-cols-2 xl:grid-cols-3">
             {paginatedStores.map((group) => (
               <Link
                 key={group.key}
@@ -396,7 +400,7 @@ export default function CustomerTickets() {
                 <ArrowRight className="h-5 w-5 shrink-0 text-gray-300 transition group-hover:translate-x-1 group-hover:text-gray-600 dark:group-hover:text-gray-200" />
               </Link>
             ))}
-          </div>
+          </ScrollableRegion>
           {filteredStores.length > STORE_GROUPS_PER_PAGE && (
             <Pagination
               page={currentPage}
@@ -425,7 +429,7 @@ function StoreLogo({ name, logoUrl, size }: { name: string; logoUrl: string; siz
   return (
     <div className={`flex shrink-0 items-center justify-center overflow-hidden border border-gray-100 bg-gray-50 dark:border-gray-700 dark:bg-gray-800 ${sizeClass}`}>
       {displayUrl
-        ? <img src={displayUrl} alt={`${name} logo`} className="h-full w-full object-contain" />
+        ? <img src={displayUrl} alt={`${name} logo`} loading="lazy" decoding="async" className="h-full w-full object-contain" />
         : <Store className="h-6 w-6 text-gray-400" aria-hidden="true" />}
     </div>
   );

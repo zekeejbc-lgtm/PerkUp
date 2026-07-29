@@ -28,6 +28,11 @@ import {
 import { authorizeSubscriptionUpgradeToggle } from "../_shared/subscription-upgrade-control.ts";
 import { isStaleSubscriptionUpgradeError } from "../_shared/subscription-upgrade-error.ts";
 import {
+  canAssignAccountRole,
+  canManageAccountRole,
+  PRIVILEGED_ACCOUNT_ROLES,
+} from "../_shared/account-role-hierarchy.ts";
+import {
   assessSubscriptionAccessAction,
   subscriptionAccessAssessmentAuditMetadata,
   type SubscriptionAccessAction,
@@ -37,8 +42,7 @@ import {
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
 const DEFAULT_APP_URL = "https://www.perktoday.com";
-const PERMANENT_AUDITOR_EMAIL = "ezequieljohncrisostomo20@gmail.com";
-const PRIVILEGED_ROLES = new Set(["admin", "assistant_admin", "auditor"]);
+const PRIVILEGED_ROLES = PRIVILEGED_ACCOUNT_ROLES;
 const MANAGED_ROLES = new Set([
   "customer",
   "staff",
@@ -386,10 +390,11 @@ const handleAdminRequest = async (req: Request) => {
     if (action === "list_accounts") {
       if (!actorIsAdmin) return jsonResponse({ error: "Admin access required." }, 403);
 
-      const [profileRows, authUsers, storeRows] = await Promise.all([
+      const [profileRows, authUsers, storeRows, primaryAuditorUserId] = await Promise.all([
         readAllRows(admin, "users", "id,public_id,data,created_at,updated_at"),
         listAllAuthUsers(admin),
         readAllRows(admin, "stores", "id,data,created_at"),
+        getPrimaryAuditorUserId(admin),
       ]);
       const authById = new Map(authUsers.map((authUser: any) => [String(authUser.id), authUser]));
       const storesById = new Map(storeRows.map((row: any) => [String(row.id), row.data || {}]));
@@ -426,7 +431,8 @@ const handleAdminRequest = async (req: Request) => {
           lastAccessedAt: cleanText(authUser?.last_sign_in_at, 100) || null,
           createdAt: cleanText(authUser?.created_at || row.created_at, 100) || null,
           updatedAt: cleanText(row.updated_at, 100) || null,
-          isPermanentAuditor: email === PERMANENT_AUDITOR_EMAIL,
+          isPrimaryAuditor: String(row.id) === primaryAuditorUserId,
+          isPermanentAuditor: String(row.id) === primaryAuditorUserId,
         };
       }).filter((account: any) => {
         if (roleFilter !== "all" && account.role !== roleFilter) return false;
@@ -466,6 +472,11 @@ const handleAdminRequest = async (req: Request) => {
         total: accounts.length,
         summary,
       });
+    }
+
+    if (action === "get_auditor_authority") {
+      if (!actorIsAdmin) return jsonResponse({ error: "Privileged account access required." }, 403);
+      return jsonResponse({ primaryAuditorUserId: await getPrimaryAuditorUserId(admin) });
     }
 
     if (action === "list_account_stores") {
@@ -890,7 +901,7 @@ const handleAdminRequest = async (req: Request) => {
       const accountStatus = cleanText(body.accountStatus || target.accountStatus || "active", 20).toLowerCase();
       const accountStatusReason = cleanText(body.accountStatusReason, 500);
       const storeId = cleanText(body.storeId, 100);
-      const isPermanentAuditor = currentEmail === PERMANENT_AUDITOR_EMAIL;
+      const isSelf = userId === authData.user.id;
 
       if (!email || !email.includes("@") || !name) {
         return jsonResponse({ error: "A valid name and email are required." }, 400);
@@ -901,14 +912,18 @@ const handleAdminRequest = async (req: Request) => {
       if (["staff", "store_owner"].includes(role) && !storeId) {
         return jsonResponse({ error: "Select the store assigned to this staff member or store owner." }, 400);
       }
-      if (userId === authData.user.id && (role !== target.role || accountStatus !== "active")) {
-        return jsonResponse({ error: "You cannot change your own role or restrict your own account." }, 400);
+      if (!isSelf && !canManageAccountRole(actor.role, target.role)) {
+        return jsonResponse({ error: "You can only manage accounts below your role." }, 403);
       }
-      if (
-        isPermanentAuditor &&
-        (email !== PERMANENT_AUDITOR_EMAIL || role !== "auditor" || accountStatus !== "active")
-      ) {
-        return jsonResponse({ error: "The permanent auditor cannot be renamed by email, demoted, suspended, or banned." }, 403);
+      if (role !== target.role && !canAssignAccountRole(actor.role, role)) {
+        return jsonResponse({
+          error: role === "auditor"
+            ? "Use the auditor authority transfer workflow to assign a new auditor."
+            : "You cannot assign a role equal to or above your own.",
+        }, 403);
+      }
+      if (isSelf && (role !== target.role || accountStatus !== "active")) {
+        return jsonResponse({ error: "You cannot change your own role or restrict your own account." }, 400);
       }
 
       let selectedStore: any = null;
@@ -1024,7 +1039,7 @@ const handleAdminRequest = async (req: Request) => {
           storeId: role === "staff" || role === "store_owner" ? storeId : "",
           storeName: cleanText(selectedStore?.data?.businessName || selectedStore?.data?.name, 160),
           lastAccessedAt: targetAuthResult.user.last_sign_in_at || null,
-          isPermanentAuditor,
+          isPrimaryAuditor: userId === await getPrimaryAuditorUserId(admin),
         },
       });
     }
@@ -2724,16 +2739,17 @@ const handleAdminRequest = async (req: Request) => {
       }
 
       const canCreate =
-        actorIsAdmin ||
+        (actorIsAdmin && canAssignAccountRole(actor.role, role)) ||
         (actor.role === "store_owner" && role === "staff" && storeId && await ownsStore(admin, storeId, authData.user.id));
       const allowedRole =
-        (actorIsAdmin && MANAGED_ROLES.has(role)) ||
+        (actorIsAdmin && MANAGED_ROLES.has(role) && canAssignAccountRole(actor.role, role)) ||
         (actor.role === "store_owner" && role === "staff");
       if (!canCreate || !allowedRole) {
-        return jsonResponse({ error: "You are not allowed to create this account." }, 403);
-      }
-      if (email === PERMANENT_AUDITOR_EMAIL && role !== "auditor") {
-        return jsonResponse({ error: "The permanent auditor email must use the auditor role." }, 400);
+        return jsonResponse({
+          error: role === "auditor"
+            ? "Use the auditor authority transfer workflow to assign a new auditor."
+            : "You can only create accounts below your role.",
+        }, 403);
       }
       if (["staff", "store_owner"].includes(role) && !storeId) {
         return jsonResponse({ error: "Select the store assigned to this staff member or store owner." }, 400);
@@ -2898,27 +2914,79 @@ const handleAdminRequest = async (req: Request) => {
       return jsonResponse({ updated: true });
     }
 
+    if (action === "transfer_auditor_authority") {
+      if (actor.role !== "auditor") {
+        return jsonResponse({ error: "Only the current primary auditor can transfer auditor authority." }, 403);
+      }
+      const replacementUserId = cleanText(body.replacementUserId, 100);
+      const password = String(body.password || "");
+      const confirmation = cleanText(body.confirmation, 80);
+      if (confirmation !== "TRANSFER AUDITOR") {
+        return jsonResponse({ error: 'Type "TRANSFER AUDITOR" to confirm the authority transfer.' }, 400);
+      }
+      if (!replacementUserId || replacementUserId === authData.user.id) {
+        return jsonResponse({ error: "Choose a different account as the replacement auditor." }, 400);
+      }
+      const replacement = await getUserProfile(admin, replacementUserId);
+      if (
+        !replacement
+        || replacement.isDemo
+        || !["admin", "assistant_admin", "auditor"].includes(cleanText(replacement.role, 30))
+        || cleanText(replacement.accountStatus || "active", 20) !== "active"
+      ) {
+        return jsonResponse({ error: "Choose an active, non-demo administrator as the replacement auditor." }, 400);
+      }
+      const { data: replacementAuth, error: replacementAuthError } =
+        await admin.auth.admin.getUserById(replacementUserId);
+      if (replacementAuthError || !replacementAuth.user) {
+        return jsonResponse({ error: "The replacement authentication account was not found." }, 404);
+      }
+      if (!authData.user.email || !password || !await verifyActorPassword(
+        supabaseUrl,
+        anonKey,
+        authData.user.email,
+        password,
+      )) {
+        return jsonResponse({ error: "The auditor password is incorrect." }, 403);
+      }
+
+      const { data: result, error: transferError } = await admin.rpc(
+        "transfer_primary_auditor_authority",
+        {
+          p_actor_user_id: authData.user.id,
+          p_replacement_user_id: replacementUserId,
+        },
+      );
+      if (transferError) throw transferError;
+
+      return jsonResponse({ transferred: true, result });
+    }
+
     if (action === "delete_user") {
       const userId = cleanText(body.userId, 100);
       const target = await getUserProfile(admin, userId);
+      if (!target) return jsonResponse({ error: "Account was not found." }, 404);
       if (target?.isDemo) {
         return jsonResponse({ error: "Demo accounts are lifecycle-managed from the auditor Demo Management page." }, 403);
       }
+      if (userId === authData.user.id) {
+        return jsonResponse({
+          error: actor.role === "auditor"
+            ? "Transfer auditor authority before deleting your account."
+            : "You cannot delete your own privileged account.",
+        }, 400);
+      }
       const canDelete =
-        actorIsAdmin ||
+        (actorIsAdmin && canManageAccountRole(actor.role, target?.role)) ||
         (actor.role === "store_owner" &&
           target?.role === "staff" &&
           Boolean(target.storeId) &&
           await ownsStore(admin, String(target.storeId), authData.user.id));
       if (!canDelete) return jsonResponse({ error: "You are not allowed to delete this account." }, 403);
-      if (userId === authData.user.id) {
-        return jsonResponse({ error: "You cannot delete your own privileged account." }, 400);
-      }
       const { data: targetAuthResult, error: targetAuthError } = await admin.auth.admin.getUserById(userId);
       if (targetAuthError && !targetAuthError.message.toLowerCase().includes("not found")) throw targetAuthError;
-      const targetEmail = cleanText(targetAuthResult?.user?.email || target?.email, 254).toLowerCase();
-      if (targetEmail === PERMANENT_AUDITOR_EMAIL) {
-        return jsonResponse({ error: "The permanent auditor account cannot be deleted." }, 403);
+      if (userId === await getPrimaryAuditorUserId(admin)) {
+        return jsonResponse({ error: "Transfer primary auditor authority before deleting this account." }, 403);
       }
       if (target?.role === "store_owner") {
         const { count, error: ownedStoreError } = await admin.from("stores")
@@ -4494,6 +4562,12 @@ const getUserProfile = async (admin: any, userId: string): Promise<UserProfile |
   const { data, error } = await admin.from("users").select("data").eq("id", userId).maybeSingle();
   if (error) throw error;
   return (data?.data as UserProfile | undefined) || null;
+};
+
+const getPrimaryAuditorUserId = async (admin: any): Promise<string> => {
+  const { data, error } = await admin.rpc("get_primary_auditor_user_id");
+  if (error) throw error;
+  return cleanText(data, 100);
 };
 
 const mergeUserData = async (admin: any, userId: string, patch: Record<string, unknown>) => {

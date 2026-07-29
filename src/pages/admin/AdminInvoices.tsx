@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { useCurrency } from "../../contexts/CurrencyContext";
 import { invokeAdminBackend } from "../../lib/adminBackend";
 import { downloadSubscriptionInvoicePdf } from "../../lib/subscriptionInvoicePdf";
@@ -266,7 +267,7 @@ export default function AdminInvoices() {
           </div>
         ) : invoices.length ? (
           <>
-            <div className="divide-y divide-gray-100 dark:divide-gray-800">
+            <ScrollableRegion label="Subscription invoices" className="divide-y divide-gray-100 dark:divide-gray-800">
               {invoices.map((invoice) => (
                 <article key={invoice.id} className="grid gap-4 p-4 transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-800/30 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_auto] lg:items-center">
                   <div className="min-w-0">
@@ -316,7 +317,7 @@ export default function AdminInvoices() {
                   </button>
                 </article>
               ))}
-            </div>
+            </ScrollableRegion>
             <Pagination
               page={page}
               pageSize={PAGE_SIZE}

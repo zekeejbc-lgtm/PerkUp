@@ -19,6 +19,7 @@ import {
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { useToast } from "../../components/ToastProvider";
 import { useCurrency } from "../../contexts/CurrencyContext";
 import { invokeAdminBackend } from "../../lib/adminBackend";
@@ -264,10 +265,11 @@ export default function AdminAudit() {
           type="button"
           onClick={() => void Promise.all([loadOverview(), loadTab(true)])}
           disabled={refreshing}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+          aria-label="Refresh audit"
+          title="Refresh audit"
         >
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh audit
         </button>
       </div>
 
@@ -327,7 +329,7 @@ export default function AdminAudit() {
             <Loader2 className="h-7 w-7 animate-spin text-gray-400" />
           </div>
         ) : activeRecords.length ? (
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          <ScrollableRegion label={`${tab} audit records`} className="divide-y divide-gray-100 dark:divide-gray-800">
             {tab === "financial" && records.map((record) => (
               <FinancialRow key={record.id} record={record} formatCurrency={formatCurrency} />
             ))}
@@ -343,7 +345,7 @@ export default function AdminAudit() {
             {tab === "health" && filteredHealth.map((check) => (
               <HealthRow key={check.id} check={check} />
             ))}
-          </div>
+          </ScrollableRegion>
         ) : (
           <div className="px-6 py-16 text-center">
             <Database className="mx-auto h-10 w-10 text-gray-300" />

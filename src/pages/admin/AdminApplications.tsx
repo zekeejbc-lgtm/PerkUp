@@ -38,6 +38,7 @@ import { ImageCropEditor } from "../../components/ImageCropEditor";
 import { TemporaryPasswordField } from "../../components/TemporaryPasswordField";
 import { validateStrongPassword } from "../../lib/passwordStrength";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { PayMongoDefaultsControl } from "../../components/PayMongoDefaultsControl";
 import { PAYMONGO_STANDARD_ACCESS } from "../../lib/subscriptionAccess";
 import { AlreadyPaidControl } from "../../components/AlreadyPaidControl";
@@ -374,7 +375,7 @@ export default function AdminApplications() {
             <CustomDropdown options={subscriptionOptions} value={subscriptionFilter} onChange={setSubscriptionFilter} className="w-full" />
           </div>
 
-          <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
+          <ScrollableRegion label="Partner applications" className="divide-y divide-gray-100 dark:divide-gray-800/50">
             {paginatedApplications.map((app) => (
               <div
                 key={app.id}
@@ -466,7 +467,7 @@ export default function AdminApplications() {
                 <p className="mt-1 text-sm">Try changing the search text or filters.</p>
               </div>
             )}
-          </div>
+          </ScrollableRegion>
 
           <Pagination
             page={currentPage}
