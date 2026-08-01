@@ -102,6 +102,9 @@ if (supabaseUrl && supabaseKey) {
     stores = (data || [])
       .filter((row) => row.data?.initialPaymentRequired !== true && row.data?.initialPaymentStatus !== "pending")
       .map((row) => ({ id: row.id, ...(row.data || {}) }));
+    if (stores.length === 0) {
+      console.warn("SEO generation found no publicly readable active stores. Verify production store status values and the anon SELECT policy if store pages were expected.");
+    }
   }
 } else {
   console.warn("SEO generation skipped dynamic store pages because the public Supabase build variables are missing.");

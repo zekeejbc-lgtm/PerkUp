@@ -10,13 +10,13 @@ import {
   Database,
   Download,
   FileClock,
-  HeartPulse,
   History,
   Loader2,
   ReceiptText,
   RefreshCw,
   Search,
   ShieldCheck,
+  SlidersHorizontal,
   Store,
   TicketCheck,
   UserCog,
@@ -30,8 +30,9 @@ import { useToast } from "../../components/ToastProvider";
 import { useAuth } from "../../contexts/AuthContext";
 import { useCurrency } from "../../contexts/CurrencyContext";
 import { invokeAdminBackend } from "../../lib/adminBackend";
+import { downloadAuditReportPdf } from "../../lib/auditReportPdf";
 
-type AuditTab = "financial" | "receipts" | "loyalty" | "events" | "health";
+type AuditTab = "financial" | "receipts" | "loyalty" | "events";
 
 type LogOverview = {
   total: number;
@@ -42,18 +43,17 @@ type LogOverview = {
   generatedAt: string;
 };
 
-type HealthCheck = {
-  id: string;
-  name: string;
-  status: "healthy" | "warning" | "critical";
-  value: string;
-  detail: string;
-  checkedAt: string;
-};
-
-type HealthResponse = {
-  checks: HealthCheck[];
-  overall: HealthCheck["status"];
+type AuditOverview = {
+  financial: {
+    grossCentavos: number;
+    feeCentavos: number;
+    netCentavos: number;
+    paidTransactions: number;
+    issuedInvoices: number;
+    outstandingInvoices: number;
+    failedInvoices: number;
+  };
+  receipts: { total: number; sent: number; failed: number };
   generatedAt: string;
 };
 
@@ -64,13 +64,13 @@ type StoreOption = {
 };
 
 const PAGE_SIZE = 25;
+const EXPORT_PAGE_SIZE = 100;
 
 const TAB_OPTIONS: Array<{ id: AuditTab; label: string; icon: typeof Banknote }> = [
   { id: "events", label: "Activity log", icon: FileClock },
   { id: "financial", label: "Money & transactions", icon: Banknote },
   { id: "receipts", label: "Receipts", icon: ReceiptText },
   { id: "loyalty", label: "Loyalty activity", icon: TicketCheck },
-  { id: "health", label: "System health", icon: HeartPulse },
 ];
 
 const STATUS_OPTIONS: Record<AuditTab, Array<{ label: string; value: string }>> = {
@@ -100,12 +100,6 @@ const STATUS_OPTIONS: Record<AuditTab, Array<{ label: string; value: string }>> 
     { label: "Success", value: "success" },
     { label: "Failure", value: "failure" },
     { label: "Blocked", value: "blocked" },
-  ],
-  health: [
-    { label: "All health states", value: "all" },
-    { label: "Healthy", value: "healthy" },
-    { label: "Warning", value: "warning" },
-    { label: "Critical", value: "critical" },
   ],
 };
 
@@ -168,6 +162,17 @@ const formatDateTime = (value: unknown) => {
   }).format(date);
 };
 
+const formatManilaDateKey = (value: Date) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+};
+
 const tone = (value: unknown) => {
   const status = String(value ?? "").toLowerCase();
   if (["healthy", "success", "sent", "paid", "completed", "redeemed"].includes(status)) {
@@ -182,17 +187,15 @@ const tone = (value: unknown) => {
   return "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300";
 };
 
-const csvCell = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-
 export default function AdminAudit() {
   const toast = useToast();
   const { user } = useAuth();
   const { formatCurrency } = useCurrency();
   const isAuditor = user?.role === "auditor";
   const [overview, setOverview] = useState<LogOverview | null>(null);
-  const [tab, setTab] = useState<AuditTab>("events");
+  const [auditOverview, setAuditOverview] = useState<AuditOverview | null>(null);
+  const [tab, setTab] = useState<AuditTab>(() => isAuditor ? "financial" : "events");
   const [records, setRecords] = useState<any[]>([]);
-  const [health, setHealth] = useState<HealthResponse | null>(null);
   const [stores, setStores] = useState<StoreOption[]>([]);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -206,6 +209,8 @@ export default function AdminAudit() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const visibleTabs = useMemo(
     () => isAuditor ? TAB_OPTIONS : TAB_OPTIONS.filter((item) => item.id === "events"),
@@ -236,9 +241,14 @@ export default function AdminAudit() {
   }, [searchInput]);
 
   const loadOverview = useCallback(async () => {
-    const response = await invokeAdminBackend<LogOverview>({ action: "get_activity_log_overview" });
-    setOverview(response);
-  }, []);
+    const activityPromise = invokeAdminBackend<LogOverview>({ action: "get_activity_log_overview" });
+    const auditPromise = isAuditor
+      ? invokeAdminBackend<AuditOverview>({ action: "get_audit_overview" })
+      : Promise.resolve(null);
+    const [activity, audit] = await Promise.all([activityPromise, auditPromise]);
+    setOverview(activity);
+    setAuditOverview(audit);
+  }, [isAuditor]);
 
   const loadStores = useCallback(async () => {
     const response = await invokeAdminBackend<{ stores: StoreOption[] }>({ action: "list_log_stores" });
@@ -249,12 +259,7 @@ export default function AdminAudit() {
     if (refresh) setRefreshing(true);
     else setLoading(true);
     try {
-      if (tab === "health") {
-        const response = await invokeAdminBackend<HealthResponse>({ action: "get_system_health" });
-        setHealth(response);
-        setTotal(response.checks.length);
-        setRecords([]);
-      } else if (tab === "events") {
+      if (tab === "events") {
         const response = await invokeAdminBackend<{ records: any[]; total: number }>({
           action: "list_activity_logs",
           search,
@@ -305,6 +310,7 @@ export default function AdminAudit() {
     setSearchInput("");
     setSearch("");
     setPage(1);
+    setFiltersOpen(false);
   };
 
   const resetEventFilters = () => {
@@ -319,49 +325,125 @@ export default function AdminAudit() {
     setPage(1);
   };
 
-  const filteredHealth = useMemo(() => {
-    const query = search.toLowerCase();
-    return (health?.checks || []).filter((check) =>
-      (status === "all" || check.status === status) &&
-      (!query || [check.name, check.status, check.value, check.detail]
-        .some((value) => String(value ?? "").toLowerCase().includes(query))));
-  }, [health, search, status]);
-
-  const exportVisibleLogs = () => {
-    if (!records.length) return;
-    const header = ["Date", "Outcome", "Action", "Record type", "Record ID", "Shop", "Actor", "Role", "Source", "Details"];
-    const rows = records.map((record) => [
-      record.created_at,
-      record.outcome,
-      record.action,
-      record.entity_type,
-      record.entity_id,
-      record.store_name || record.metadata?.storeName || record.store_id,
-      record.actor_email || record.actor_user_id || "System process",
-      record.actor_role,
-      record.source,
-      JSON.stringify(record.metadata || {}),
-    ]);
-    const csv = [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `perk-activity-logs-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const exportVisibleLogs = async () => {
+    setExporting(true);
+    try {
+      const generatedDate = new Date();
+      const generatedAt = generatedDate.toISOString();
+      const requestExportPage = async (exportPage: number) => {
+        if (tab === "events") {
+          return invokeAdminBackend<{ records: any[]; total: number }>({
+            action: "list_activity_logs",
+            search,
+            outcome: status,
+            source,
+            actorRole,
+            entityType,
+            storeId,
+            dateFrom,
+            page: exportPage,
+            pageSize: EXPORT_PAGE_SIZE,
+          });
+        }
+        return invokeAdminBackend<{ records: any[]; total: number }>({
+          action: "list_audit_records",
+          section: tab,
+          search,
+          status,
+          page: exportPage,
+          pageSize: EXPORT_PAGE_SIZE,
+        });
+      };
+      const firstPage = await requestExportPage(1);
+      const exportTotal = Math.max(0, Number(firstPage.total) || 0);
+      const remainingPages = Math.max(0, Math.ceil(exportTotal / EXPORT_PAGE_SIZE) - 1);
+      const remainingResponses = await Promise.all(
+        Array.from({ length: remainingPages }, (_, index) => requestExportPage(index + 2)),
+      );
+      const exportRecords = [firstPage, ...remainingResponses]
+        .flatMap((response) => Array.isArray(response.records) ? response.records : []);
+      const money = auditOverview?.financial;
+      const reportByTab = {
+        financial: {
+          title: "Money & Transactions",
+          description: "Perk revenue, payment fees, net earnings, and invoice activity. Net earned is revenue after recorded payment fees; operating expenses are not tracked here.",
+          summary: [
+            { label: "Gross revenue", value: formatCurrency(Number(money?.grossCentavos || 0) / 100) },
+            { label: "Payment fees", value: formatCurrency(Number(money?.feeCentavos || 0) / 100) },
+            { label: "Net earned / profit", value: formatCurrency(Number(money?.netCentavos || 0) / 100), detail: "After payment fees" },
+            { label: "Paid transactions", value: String(money?.paidTransactions || 0) },
+            { label: "Outstanding", value: String(money?.outstandingInvoices || 0) },
+          ],
+          columns: ["Date", "Shop", "Status", "Gross", "Fees", "Net", "Reference"],
+          columnWeights: [1.25, 1.45, 0.8, 1, 0.9, 1, 1.35],
+          rows: exportRecords.map((record) => [
+            formatDateTime(record.paid_at || record.created_at), record.storeName || record.store_id || "Unknown shop",
+            titleCase(record.status), formatCurrency(Number(record.gross_amount_centavos ?? record.amount_centavos ?? 0) / 100),
+            formatCurrency(Number(record.fee_centavos || 0) / 100), formatCurrency(Number(record.net_amount_centavos ?? record.amount_centavos ?? 0) / 100),
+            record.reference || "Not available",
+          ]),
+        },
+        receipts: {
+          title: "Receipt Delivery Log", description: "Receipt and billing-notification delivery activity.",
+          summary: [
+            { label: "Total receipts", value: String(auditOverview?.receipts.total || 0) },
+            { label: "Sent", value: String(auditOverview?.receipts.sent || 0) },
+            { label: "Failed", value: String(auditOverview?.receipts.failed || 0) },
+          ],
+          columns: ["Date", "Shop", "Recipient", "Channel", "Status", "Amount"],
+          columnWeights: [1.1, 1.3, 1.7, 0.8, 0.8, 1],
+          rows: exportRecords.map((record) => [formatDateTime(record.sent_at || record.created_at), record.storeName || record.storeId || "Unknown shop", record.recipient || "Not available", titleCase(record.channel), titleCase(record.status), formatCurrency(Number(record.amountCentavos || 0) / 100)]),
+        },
+        loyalty: {
+          title: "Loyalty Activity", description: "Recorded loyalty credits, redemptions, and scans.", summary: [{ label: "Matching records", value: String(total) }],
+          columns: ["Date", "Shop", "Activity", "Status", "Customer", "Staff"],
+          columnWeights: [1.1, 1.35, 1.15, 0.8, 1.3, 1.3],
+          rows: exportRecords.map((record) => [formatDateTime(record.occurredAt), record.storeName || record.storeId || "Unknown shop", titleCase(record.type), titleCase(record.status), record.customerId || "Not recorded", record.staffId || "Not recorded"]),
+        },
+        events: {
+          title: "Activity Log", description: "Shop, administrator, auditor, account, and system changes recorded by Perk.",
+          summary: [
+            { label: "Recorded events", value: String(overview?.total || 0) }, { label: "Last 24 hours", value: String(overview?.last24Hours || 0) },
+            { label: "Shop changes", value: String(overview?.shopChanges || 0) }, { label: "Privileged changes", value: String(overview?.privilegedChanges || 0) },
+            { label: "Needs attention", value: String(overview?.issues || 0) },
+          ],
+          columns: ["Date", "Action", "Record", "Shop", "Actor", "Outcome", "Source"],
+          columnWeights: [1.15, 1.1, 1.55, 1.3, 1.55, 0.75, 0.8],
+          rows: exportRecords.map((record) => [formatDateTime(record.created_at), titleCase(record.action), `${titleCase(record.entity_type)} / ${record.entity_id || "No ID"}`, record.store_name || record.metadata?.storeName || "Not shop-specific", record.actor_email || titleCase(record.actor_role, "System process"), titleCase(record.outcome), titleCase(record.source)]),
+        },
+      }[tab];
+      await downloadAuditReportPdf({
+        ...reportByTab,
+        generatedAt,
+        filters: [search && `Search: ${search}`, status !== "all" && `Status: ${titleCase(status)}`, tab === "events" && storeId !== "all" && `Shop: ${storeOptions.find((item) => item.value === storeId)?.label}`, tab === "events" && dateRange !== "all" && `Last ${dateRange} days`].filter(Boolean) as string[],
+        filename: `Perk-${tab}-report-${formatManilaDateKey(generatedDate)}.pdf`,
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The PDF could not be generated.", { error });
+    } finally {
+      setExporting(false);
+    }
   };
 
   if (loading && !overview) return <PageSkeleton variant="table" />;
 
-  const cards = [
+  const activityCards = [
     { label: "Recorded events", value: overview?.total || 0, detail: "All retained activity", icon: History },
     { label: "Last 24 hours", value: overview?.last24Hours || 0, detail: "New recorded events", icon: Clock3 },
     { label: "Shop changes", value: overview?.shopChanges || 0, detail: "Shop-linked activity", icon: Store },
     { label: "Privileged changes", value: overview?.privilegedChanges || 0, detail: "Admin and auditor actions", icon: UserCog },
     { label: "Needs attention", value: overview?.issues || 0, detail: "Failed or blocked events", icon: AlertTriangle },
   ];
+  const financialCards = [
+    { label: "Gross revenue", value: formatCurrency(Number(auditOverview?.financial.grossCentavos || 0) / 100), detail: "All completed payments", icon: Banknote },
+    { label: "Payment fees", value: formatCurrency(Number(auditOverview?.financial.feeCentavos || 0) / 100), detail: "Recorded processing costs", icon: ReceiptText },
+    { label: "Net earned / profit", value: formatCurrency(Number(auditOverview?.financial.netCentavos || 0) / 100), detail: "Gross less fees; before operating costs", icon: Activity },
+    { label: "Paid transactions", value: auditOverview?.financial.paidTransactions || 0, detail: `${auditOverview?.financial.issuedInvoices || 0} invoices issued`, icon: CheckCircle2 },
+    { label: "Outstanding", value: auditOverview?.financial.outstandingInvoices || 0, detail: `${auditOverview?.financial.failedInvoices || 0} failed`, icon: Clock3 },
+  ];
+  const cards = tab === "financial" ? financialCards : activityCards;
 
-  const activeRecords = tab === "health" ? filteredHealth : records;
+  const activeRecords = records;
   const hasCustomEventFilters = status !== "all" || source !== "all" || actorRole !== "all"
     || entityType !== "all" || storeId !== "all" || dateRange !== "30" || Boolean(searchInput);
 
@@ -380,25 +462,27 @@ export default function AdminAudit() {
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400">
             {isAuditor
-              ? "Trace shop updates, administrator and auditor actions, account changes, billing, loyalty, diagnostics, and system activity from one place."
-              : "Review a redacted activity stream for operational awareness. Sensitive metadata, financial audit views, system health, and exports remain auditor-only."}
+              ? "Review money earned, payment fees, shop changes, administrator and auditor actions, account changes, billing, loyalty, and system activity from one place."
+              : "Review a redacted activity stream for operational awareness. Sensitive metadata, financial views, and exports remain auditor-only."}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {isAuditor && tab === "events" && (
+          {isAuditor && (
             <button
               type="button"
-              onClick={exportVisibleLogs}
-              disabled={!records.length}
+              onClick={() => void exportVisibleLogs()}
+              disabled={exporting}
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              <Download className="h-4 w-4" />
-              Export visible
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Download PDF
             </button>
           )}
           <button
             type="button"
-            onClick={() => void Promise.all([loadOverview(), loadTab(true)])}
+            onClick={() => void Promise.all([loadOverview(), loadTab(true)]).catch((error) => {
+              toast.error(error instanceof Error ? error.message : "Logs could not be refreshed.", { error });
+            })}
             disabled={refreshing}
             className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
             aria-label="Refresh logs"
@@ -416,13 +500,13 @@ export default function AdminAudit() {
               <p className="text-sm font-medium text-gray-500">{card.label}</p>
               <card.icon className="h-5 w-5 text-gray-400" />
             </div>
-            <p className="mt-3 text-2xl font-bold text-gray-900 dark:text-white">{card.value.toLocaleString()}</p>
+            <p className="mt-3 text-2xl font-bold text-gray-900 dark:text-white">{typeof card.value === "number" ? card.value.toLocaleString() : card.value}</p>
             <p className="mt-1 text-xs text-gray-500">{card.detail}</p>
           </div>
         ))}
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+      <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
         {isAuditor && (
           <div className="flex gap-2 overflow-x-auto border-b border-gray-100 p-3 dark:border-gray-800">
             {visibleTabs.map((item) => (
@@ -444,6 +528,21 @@ export default function AdminAudit() {
         )}
 
         <div className="border-b border-gray-100 p-4 dark:border-gray-800">
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((value) => !value)}
+            className="flex h-11 w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-semibold text-gray-700 lg:hidden dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            aria-expanded={filtersOpen}
+            aria-controls="audit-log-filters"
+          >
+            <span className="inline-flex items-center gap-2"><SlidersHorizontal className="h-4 w-4" /> Search & filters</span>
+            <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${filtersOpen ? "rotate-180" : ""}`} />
+          </button>
+          <div
+            id="audit-log-filters"
+            className={`grid transition-[grid-template-rows,opacity,margin] duration-300 ease-out lg:block lg:opacity-100 ${filtersOpen ? "mt-3 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0 lg:mt-0"}`}
+          >
+            <div className={`min-h-0 lg:overflow-visible ${filtersOpen ? "overflow-visible" : "overflow-hidden"}`}>
           <div className={`grid gap-3 ${tab === "events" ? "lg:grid-cols-[minmax(16rem,1.5fr)_repeat(3,minmax(10rem,1fr))]" : "sm:grid-cols-[minmax(0,1fr)_14rem]"}`}>
             <label className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -485,6 +584,8 @@ export default function AdminAudit() {
               </button>
             </div>
           )}
+            </div>
+          </div>
         </div>
 
         {loading ? (
@@ -505,9 +606,6 @@ export default function AdminAudit() {
             {tab === "events" && records.map((record) => (
               <EventRow key={record.id} record={record} isAuditor={isAuditor} />
             ))}
-            {tab === "health" && filteredHealth.map((check) => (
-              <HealthRow key={check.id} check={check} />
-            ))}
           </ScrollableRegion>
         ) : (
           <div className="px-6 py-16 text-center">
@@ -517,9 +615,7 @@ export default function AdminAudit() {
           </div>
         )}
 
-        {tab !== "health" && (
-          <Pagination page={page} pageSize={PAGE_SIZE} totalItems={total} onPageChange={setPage} itemLabel="records" />
-        )}
+        <Pagination page={page} pageSize={PAGE_SIZE} totalItems={total} onPageChange={setPage} itemLabel="records" />
       </div>
 
       <p className="flex items-center gap-2 text-xs text-gray-500">
@@ -679,28 +775,6 @@ function EventRow({ record, isAuditor }: { record: any; isAuditor: boolean }) {
           )}
         </div>
       )}
-    </article>
-  );
-}
-
-function HealthRow({ check }: { check: HealthCheck }) {
-  const Icon = check.status === "healthy" ? CheckCircle2 : check.status === "warning" ? AlertTriangle : HeartPulse;
-  return (
-    <article className="grid gap-4 p-5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
-      <span className={`flex h-11 w-11 items-center justify-center rounded-2xl ${tone(check.status)}`}>
-        <Icon className="h-5 w-5" />
-      </span>
-      <div>
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="font-bold text-gray-900 dark:text-white">{check.name}</p>
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(check.status)}`}>{check.status}</span>
-        </div>
-        <p className="mt-1 text-sm text-gray-500">{check.detail}</p>
-      </div>
-      <div className="sm:text-right">
-        <p className="font-semibold text-gray-800 dark:text-gray-200">{check.value}</p>
-        <p className="mt-1 text-xs text-gray-500">{formatDateTime(check.checkedAt)}</p>
-      </div>
     </article>
   );
 }

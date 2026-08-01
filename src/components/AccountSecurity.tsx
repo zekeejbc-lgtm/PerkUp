@@ -14,6 +14,7 @@ import { doc, serverTimestamp, setDoc } from "@/src/lib/dataCompat";
 import { invokeAdminBackend } from "@/src/lib/adminBackend";
 import { formatPhilippineDateTime } from "@/src/lib/dateTime";
 import { PasswordVisibilityButton } from "@/src/components/PasswordVisibilityButton";
+import { useToast } from "@/src/components/ToastProvider";
 
 type Message = {
   text: string;
@@ -43,6 +44,7 @@ const formatEnrollmentDate = (dateValue?: string) => {
 
 export default function AccountSecurity() {
   const { user, refreshUser } = useAuth();
+  const toast = useToast();
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -321,6 +323,7 @@ export default function AccountSecurity() {
     }
 
     setIsChangingPassword(true);
+    const progressToastId = toast.progress("Updating your password…", { title: "Changing password" });
     try {
       await assertPasswordNotCompromised(newPassword);
       const factorsResponse = await supabase.auth.mfa.listFactors();
@@ -330,6 +333,7 @@ export default function AccountSecurity() {
       const passwordMfaFactor = (factorsResponse.data.totp ?? []).find((factor) => factor.status === "verified");
       if (passwordMfaFactor && !passwordMfaCode.trim()) {
         setMessage({ text: "Enter the code from your authenticator app.", type: "error" });
+        toast.update(progressToastId, "Enter the code from your authenticator app.", "info", { title: "Verification required" });
         return;
       }
 
@@ -351,10 +355,17 @@ export default function AccountSecurity() {
       });
       if (error) throw error;
       setMessage({ text: "Password updated successfully.", type: "success" });
+      toast.update(progressToastId, "Password updated successfully.", "success", { title: "Password updated" });
       resetPasswordForm();
     } catch (error) {
       console.error("Password update failed:", error);
-      setMessage({ text: error instanceof Error ? error.message : "Failed to update password.", type: "error" });
+      const text = error instanceof Error ? error.message : "Failed to update password.";
+      setMessage({ text, type: "error" });
+      if (/password|credential|authenticator|verification code|compromised|breach/i.test(text)) {
+        toast.update(progressToastId, text, "info", { title: "Check your details" });
+      } else {
+        toast.update(progressToastId, text, "error", { error, title: "Password update failed" });
+      }
     } finally {
       setIsChangingPassword(false);
     }

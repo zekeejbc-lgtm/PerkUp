@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Layout, Save, Upload, Plus, Trash2, Loader2, ImagePlus, RefreshCcw, CheckCircle2, XCircle, Edit3, QrCode, Star, Coffee, ArrowRight, Store as StoreIcon, Search, MapPin, Mail, Phone, Video, Link2 } from "lucide-react";
+import { Layout, Save, Upload, Plus, Trash2, Loader2, ImagePlus, RefreshCcw, Edit3, QrCode, Star, Coffee, ArrowRight, Store as StoreIcon, Search, MapPin, Mail, Phone, Video, Link2 } from "lucide-react";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { BrandMark } from "../../components/BrandMark";
@@ -10,6 +10,7 @@ import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { Pagination } from "../../components/Pagination";
 import { useCollectionPagination } from "../../hooks/useCollectionPagination";
 import { CustomDropdown } from "../../components/CustomDropdown";
+import { useToast } from "../../components/ToastProvider";
 import {
   DEFAULT_HOW_IT_WORKS_CONFIG,
   HowItWorksConfig,
@@ -279,10 +280,10 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
 }
 
 export default function AdminHomepage() {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [toasts, setToasts] = useState<{id: string, message: string, type: 'success' | 'error', persistent: boolean}[]>([]);
   const [urlErrors, setUrlErrors] = useState<{facebook: boolean, instagram: boolean, twitter: boolean}>({
     facebook: false, instagram: false, twitter: false
   });
@@ -340,21 +341,6 @@ export default function AdminHomepage() {
     }
   };
 
-  const showToast = (message: string, type: 'success' | 'error', persistent = false) => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setToasts(prev => [...prev, { id, message, type, persistent }]);
-    
-    if (!persistent) {
-      setTimeout(() => {
-        setToasts(prev => prev.filter(t => t.id !== id));
-      }, 5000);
-    }
-  };
-
-  const dismissToast = (id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  };
-
   const handleCancel = () => {
     Object.keys(pendingImageFiles).forEach((url) => URL.revokeObjectURL(url));
     setPendingImageFiles({});
@@ -409,11 +395,12 @@ export default function AdminHomepage() {
     setUrlErrors(newErrors);
     
     if (hasErrors) {
-      showToast("Please fix the highlighted links before saving.", "error");
+      toast.info("Please fix the highlighted links before saving.", { title: "Check highlighted fields" });
       return;
     }
 
     setSaving(true);
+    const progressToastId = toast.progress("Saving the homepage configuration…", { title: "Updating homepage" });
     const uploadedImageUrls: string[] = [];
     let configPersisted = false;
     try {
@@ -452,13 +439,13 @@ export default function AdminHomepage() {
       setConfig(cloneConfig(nextConfig));
       setSavedConfig(cloneConfig(nextConfig));
       setIsEditing(false);
-      showToast("Homepage configuration saved successfully.", "success");
+      toast.update(progressToastId, "Homepage configuration saved successfully.", "success", { title: "Homepage updated" });
     } catch (error) {
       if (!configPersisted && uploadedImageUrls.length) {
         await Promise.allSettled(uploadedImageUrls.map((url) => deleteImageFromDriveSecure(url)));
       }
       console.error(error);
-      showToast("Failed to save configuration.", "error");
+      toast.update(progressToastId, "The homepage configuration could not be saved.", "error", { error, title: "Save failed" });
     } finally {
       setSaving(false);
     }
@@ -899,24 +886,6 @@ export default function AdminHomepage() {
         )}
       </div>
       
-      <div className="fixed bottom-6 right-6 flex flex-col gap-2 z-50">
-        {toasts.map((t) => (
-          <div key={t.id} className={`px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-in slide-in-from-bottom-2 fade-in duration-300 ${t.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
-            {t.type === 'success' ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : <XCircle className="w-5 h-5 shrink-0" />}
-            <p className="font-medium text-sm mr-4">{t.message}</p>
-            {t.persistent && (
-              <button onClick={() => dismissToast(t.id)} className="ml-auto opacity-70 hover:opacity-100 transition-opacity">
-                <XCircle className="w-4 h-4" />
-              </button>
-            )}
-            {!t.persistent && (
-              <button onClick={() => dismissToast(t.id)} className="ml-auto opacity-70 hover:opacity-100 transition-opacity">
-                <XCircle className="w-4 h-4" />
-              </button>
-             )}
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

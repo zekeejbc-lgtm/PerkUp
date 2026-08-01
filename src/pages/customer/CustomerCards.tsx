@@ -16,6 +16,7 @@ import { CustomerRewardStoreLocation } from "../../components/CustomerRewardStor
 import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { Pagination } from "../../components/Pagination";
 import { useCollectionPagination } from "../../hooks/useCollectionPagination";
+import { useToast } from "../../components/ToastProvider";
 import {
   buildCustomerCardStores,
   filterCustomerCardStores,
@@ -39,6 +40,7 @@ const formatPromoDuration = (promotion: any) => {
 
 export default function CustomerCards() {
   const { user } = useAuth();
+  const toast = useToast();
   const { storeId } = useParams();
   const [cards, setCards] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
@@ -177,13 +179,20 @@ export default function CustomerCards() {
   const handleClaim = async (promo: any) => {
     if (claimingId) return;
     setClaimingId(promo.id);
+    const progressToastId = toast.progress("Reserving your reward…", { title: "Reward reservation" });
     try {
       const claim = await claimPromotion(promo.id);
       const nextPromo = { ...promo, claim };
       setPromoCards((current) => current.map((item) => item.id === promo.id ? { ...item, claim } : item));
       setSelectedPromo(nextPromo);
+      toast.update(progressToastId, "Your reward was reserved.", "success", { title: "Reward ready" });
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Could not reserve this reward.");
+      const message = error instanceof Error ? error.message : "Could not reserve this reward.";
+      if (/already|enough|insufficient|expired|unavailable|eligible|required/i.test(message)) {
+        toast.update(progressToastId, message, "info", { title: "Reward unavailable" });
+      } else {
+        toast.update(progressToastId, message, "error", { error, title: "Reservation failed" });
+      }
     } finally {
       setClaimingId("");
     }

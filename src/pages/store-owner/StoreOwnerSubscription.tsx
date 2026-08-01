@@ -21,6 +21,7 @@ import { SubscriptionUpgradeTermsModal } from "../../components/SubscriptionUpgr
 import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { Pagination } from "../../components/Pagination";
 import { useCollectionPagination } from "../../hooks/useCollectionPagination";
+import { useToast } from "../../components/ToastProvider";
 import {
   cancelSubscriptionUpgrade,
   confirmSubscriptionUpgrade,
@@ -78,6 +79,7 @@ const isManualPayment = (invoice: BillingInvoice) =>
 export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
   const { formatCurrency } = useCurrency();
   const { user } = useAuth();
+  const toast = useToast();
   const subscriptionStore = stores.find((store) => store.isPrimaryBranch === true) ||
     stores.find((store) => store.subscriptionLevel || store.subscriptionDependencies) ||
     stores[0] || null;
@@ -249,6 +251,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
 
   const downloadInvoice = async (invoice: BillingInvoice) => {
     setDownloadingInvoiceId(invoice.id);
+    const progressToastId = toast.progress("Preparing the invoice PDF…", { title: "Generating PDF" });
     try {
       await downloadSubscriptionInvoicePdf({
         invoice: {
@@ -282,9 +285,10 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
           contact: subscriptionStore?.contact || subscriptionStore?.contactNumber || subscriptionStore?.phone || null,
         },
       });
+      toast.update(progressToastId, "The invoice PDF was downloaded.", "success", { title: "Download ready" });
     } catch (error) {
       console.error("Could not generate subscription invoice PDF", error);
-      window.alert("We could not prepare this PDF. Please refresh the page and try again.");
+      toast.update(progressToastId, "We could not prepare this PDF. Please refresh the page and try again.", "error", { error, title: "PDF failed" });
     } finally {
       setDownloadingInvoiceId(null);
     }

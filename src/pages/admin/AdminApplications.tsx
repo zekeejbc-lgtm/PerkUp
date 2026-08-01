@@ -278,14 +278,15 @@ export default function AdminApplications() {
   const handleAddStore = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!alreadyPaid && !payMongoDefaultsEnabled) {
-      alert("Enable the PayMongo standard so the owner can complete the initial payment, or mark the subscription as already paid.");
+      toast.info("Enable the PayMongo standard so the owner can complete the initial payment, or mark the subscription as already paid.", { title: "Payment setup required" });
       return;
     }
     if (!validateStrongPassword(ownerPassword, { name: ownerName, email: ownerEmail }).valid) {
-      alert("Use a strong password that meets every requirement.");
+      toast.info("Use a strong password that meets every requirement.", { title: "Check password" });
       return;
     }
     setIsSubmitting(true);
+    const progressToastId = toast.progress("Approving the application and creating the store…", { title: "Creating store" });
     let uploadedLogoUrl = "";
     let storePersisted = false;
     try {
@@ -334,19 +335,19 @@ export default function AdminApplications() {
       setApplications((current) => current.filter((app) => app.id !== selectedApplicationId));
       setShowAddModal(false);
       setPendingLogo(null);
-      alert(
-        result.notification && !result.notification.sent
-          ? `Store approved and created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`
-          : alreadyPaid && result.receiptNotification && !result.receiptNotification.sent
-          ? `Store approved and the welcome email was sent, but the payment receipt could not be sent: ${result.receiptNotification.error || "Email service unavailable."}`
-          : `Store approved and created! The owner email${alreadyPaid ? " and payment receipt have" : " has"} been sent.`,
-      );
+      if (result.notification && !result.notification.sent) {
+        toast.update(progressToastId, `The store was created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`, "error", { title: "Email delivery failed" });
+      } else if (alreadyPaid && result.receiptNotification && !result.receiptNotification.sent) {
+        toast.update(progressToastId, `The store was created, but the payment receipt could not be sent: ${result.receiptNotification.error || "Email service unavailable."}`, "error", { title: "Receipt delivery failed" });
+      } else {
+        toast.update(progressToastId, `Store approved and created. The owner email${alreadyPaid ? " and payment receipt have" : " has"} been sent.`, "success", { title: "Store created" });
+      }
     } catch (error) {
       if (!storePersisted && uploadedLogoUrl) {
         await deleteImageFromDriveSecure(uploadedLogoUrl).catch(console.error);
       }
       console.error(error);
-      alert("Failed to create store: " + (error as Error).message);
+      toast.update(progressToastId, "The store could not be created.", "error", { error, title: "Creation failed" });
     } finally {
       setIsSubmitting(false);
     }

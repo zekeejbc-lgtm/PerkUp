@@ -255,11 +255,11 @@ export default function AdminAccounts() {
     event.preventDefault();
     const needsStore = form.role === "staff" || form.role === "store_owner";
     if (needsStore && !form.storeId) {
-      toast.error("Select the store assigned to this account.");
+      toast.info("Select the store assigned to this account.", { title: "Store required" });
       return;
     }
     if (!editingAccount && !validateStrongPassword(form.password, form).valid) {
-      toast.error("Use the generated password or enter another strong 12+ character password.");
+      toast.info("Use the generated password or enter another strong 12+ character password.", { title: "Check password" });
       return;
     }
 

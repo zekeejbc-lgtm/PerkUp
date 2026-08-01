@@ -32,6 +32,7 @@ import { formatCustomerCode } from "@/src/lib/customerId";
 import { PROMOTION_REDEEM_QR_PREFIX, redeemPromotionClaim } from "@/src/lib/promotionClaims";
 import { useAuth } from "@/src/contexts/AuthContext";
 import { configureQrScannerRuntime } from "@/src/lib/qrScannerRuntime";
+import { useToast } from "@/src/components/ToastProvider";
 
 configureQrScannerRuntime();
 
@@ -136,6 +137,7 @@ const isPromotionCurrentlyVisible = (promotion: Promotion) => {
 
 export default function StaffScanner({ store }: { store: any }) {
   const { user } = useAuth();
+  const toast = useToast();
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [selectedPromotionId, setSelectedPromotionId] = useState("");
   const [scannerLocation, setScannerLocation] = useState<ScannerLocation | null>(null);
@@ -155,7 +157,6 @@ export default function StaffScanner({ store }: { store: any }) {
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showScanSuccess, setShowScanSuccess] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [creditSuccessToast, setCreditSuccessToast] = useState<string | null>(null);
   const duplicateScanRef = useRef<{ token: string; scannedAt: number; alertedAt: number } | null>(null);
 
   const selectedPromotion = promotions.find((promotion) => promotion.id === selectedPromotionId) || null;
@@ -199,22 +200,7 @@ export default function StaffScanner({ store }: { store: any }) {
     setBatchQueue([]);
     setShowBatchModal(false);
     setMessage(null);
-    setCreditSuccessToast(null);
   }, [selectedPromotionId]);
-
-  useEffect(() => {
-    if (!creditSuccessToast) return;
-
-    const closeTimer = window.setTimeout(() => {
-      setCreditSuccessToast(null);
-      setScannedCustomer(null);
-      setSelectedCardId("");
-      setPointsToAdd(1);
-      setIsScannerActive(true);
-    }, 5000);
-
-    return () => window.clearTimeout(closeTimer);
-  }, [creditSuccessToast]);
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -337,13 +323,18 @@ export default function StaffScanner({ store }: { store: any }) {
       setIsProcessing(true);
       setIsScannerActive(false);
       setMessage(null);
+      const progressToastId = toast.progress("Redeeming the scanned reward…", { title: "Reward redemption" });
       try {
         const claim = await redeemPromotionClaim({ storeId: store.id, lookup: scanValue, method: "qr" });
         setShowScanSuccess(true);
         setTimeout(() => setShowScanSuccess(false), 1000);
         setMessage({ type: "success", text: `Reward ${claim.redeemCode} redeemed successfully and marked as used.` });
+        toast.update(progressToastId, `Reward ${claim.redeemCode} redeemed and marked as used.`, "success", { title: "Reward redeemed" });
       } catch (error) {
-        setMessage({ type: "error", text: error instanceof Error ? error.message : "Could not redeem this reward QR." });
+        const text = error instanceof Error ? error.message : "Could not redeem this reward QR.";
+        setMessage({ type: "error", text });
+        if (/already|expired|invalid|not found/i.test(text)) toast.update(progressToastId, text, "info", { title: "Reward not redeemable" });
+        else toast.update(progressToastId, text, "error", { error, title: "Redemption failed" });
       } finally {
         setIsProcessing(false);
         setIsScannerActive(true);
@@ -452,7 +443,7 @@ export default function StaffScanner({ store }: { store: any }) {
   };
 
   const handleCredit = async () => {
-    if (!scannedCustomer || !store?.id || isProcessing || creditSuccessToast) return;
+    if (!scannedCustomer || !store?.id || isProcessing) return;
     if (!navigator.onLine) {
       setMessage({ type: "error", text: "Customer info can be viewed from cache offline, but crediting a card requires internet confirmation." });
       return;
@@ -464,6 +455,7 @@ export default function StaffScanner({ store }: { store: any }) {
 
     setIsProcessing(true);
     setMessage(null);
+    const progressToastId = toast.progress("Crediting the selected card…", { title: "Issuing points" });
 
     try {
       const result = await redeemCustomerScan({
@@ -494,12 +486,17 @@ export default function StaffScanner({ store }: { store: any }) {
       });
       await writeCustomerScanCache(customerCacheScope, scannedCustomer.redemptionInput, result);
       setManualUsername("");
-      setCreditSuccessToast(
-        `Scan successful. Ticket ${result.ticket?.ticketNumber || "issued"} — credited ${pointsToAdd} point${pointsToAdd === 1 ? "" : "s"} to @${scannedCustomer.username}.`,
-      );
+      toast.success(`Ticket ${result.ticket?.ticketNumber || "issued"} — credited ${pointsToAdd} point${pointsToAdd === 1 ? "" : "s"} to @${scannedCustomer.username}.`, { title: "Points credited" });
+      toast.dismissToast(progressToastId);
+      setScannedCustomer(null);
+      setSelectedCardId("");
+      setPointsToAdd(1);
+      setIsScannerActive(true);
     } catch (error) {
       console.error(error);
-      setMessage({ type: "error", text: error instanceof Error ? error.message : "Failed to credit card." });
+      const text = error instanceof Error ? error.message : "Failed to credit card.";
+      setMessage({ type: "error", text });
+      toast.update(progressToastId, text, "error", { error, title: "Credit failed" });
     } finally {
       setIsProcessing(false);
     }
@@ -514,6 +511,7 @@ export default function StaffScanner({ store }: { store: any }) {
 
     setIsProcessing(true);
     setMessage(null);
+    const progressToastId = toast.progress(`Issuing ${batchQueue.length} tickets…`, { title: "Processing batch" });
     try {
       const ticketNumbers: string[] = [];
       for (const item of batchQueue) {
@@ -531,11 +529,14 @@ export default function StaffScanner({ store }: { store: any }) {
         type: "success",
         text: `Successfully issued ${batchQueue.length} tickets${ticketNumbers.length ? `: ${ticketNumbers.join(", ")}` : "."}`,
       });
+      toast.update(progressToastId, `Successfully issued ${batchQueue.length} tickets${ticketNumbers.length ? `: ${ticketNumbers.join(", ")}` : "."}`, "success", { title: "Batch complete" });
       setBatchQueue([]);
       setShowBatchModal(false);
     } catch (error) {
       console.error(error);
-      setMessage({ type: "error", text: error instanceof Error ? error.message : "Failed to process some batch scans." });
+      const text = error instanceof Error ? error.message : "Failed to process some batch scans.";
+      setMessage({ type: "error", text });
+      toast.update(progressToastId, text, "error", { error, title: "Batch incomplete" });
     } finally {
       setIsProcessing(false);
     }
@@ -554,7 +555,6 @@ export default function StaffScanner({ store }: { store: any }) {
   };
 
   const resetScan = () => {
-    setCreditSuccessToast(null);
     setScannedCustomer(null);
     setMessage(null);
     setPointsToAdd(1);
@@ -569,20 +569,6 @@ export default function StaffScanner({ store }: { store: any }) {
 
   return (
     <div className="w-full max-w-5xl space-y-8">
-      {creditSuccessToast && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="fixed left-1/2 top-4 z-[60] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-start gap-3 rounded-2xl border border-green-200 bg-white p-4 text-sm font-medium text-green-800 shadow-2xl dark:border-green-800 dark:bg-gray-900 dark:text-green-300 sm:top-6"
-        >
-          <CheckCircle2 className="h-5 w-5 shrink-0" />
-          <div>
-            <p>{creditSuccessToast}</p>
-            <p className="mt-1 text-xs text-green-600 dark:text-green-400">This panel will close automatically in 5 seconds.</p>
-          </div>
-        </div>
-      )}
-
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">QR Scanner</h2>
@@ -1005,7 +991,7 @@ export default function StaffScanner({ store }: { store: any }) {
                 <button
                   type="button"
                   onClick={handleCredit}
-                  disabled={isProcessing || Boolean(creditSuccessToast)}
+                  disabled={isProcessing}
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1b1b1b] px-4 py-3 font-bold text-white shadow-lg shadow-black/20 transition hover:bg-black disabled:opacity-50"
                 >
                   {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}

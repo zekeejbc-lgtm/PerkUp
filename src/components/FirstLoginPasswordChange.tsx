@@ -4,10 +4,12 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { sanitizePasswordInput, validateStrongPassword } from "../lib/passwordStrength";
 import { invokeAdminBackend } from "../lib/adminBackend";
+import { useToast } from "./ToastProvider";
 
 export function FirstLoginPasswordChange() {
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
+  const toast = useToast();
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -27,15 +29,20 @@ export function FirstLoginPasswordChange() {
     }
     if (password !== confirmation) return setError("The passwords do not match.");
     setSubmitting(true);
+    const progressToastId = toast.progress("Securing your account…", { title: "Changing password" });
     try {
       await invokeAdminBackend<{ updated: boolean }>({
         action: "complete_first_login_password_change",
         password,
       });
       await refreshUser();
+      toast.update(progressToastId, "Your password was changed.", "success", { title: "Password updated" });
       navigate(user?.role === "staff" ? "/staff" : "/owner", { replace: true });
     } catch (changeError) {
-      setError(changeError instanceof Error ? changeError.message : "Password change failed.");
+      const message = changeError instanceof Error ? changeError.message : "Password change failed.";
+      setError(message);
+      if (/password|compromised|breach/i.test(message)) toast.update(progressToastId, message, "info", { title: "Choose another password" });
+      else toast.update(progressToastId, message, "error", { error: changeError, title: "Password update failed" });
     } finally {
       setSubmitting(false);
     }

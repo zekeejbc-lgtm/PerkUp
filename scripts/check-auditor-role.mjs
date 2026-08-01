@@ -4,10 +4,13 @@ import { glob } from "node:fs/promises";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-const [runtimeControl, maintenanceScreen, app, authContext, adminBackend, adminAccount, accountHierarchy] = await Promise.all([
+const [runtimeControl, maintenanceScreen, app, adminDashboard, seo, vercelConfig, authContext, adminBackend, adminAccount, accountHierarchy] = await Promise.all([
   read("src/pages/admin/AdminRuntimeControl.tsx"),
   read("src/components/MaintenanceScreen.tsx"),
   read("src/App.tsx"),
+  read("src/pages/AdminDashboard.tsx"),
+  read("src/components/Seo.tsx"),
+  read("vercel.json"),
   read("src/contexts/AuthContext.tsx"),
   read("supabase/functions/admin-backend/index.ts"),
   read("src/pages/admin/AdminAccount.tsx"),
@@ -24,6 +27,15 @@ assert.match(maintenanceScreen, /<AuthModal[\s\S]*?initialMode="signin"/);
 assert.match(maintenanceScreen, /allowedSignInRoles=\{\["auditor", "admin"\]\}/);
 assert.doesNotMatch(maintenanceScreen, /variant="maintenance"/);
 assert.match(app, /\["admin", "auditor"\]\.includes\(user\?\.role \|\| ""\)/);
+assert.match(app, /case "auditor":[\s\S]*?Navigate to="\/auditor"/);
+assert.match(app, /auditor:\s*"\/auditor\/account"/);
+assert.match(app, /path="\/admin\/\*"[\s\S]*?allowedRoles=\{\["admin", "assistant_admin"\]\}/);
+assert.match(app, /path="\/auditor\/\*"[\s\S]*?allowedRoles=\{\["auditor"\]\}/);
+assert.match(adminDashboard, /navigate\(`\$\{portalBasePath\}\?tab=\$\{item\.id\}`\)/);
+assert.match(adminDashboard, /navigate\(`\$\{portalBasePath\}\/account`\)/);
+assert.match(seo, /admin\|auditor\|owner\|staff\|customer/);
+assert.match(vercelConfig, /"source": "\/auditor"/);
+assert.match(vercelConfig, /"source": "\/auditor\/\(\.\*\)"/);
 assert.match(authContext, /\["admin", "auditor"\]\.includes\(existingUser\.role \|\| ""\)/);
 assert.match(authContext, /runtimeModeRef\.current === "maintenance" && !hasMaintenanceAccess/);
 assert.match(authContext, /if \(runtimeModeLoading\) return;[\s\S]*?auth\.onAuthStateChanged/);

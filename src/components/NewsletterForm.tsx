@@ -1,8 +1,10 @@
 import { FormEvent, useState } from "react";
 import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { useToast } from "./ToastProvider";
 
 export function NewsletterForm() {
+  const toast = useToast();
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
@@ -11,6 +13,7 @@ export function NewsletterForm() {
     event.preventDefault();
     setStatus("loading");
     setMessage("");
+    const progressToastId = toast.progress("Adding you to the newsletter…", { title: "Subscribing" });
 
     const normalizedEmail = email.trim().toLowerCase();
     const { error } = await supabase.from("newsletter_subscribers").insert({ email: normalizedEmail });
@@ -19,12 +22,15 @@ export function NewsletterForm() {
       console.error("Newsletter signup failed:", error);
       setStatus("error");
       setMessage("Could not subscribe right now. Please try again.");
+      toast.update(progressToastId, "Could not subscribe right now. Please try again.", "error", { error, title: "Subscription failed" });
       return;
     }
 
     setEmail("");
     setStatus("success");
     setMessage(error?.code === "23505" ? "You are already subscribed." : "You’re on the list.");
+    if (error?.code === "23505") toast.update(progressToastId, "You are already subscribed.", "info", { title: "Already subscribed" });
+    else toast.update(progressToastId, "You’re on the list.", "success", { title: "Subscribed" });
   };
 
   return (

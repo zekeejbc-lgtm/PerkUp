@@ -10,11 +10,13 @@ import { Pagination } from "../../components/Pagination";
 import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { useCurrency } from "../../contexts/CurrencyContext";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
+import { useToast } from "../../components/ToastProvider";
 
 const PRODUCTS_PER_PAGE = 9;
 
 export default function StoreOwnerProducts({ store }: { store: any }) {
   const { currency, convertFromPhp, convertToPhp, formatCurrency } = useCurrency();
+  const toast = useToast();
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -107,6 +109,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    const progressToastId = toast.progress(editingProduct ? "Saving product changes…" : "Creating the product…", { title: editingProduct ? "Updating product" : "New product" });
     let uploadedImageUrl = "";
     let productPersisted = false;
     try {
@@ -141,11 +144,12 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
       }
       setIsModalOpen(false);
       setPendingImageFile(null);
+      toast.update(progressToastId, editingProduct ? "Product changes saved." : "Product created.", "success", { title: editingProduct ? "Product updated" : "Product created" });
     } catch (error) {
       if (!productPersisted && uploadedImageUrl) {
         await deleteImageFromDriveSecure(uploadedImageUrl).catch(console.error);
       }
-      alert("Failed to save product");
+      toast.update(progressToastId, "The product could not be saved.", "error", { error, title: "Save failed" });
     } finally {
       setSaving(false);
     }
@@ -154,13 +158,15 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
   const handleDelete = async () => {
     if (!productToDelete) return;
     setIsDeleting(true);
+    const progressToastId = toast.progress("Deleting the product…", { title: "Deleting product" });
     try {
       await deleteDoc(doc(db, "products", productToDelete.id));
       if (productToDelete.imageUrl) await deleteImageFromDriveSecure(productToDelete.imageUrl).catch(console.error);
       setProducts((current) => current.filter((product) => product.id !== productToDelete.id));
       setProductToDelete(null);
+      toast.update(progressToastId, "The product was deleted.", "success", { title: "Product deleted" });
     } catch (error) {
-      alert("Failed to delete product");
+      toast.update(progressToastId, "The product could not be deleted.", "error", { error, title: "Delete failed" });
     } finally {
       setIsDeleting(false);
     }
@@ -168,6 +174,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
 
   const handleAvailabilityToggle = async (product: any) => {
     const nextAvailable = !(product.available ?? true);
+    const progressToastId = toast.progress(`${nextAvailable ? "Making" : "Marking"} the product ${nextAvailable ? "available" : "unavailable"}…`, { title: "Updating availability" });
 
     setAvailabilitySavingIds((current) => new Set(current).add(product.id));
     setProducts((current) =>
@@ -179,12 +186,13 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
         available: nextAvailable,
         updatedAt: serverTimestamp(),
       });
+      toast.update(progressToastId, `Product marked ${nextAvailable ? "available" : "unavailable"}.`, "success", { title: "Availability updated" });
     } catch (error) {
       console.error("Failed to update product availability", error);
       setProducts((current) =>
         current.map((item) => item.id === product.id ? { ...item, available: !nextAvailable } : item)
       );
-      alert("Failed to update product availability. Please try again.");
+      toast.update(progressToastId, "The product availability could not be updated.", "error", { error, title: "Update failed" });
     } finally {
       setAvailabilitySavingIds((current) => {
         const next = new Set(current);

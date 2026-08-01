@@ -26,7 +26,11 @@ vi.mock("../lib/partnerApplication", () => ({
   submitPartnerApplication: vi.fn(),
 }));
 vi.mock("./MapBaseLayers", () => ({ MapBaseLayers: () => null }));
-vi.mock("./ImageCropEditor", () => ({ ImageCropEditor: () => null }));
+vi.mock("./ImageCropEditor", () => ({
+  ImageCropEditor: ({ file, onApply }: { file: File; onApply: (file: File, previewUrl: string) => void }) => (
+    <button type="button" onClick={() => onApply(file, "")}>Apply logo crop</button>
+  ),
+}));
 vi.mock("../contexts/CurrencyContext", () => ({
   useCurrency: () => ({ formatCurrency: (value: number) => `PHP ${value}` }),
 }));
@@ -62,7 +66,7 @@ afterEach(() => cleanup());
 
 describe("PartnerApplicationModal preferred plan", () => {
   it("preselects and labels the last legacy plan", async () => {
-    render(<PartnerApplicationModal isOpen onClose={vi.fn()} />);
+    const { container } = render(<PartnerApplicationModal isOpen onClose={vi.fn()} />);
 
     fireEvent.change(screen.getByPlaceholderText("e.g. My Coffee Shop"), {
       target: { value: "Test Shop" },
@@ -85,6 +89,10 @@ describe("PartnerApplicationModal preferred plan", () => {
     fireEvent.change(screen.getByRole("combobox"), {
       target: { value: "Tagum City" },
     });
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: { files: [new File(["logo"], "logo.png", { type: "image/png" })] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply logo crop" }));
     fireEvent.click(screen.getByRole("button", { name: /next step/i }));
 
     await waitFor(() => {
@@ -94,5 +102,21 @@ describe("PartnerApplicationModal preferred plan", () => {
     const enterpriseCard = screen.getByRole("button", { name: /Enterprise/i });
     expect(enterpriseCard.getAttribute("aria-pressed")).toBe("true");
     expect(enterpriseCard.textContent).toContain("Preferred");
+  });
+
+  it("does not continue without a business logo", () => {
+    render(<PartnerApplicationModal isOpen onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. My Coffee Shop"), { target: { value: "Test Shop" } });
+    fireEvent.change(screen.getByPlaceholderText("Coffee, Bakery, Retail..."), { target: { value: "Coffee" } });
+    fireEvent.change(screen.getByPlaceholderText("John Doe"), { target: { value: "Test Owner" } });
+    fireEvent.change(screen.getByPlaceholderText("hello@example.com"), { target: { value: "owner@example.com" } });
+    fireEvent.change(screen.getByPlaceholderText("912 345 6789"), { target: { value: "9123456789" } });
+    fireEvent.change(screen.getByPlaceholderText("We run a small bakery..."), { target: { value: "A neighborhood coffee shop." } });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "Tagum City" } });
+    fireEvent.click(screen.getByRole("button", { name: /next step/i }));
+
+    expect(screen.queryByText("Enterprise")).toBeNull();
+    expect(screen.getByRole("button", { name: /next step/i })).not.toBeNull();
   });
 });

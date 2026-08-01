@@ -26,9 +26,11 @@ import {
   setPreferredSubscriptionPlan,
   validateSubscriptionTierHierarchy,
 } from "../../lib/subscriptionBilling";
+import { useToast } from "../../components/ToastProvider";
 
 export default function AdminSubscriptions() {
   const { user } = useAuth();
+  const toast = useToast();
   const canManagePlans =
     user?.role === "admin"
     || user?.role === "assistant_admin"
@@ -78,6 +80,7 @@ export default function AdminSubscriptions() {
     if (errors.length > 0) return;
 
     setSaving(true);
+    const progressToastId = toast.progress("Saving the subscription hierarchy…", { title: "Updating plans" });
     try {
       const storeSnap = await getDocs(collection(db, "stores"));
       const stores = storeSnap.docs.map((storeDoc) => ({ id: storeDoc.id, ...storeDoc.data() }));
@@ -91,9 +94,11 @@ export default function AdminSubscriptions() {
       setPendingSaveStores(stores);
       setAffectedSubscriptionCount(affectedCount);
       setShowSaveConfirmation(true);
+      toast.update(progressToastId, "Review the affected stores and confirm to save.", "info", { title: "Ready to confirm" });
     } catch (error) {
       console.error(error);
       setValidationErrors(["The hierarchy impact could not be calculated. Try again."]);
+      toast.update(progressToastId, "The hierarchy impact could not be calculated.", "error", { error, title: "Impact check failed" });
     } finally {
       setSaving(false);
     }
@@ -105,6 +110,7 @@ export default function AdminSubscriptions() {
       normalizeSubscriptionTierHierarchy(plans),
     );
     setSaving(true);
+    const progressToastId = toast.progress("Saving the subscription hierarchy…", { title: "Updating plans" });
     try {
       await setDoc(
         doc(db, "settings", "subscriptions"),
@@ -171,9 +177,11 @@ export default function AdminSubscriptions() {
       setShowSaveConfirmation(false);
       setPendingSaveStores([]);
       setStatusMessage("Subscription hierarchy saved successfully.");
+      toast.update(progressToastId, "Subscription hierarchy saved successfully.", "success", { title: "Plans updated" });
     } catch (error) {
       console.error(error);
       setValidationErrors(["Failed to save the subscription hierarchy."]);
+      toast.update(progressToastId, "The subscription hierarchy could not be saved.", "error", { error, title: "Save failed" });
     } finally {
       setSaving(false);
     }

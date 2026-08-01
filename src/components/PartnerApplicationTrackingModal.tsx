@@ -3,6 +3,7 @@ import { CheckCircle2, Clock3, Loader2, Search, Store, X, XCircle } from "lucide
 import { PartnerApplicationStatus, trackPartnerApplication } from "../lib/partnerApplication";
 import { getDisplayImageUrl } from "../lib/imageStorage";
 import { ApplicationReviewFlow } from "./ApplicationReviewFlow";
+import { useToast } from "./ToastProvider";
 
 interface PartnerApplicationTrackingModalProps {
   isOpen: boolean;
@@ -63,6 +64,7 @@ export function PartnerApplicationTrackingModal({
   onClose,
   initialTrackingNumber = "",
 }: PartnerApplicationTrackingModalProps) {
+  const toast = useToast();
   const [trackingNumber, setTrackingNumber] = useState(initialTrackingNumber);
   const [application, setApplication] = useState<PartnerApplicationStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -79,13 +81,18 @@ export function PartnerApplicationTrackingModal({
       return;
     }
     setIsLoading(true);
+    const progressToastId = toast.progress("Looking up your application…", { title: "Tracking application" });
     setError("");
     setApplication(null);
     try {
       const result = await trackPartnerApplication(normalizedTrackingNumber);
       setApplication(result);
+      toast.update(progressToastId, "Your application was found.", "success", { title: "Application found" });
     } catch (lookupError) {
-      setError(lookupError instanceof Error ? lookupError.message : "Could not track that application.");
+      const message = lookupError instanceof Error ? lookupError.message : "Could not track that application.";
+      setError(message);
+      if (/not found|invalid|application code/i.test(message)) toast.update(progressToastId, message, "info", { title: "Application not found" });
+      else toast.update(progressToastId, message, "error", { error: lookupError, title: "Lookup failed" });
     } finally {
       setIsLoading(false);
     }

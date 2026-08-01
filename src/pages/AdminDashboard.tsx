@@ -19,13 +19,15 @@ const AdminRuntimeControl = lazy(() => import("./admin/AdminRuntimeControl"));
 const AdminLegalPages = lazy(() => import("./admin/AdminLegalPages"));
 const AdminPublicEngagement = lazy(() => import("./admin/AdminPublicEngagement"));
 
-export default function AdminDashboard() {
+type PrivilegedPortalPath = "/admin" | "/auditor";
+
+export default function AdminDashboard({ portalBasePath }: { portalBasePath: PrivilegedPortalPath }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-  const isAccountPage = location.pathname === '/admin/account';
+  const isAccountPage = location.pathname === `${portalBasePath}/account`;
   const requestedTab = new URLSearchParams(location.search).get('tab');
   const isDemoAdmin = user?.role === "admin" && user?.isDemo === true;
   
@@ -48,10 +50,10 @@ export default function AdminDashboard() {
 
   const handleNavClick = (item: typeof navigation[number]) => {
     if (item.id === 'account') {
-      navigate('/admin/account');
+      navigate(`${portalBasePath}/account`);
       return;
     }
-    navigate(`/admin?tab=${item.id}`);
+    navigate(`${portalBasePath}?tab=${item.id}`);
   };
 
   const standardNavigation = [

@@ -13,6 +13,7 @@ import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { formatCustomerCode } from "../../lib/customerId";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
+import { useToast } from "../../components/ToastProvider";
 
 const STAFF_PER_PAGE = 9;
 const SCAN_LOGS_PER_PAGE = 10;
@@ -47,6 +48,7 @@ const getTopEntry = (entries: [string, number][]) =>
   entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] || null;
 
 export default function StoreOwnerStaff({ store }: { store: any }) {
+  const toast = useToast();
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -181,7 +183,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
 
   const handleOpenModal = () => {
     if (hasReachedStaffLimit) {
-      alert(`Your current subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.`);
+      toast.info(`Your current subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.`);
       return;
     }
     setFormData({ name: "", email: "", password: "", requirePasswordChange: true });
@@ -191,14 +193,15 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateStrongPassword(formData.password, { name: formData.name, email: formData.email }).valid) {
-      alert("Use a strong password that meets every requirement.");
+      toast.info("Use a strong password that meets every requirement.");
       return;
     }
     if (hasReachedStaffLimit) {
-      alert(`Your current subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.`);
+      toast.info(`Your current subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.`);
       return;
     }
     setSaving(true);
+    const progressToastId = toast.progress("Creating the staff account…", { title: "Adding staff" });
     try {
       const result = await invokeAdminBackend<{
         user: any;
@@ -217,13 +220,13 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
         ...result.user,
       }]);
       setIsModalOpen(false);
-      alert(
-        result.notification && !result.notification.sent
-          ? `Staff account created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`
-          : "Staff account created. The welcome email has been sent.",
-      );
+      if (result.notification && !result.notification.sent) {
+        toast.update(progressToastId, `The staff account was created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`, "error", { title: "Email delivery failed" });
+      } else {
+        toast.update(progressToastId, "Staff account created. The welcome email has been sent.", "success", { title: "Staff added" });
+      }
     } catch (error) {
-      alert("Failed to add staff member.");
+      toast.update(progressToastId, "The staff member could not be added.", "error", { error, title: "Staff creation failed" });
     } finally {
       setSaving(false);
     }
@@ -232,12 +235,14 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
   const handleDelete = async () => {
     if (!staffToRemove) return;
     setIsRemovingStaff(true);
+    const progressToastId = toast.progress("Removing the staff account…", { title: "Removing staff" });
     try {
       await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_user", userId: staffToRemove.id });
       setStaff((current) => current.filter((member) => member.id !== staffToRemove.id));
       setStaffToRemove(null);
+      toast.update(progressToastId, "The staff account was removed.", "success", { title: "Staff removed" });
     } catch (error) {
-      alert("Failed to remove staff member");
+      toast.update(progressToastId, "The staff member could not be removed.", "error", { error, title: "Removal failed" });
     } finally {
       setIsRemovingStaff(false);
     }

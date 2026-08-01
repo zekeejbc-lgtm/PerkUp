@@ -62,6 +62,14 @@
       "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
     },
     {
+      "source": "/auditor/(.*)",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/auditor",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
       "source": "/owner/(.*)",
       "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
     },
@@ -149,6 +157,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/auditor",
+      "destination": "/index.html"
+    },
+    {
       "source": "/store/(.*)",
       "destination": "/index.html"
     },
@@ -166,6 +178,10 @@
     },
     {
       "source": "/admin/(.*)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/auditor/(.*)",
       "destination": "/index.html"
     },
     {

@@ -34,6 +34,7 @@ import { CustomDropdown } from "../../components/CustomDropdown";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { useCollectionPagination } from "../../hooks/useCollectionPagination";
+import { useToast } from "../../components/ToastProvider";
 
 const STORE_GROUPS_PER_PAGE = 6;
 const QUERY_PAGE_SIZE = 1000;
@@ -56,6 +57,7 @@ const formatTicketDay = (value: string) => {
 };
 
 export default function CustomerTickets() {
+  const toast = useToast();
   const { user } = useAuth();
   const { storeId: routeStoreKey } = useParams<{ storeId: string }>();
   const [tickets, setTickets] = useState<CustomerTicket[]>([]);
@@ -191,13 +193,14 @@ export default function CustomerTickets() {
       setStoreMetadata(metadata.filter((store): store is TicketStoreMetadata => Boolean(store)));
       knownIds.current = new Set(next.map((ticket) => ticket.id));
       setError("");
-    } catch {
+    } catch (loadError) {
       setError("Could not load your tickets.");
+      toast.error("Could not load your tickets.", { error: loadError });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.id]);
+  }, [toast, user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;

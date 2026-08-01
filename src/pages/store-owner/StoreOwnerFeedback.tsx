@@ -8,6 +8,7 @@ import { Pagination } from "../../components/Pagination";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
 import { moderateStoreReview } from "../../lib/storeReviewModeration";
 import { ScrollableRegion, ScrollableTableRegion } from "../../components/ScrollableRegion";
+import { useToast } from "../../components/ToastProvider";
 
 const REVIEWS_PER_PAGE = 6;
 
@@ -26,6 +27,7 @@ const getInitials = (name?: string) => {
 };
 
 export default function StoreOwnerFeedback({ store }: { store: any }) {
+  const toast = useToast();
   const [feedback, setFeedback] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
@@ -66,6 +68,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
     const reply = (replyDrafts[review.id] ?? review.ownerReply ?? "").trim();
     if (!reply) return;
     setSavingReplyId(review.id);
+    const progressToastId = toast.progress("Saving your reply…", { title: "Review reply" });
     try {
       const isUpdatingExistingReply = Boolean(review.ownerReply) && reply !== review.ownerReply;
       const replyPatch = {
@@ -85,9 +88,10 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
           : item
       )));
       setReplyDrafts((current) => ({ ...current, [review.id]: reply }));
+      toast.update(progressToastId, "Your reply was saved.", "success", { title: "Reply saved" });
     } catch (error) {
       console.error("Failed to save store reply", error);
-      alert("Failed to save reply. Please try again.");
+      toast.update(progressToastId, "Your reply could not be saved.", "error", { error, title: "Save failed" });
     } finally {
       setSavingReplyId("");
     }

@@ -1,7 +1,7 @@
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ToastProvider } from "./ToastProvider";
+import { ToastProvider, useToast } from "./ToastProvider";
 import { submitErrorReport } from "../lib/errorReports";
 
 vi.mock("../lib/errorReports", () => ({
@@ -9,7 +9,15 @@ vi.mock("../lib/errorReports", () => ({
   submitErrorReport: vi.fn(),
 }));
 
-describe("ToastProvider legacy alert bridge", () => {
+function ToastHarness() {
+  const toast = useToast();
+  return <>
+    <button onClick={() => toast.error("Failed to update store.")}>Show error</button>
+    <button onClick={() => toast.success("Reward redeemed successfully.")}>Show success</button>
+  </>;
+}
+
+describe("ToastProvider", () => {
   beforeEach(() => {
     vi.mocked(submitErrorReport).mockResolvedValue({
       id: "report-id",
@@ -19,11 +27,10 @@ describe("ToastProvider legacy alert bridge", () => {
     });
   });
 
-  it("turns a failed legacy alert into a reportable custom error toast", async () => {
+  it("shows a reportable custom error toast", async () => {
     const user = userEvent.setup();
-    render(<ToastProvider><div>Application</div></ToastProvider>);
-
-    act(() => window.alert("Failed to update store."));
+    render(<ToastProvider><ToastHarness /></ToastProvider>);
+    await user.click(screen.getByRole("button", { name: "Show error" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("Failed to update store.");
     expect(screen.getByText("Error code: ERR-TEST-CTA")).toBeInTheDocument();
@@ -37,10 +44,10 @@ describe("ToastProvider legacy alert bridge", () => {
     expect(await screen.findByRole("button", { name: "Sent to developer" })).toBeDisabled();
   });
 
-  it("turns a successful legacy alert into a non-reportable success toast", () => {
-    render(<ToastProvider><div>Application</div></ToastProvider>);
-
-    act(() => window.alert("Reward redeemed successfully."));
+  it("shows a non-reportable success toast", async () => {
+    const user = userEvent.setup();
+    render(<ToastProvider><ToastHarness /></ToastProvider>);
+    await user.click(screen.getByRole("button", { name: "Show success" }));
 
     expect(screen.getByRole("status")).toHaveTextContent("Reward redeemed successfully.");
     expect(screen.queryByRole("button", { name: "Send to developer" })).not.toBeInTheDocument();

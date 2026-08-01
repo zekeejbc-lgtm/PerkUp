@@ -54,7 +54,7 @@ export default function AdminRuntimeControl() {
   const initiateMaintenance = async (event: FormEvent) => {
     event.preventDefault();
     if (form.confirmation !== INITIATE_PHRASE) {
-      toast.error(`Type ${INITIATE_PHRASE} exactly.`, { reportable: false });
+      toast.info(`Type ${INITIATE_PHRASE} exactly.`, { title: "Confirmation required" });
       return;
     }
     setWorkingMode("maintenance");
@@ -81,7 +81,7 @@ export default function AdminRuntimeControl() {
   const endMaintenance = async (event: FormEvent) => {
     event.preventDefault();
     if (form.confirmation !== END_PHRASE) {
-      toast.error(`Type ${END_PHRASE} exactly.`, { reportable: false });
+      toast.info(`Type ${END_PHRASE} exactly.`, { title: "Confirmation required" });
       return;
     }
     setWorkingMode("maintenance");
@@ -118,7 +118,7 @@ export default function AdminRuntimeControl() {
       ? ENABLE_UPGRADES_PHRASE
       : DISABLE_UPGRADES_PHRASE;
     if (upgradeForm.confirmation !== requiredConfirmation) {
-      toast.error(`Type ${requiredConfirmation} exactly.`, { reportable: false });
+      toast.info(`Type ${requiredConfirmation} exactly.`, { title: "Confirmation required" });
       return;
     }
     setUpgradeWorking(true);

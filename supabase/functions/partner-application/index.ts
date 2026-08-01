@@ -300,7 +300,7 @@ Deno.serve(async (req) => {
     const subscriptionLevel = cleanText(body.subscriptionLevel, 80);
     const coordinates = Array.isArray(body.coordinates) ? body.coordinates.map(Number) : [];
 
-    if (!businessName || !category || !applicantName || !email || !phoneNumber || !description || !address) {
+    if (!businessName || !category || !applicantName || !email || !phoneNumber || !description || !address || !subscriptionLevel) {
       return jsonResponse({ error: "All required application fields must be completed." }, 400);
     }
     const contactValidationError = getPartnerContactValidationError(email, phone);
@@ -327,6 +327,7 @@ Deno.serve(async (req) => {
 
     let logoUrl = "";
     const logo = body.logo && typeof body.logo === "object" ? body.logo as Record<string, unknown> : null;
+    if (!logo) return jsonResponse({ error: "A business logo is required." }, 400);
     if (logo) {
       const mimeType = cleanText(logo.mimeType, 80).toLowerCase();
       const base64 = String(logo.base64 || "");

@@ -15,6 +15,7 @@ import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { useCurrency } from "../../contexts/CurrencyContext";
 import { invokeAdminBackend } from "../../lib/adminBackend";
 import { downloadSubscriptionInvoicePdf } from "../../lib/subscriptionInvoicePdf";
+import { useToast } from "../../components/ToastProvider";
 
 type InvoiceFilter = "all" | "outstanding" | "paid" | "failed" | "closed";
 
@@ -104,6 +105,7 @@ const statusClasses = (status: string) => {
 
 export default function AdminInvoices() {
   const { formatCurrency } = useCurrency();
+  const toast = useToast();
   const [invoices, setInvoices] = useState<AdminBillingInvoice[]>([]);
   const [summary, setSummary] = useState<InvoiceResponse["summary"]>({
     total: 0,
@@ -136,11 +138,12 @@ export default function AdminInvoices() {
     } catch (loadError) {
       console.error("Could not load issued invoices", loadError);
       setError(loadError instanceof Error ? loadError.message : "Issued invoices could not be loaded.");
+      toast.error("Issued invoices could not be loaded.", { error: loadError });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [filter, page]);
+  }, [filter, page, toast]);
 
   useEffect(() => {
     void loadInvoices();
@@ -153,6 +156,7 @@ export default function AdminInvoices() {
 
   const downloadInvoice = async (invoice: AdminBillingInvoice) => {
     setDownloadingInvoiceId(invoice.id);
+    const progressToastId = toast.progress("Preparing the invoice PDF…", { title: "Generating PDF" });
     try {
       await downloadSubscriptionInvoicePdf({
         invoice: {
@@ -181,9 +185,10 @@ export default function AdminInvoices() {
         },
         business: invoice.business,
       });
+      toast.update(progressToastId, "The invoice PDF was downloaded.", "success", { title: "Download ready" });
     } catch (downloadError) {
       console.error("Could not generate invoice PDF", downloadError);
-      window.alert("We could not prepare this PDF. Please refresh the page and try again.");
+      toast.update(progressToastId, "We could not prepare this PDF. Please refresh the page and try again.", "error", { error: downloadError, title: "PDF failed" });
     } finally {
       setDownloadingInvoiceId(null);
     }

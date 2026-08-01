@@ -15,6 +15,7 @@ import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { ViewModeButton } from "../../components/ViewModeButton";
 import { AnimatePresence, motion } from "motion/react";
+import { useToast } from "../../components/ToastProvider";
 
 type PromotionFormData = {
   title: string;
@@ -90,6 +91,7 @@ function GeofenceClickHandler({ onPick }: { onPick: (lat: number, lng: number) =
 }
 
 export default function StoreOwnerPromotions({ store }: { store: any }) {
+  const toast = useToast();
   const [promotions, setPromotions] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -278,13 +280,15 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const handleGetReferralCode = async () => {
     if (!store?.id || loadingReferralCode) return;
     setLoadingReferralCode(true);
+    const progressToastId = toast.progress("Getting your referral code…", { title: "Referral code" });
     try {
       const result = await getStoreReferralCode(store.id);
       setReferralCode(result.referralCode);
       setReferralCodeExpiresAt(result.expiresAt);
       setReferralCount(result.referralCount);
+      toast.update(progressToastId, "Your referral code is ready.", "success", { title: "Code loaded" });
     } catch (error) {
-      alert((error as Error).message || "Failed to get referral code.");
+      toast.update(progressToastId, (error as Error).message || "The referral code could not be loaded.", "error", { error, title: "Code unavailable" });
     } finally {
       setLoadingReferralCode(false);
     }
@@ -294,9 +298,9 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     if (!referralCode) return;
     try {
       await navigator.clipboard.writeText(referralCode);
-      alert("Referral code copied.");
-    } catch {
-      alert("Copy failed. Select and copy the code manually.");
+      toast.success("Referral code copied.");
+    } catch (error) {
+      toast.error("Clipboard access was unavailable. Select and copy the code manually.", { error, title: "Copy failed" });
     }
   };
 
@@ -361,6 +365,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    const progressToastId = toast.progress(editingPromo ? "Saving promotion changes…" : "Creating the promotion…", { title: editingPromo ? "Updating promotion" : "New promotion" });
     let uploadedBannerUrl = "";
     let promotionPersisted = false;
     try {
@@ -403,12 +408,13 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
       }
       setIsModalOpen(false);
       setPendingBannerFile(null);
+      toast.update(progressToastId, editingPromo ? "Promotion changes saved." : "Promotion created.", "success", { title: editingPromo ? "Promotion updated" : "Promotion created" });
     } catch (error) {
       if (!promotionPersisted && uploadedBannerUrl) {
         await deleteImageFromDriveSecure(uploadedBannerUrl).catch(console.error);
       }
       console.error("Failed to save promotion", error);
-      alert("Failed to save promotion");
+      toast.update(progressToastId, "The promotion could not be saved.", "error", { error, title: "Save failed" });
     } finally {
       setUploadingBanner(false);
       setSaving(false);
@@ -418,13 +424,15 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const handleDelete = async () => {
     if (!promotionToDelete) return;
     setIsDeleting(true);
+    const progressToastId = toast.progress("Deleting the promotion…", { title: "Deleting promotion" });
     try {
       await deleteDoc(doc(db, "promotions", promotionToDelete.id));
       if (promotionToDelete.bannerImageUrl) await deleteImageFromDriveSecure(promotionToDelete.bannerImageUrl).catch(console.error);
       setPromotions((current) => current.filter((promotion) => promotion.id !== promotionToDelete.id));
       setPromotionToDelete(null);
+      toast.update(progressToastId, "The promotion was deleted.", "success", { title: "Promotion deleted" });
     } catch (error) {
-      alert("Failed to delete promotion");
+      toast.update(progressToastId, "The promotion could not be deleted.", "error", { error, title: "Delete failed" });
     } finally {
       setIsDeleting(false);
     }
@@ -433,6 +441,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const handleAvailabilityToggle = async (promo: any) => {
     if (isPromotionExpired(promo)) return;
     const nextActive = !(promo.active ?? true);
+    const progressToastId = toast.progress(`${nextActive ? "Publishing" : "Pausing"} the promotion…`, { title: "Updating availability" });
 
     setAvailabilitySavingIds((current) => new Set(current).add(promo.id));
     setPromotions((current) =>
@@ -444,12 +453,13 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
         active: nextActive,
         updatedAt: serverTimestamp(),
       });
+      toast.update(progressToastId, `Promotion ${nextActive ? "published" : "paused"}.`, "success", { title: "Availability updated" });
     } catch (error) {
       console.error("Failed to update promotion availability", error);
       setPromotions((current) =>
         current.map((item) => item.id === promo.id ? { ...item, active: !nextActive } : item)
       );
-      alert("Failed to update promotion availability. Please try again.");
+      toast.update(progressToastId, "The promotion availability could not be updated.", "error", { error, title: "Update failed" });
     } finally {
       setAvailabilitySavingIds((current) => {
         const next = new Set(current);

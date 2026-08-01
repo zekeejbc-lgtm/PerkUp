@@ -29,6 +29,7 @@ import { ReviewFormModal } from "../components/store-reviews/ReviewFormModal";
 import { ScrollableRegion } from "../components/ScrollableRegion";
 import { Pagination } from "../components/Pagination";
 import { useCollectionPagination } from "../hooks/useCollectionPagination";
+import { useToast } from "../components/ToastProvider";
 
 interface StoreContent {
   id: string;
@@ -222,6 +223,7 @@ function StoreGalleryCarousel({ images, storeName }: { images: string[]; storeNa
 }
 
 export default function StorePage() {
+  const toast = useToast();
   const { storeId } = useParams();
   const location = useLocation();
   const { user } = useAuth();
@@ -411,6 +413,7 @@ export default function StorePage() {
     if (!storeId || !store || !user || user.role !== "customer") return;
 
     setSubmittingFeedback(true);
+    const progressToastId = toast.progress("Submitting your review…", { title: "Sending review" });
     setFeedbackSent(false);
     let uploadedImageUrls: string[] = [];
     let reviewPersisted = false;
@@ -449,6 +452,7 @@ export default function StorePage() {
       setFeedbackSent(true);
       await fetchReviews();
       setFeedbackModalOpen(false);
+      toast.update(progressToastId, "Your review was submitted.", "success", { title: "Review sent" });
     } catch (error) {
       if (!reviewPersisted && uploadedImageUrls.length) {
         await Promise.allSettled(uploadedImageUrls.map((url) => deleteImageFromDriveSecure(url)));
@@ -457,7 +461,11 @@ export default function StorePage() {
       const message = error instanceof Error && /duplicate|unique/i.test(error.message)
         ? "You have already reviewed this store."
         : "Failed to submit review. Please try again.";
-      alert(message);
+      if (/already reviewed/i.test(message)) {
+        toast.update(progressToastId, message, "info", { title: "Review already submitted" });
+      } else {
+        toast.update(progressToastId, message, "error", { error, title: "Submission failed" });
+      }
     } finally {
       setSubmittingFeedback(false);
     }

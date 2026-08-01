@@ -1004,6 +1004,7 @@ export default function AdminStoreDetail({
 
     setIsDeleting(true);
     setDeleteError("");
+    const progressToastId = toast.progress(`Deleting the ${deleteScope}…`, { title: `Deleting ${deleteScope}` });
     try {
       const result = await invokeAdminBackend<{
         deleted: boolean;
@@ -1021,7 +1022,9 @@ export default function AdminStoreDetail({
       onDeleted?.(result.deletedStoreIds || [storeId]);
       setShowDeleteModal(false);
       if (result.cleanupComplete === false) {
-        alert(`${result.cleanupWarning || "Some external cleanup could not be completed."}\n\nFailed accounts: ${result.failedUsers || 0}\nFailed files: ${result.failedFiles || 0}`);
+        toast.update(progressToastId, `${result.cleanupWarning || "Some external cleanup could not be completed."} Failed accounts: ${result.failedUsers || 0}. Failed files: ${result.failedFiles || 0}.`, "error", { title: "Cleanup incomplete" });
+      } else {
+        toast.update(progressToastId, `The ${deleteScope} was deleted.`, "success", { title: `${deleteScope === "store" ? "Store" : "Branch"} deleted` });
       }
       if (deleteScope === "store") {
         onBack();
@@ -1039,7 +1042,13 @@ export default function AdminStoreDetail({
       }
     } catch (error) {
       console.error(error);
-      setDeleteError((error as Error).message || `The ${deleteScope} could not be deleted. Please try again.`);
+      const message = (error as Error).message || `The ${deleteScope} could not be deleted. Please try again.`;
+      setDeleteError(message);
+      if (/password|confirmation|type delete/i.test(message)) {
+        toast.update(progressToastId, message, "info", { title: "Check confirmation" });
+      } else {
+        toast.update(progressToastId, message, "error", { error, title: "Delete failed" });
+      }
       setIsDeleting(false);
     }
   };
@@ -1052,6 +1061,7 @@ export default function AdminStoreDetail({
     }
     setResetPasswordBusy(true);
     setResetPasswordError("");
+    const progressToastId = toast.progress("Resetting the account password…", { title: "Resetting password" });
     try {
       await invokeAdminBackend<{ updated: boolean }>({
         action: "reset_password",
@@ -1059,7 +1069,7 @@ export default function AdminStoreDetail({
         password: temporaryPassword,
         forcePasswordReset: requirePasswordChange,
       });
-      alert(`Password has been reset for ${resetModalUser.email}.\nTemporary password: ${temporaryPassword}`);
+      toast.update(progressToastId, `Password reset for ${resetModalUser.email}. Temporary password: ${temporaryPassword}`, "success", { title: "Password reset" });
       setResetModalUser(null);
     } catch (e) {
       console.error(e);
@@ -1067,7 +1077,7 @@ export default function AdminStoreDetail({
         ? e.message
         : "The password could not be reset. Please try again.";
       setResetPasswordError(message);
-      alert(message);
+      toast.update(progressToastId, message, "error", { error: e, title: "Password reset failed" });
     } finally {
       setResetPasswordBusy(false);
     }

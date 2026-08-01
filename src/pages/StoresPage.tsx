@@ -21,9 +21,11 @@ import { SkeletonBlock } from "../components/LoadingSkeleton";
 import { ScrollableRegion } from "../components/ScrollableRegion";
 import { Pagination } from "../components/Pagination";
 import { useCollectionPagination } from "../hooks/useCollectionPagination";
+import { useToast } from "../components/ToastProvider";
 
 export default function StoresPage() {
   const { user, loading: authLoading } = useAuth();
+  const toast = useToast();
   const [stores, setStores] = useState<DirectoryStore[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -59,7 +61,10 @@ export default function StoresPage() {
         }));
       } catch (loadError) {
         console.error("Failed to fetch affiliated stores", loadError);
-        if (active) setError("The store directory could not be loaded. Please try again.");
+        if (active) {
+          setError("The store directory could not be loaded. Please try again.");
+          toast.error("The store directory could not be loaded. Please try again.", { error: loadError });
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -69,7 +74,7 @@ export default function StoresPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [toast]);
 
   const availableAt = useMemo(() => {
     if (!availabilityDate || !availabilityTime) return null;

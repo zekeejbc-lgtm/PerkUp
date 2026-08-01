@@ -3,6 +3,7 @@ import { Check, CheckCircle2, Clipboard, Clock3, Loader2, Search } from "lucide-
 import { PublicPageShell } from "../components/PublicPageShell";
 import { CustomDropdown } from "../components/CustomDropdown";
 import { lookupPublicFeedback, PublicFeedbackStatus, submitPublicFeedback, TrackedFeedback } from "../lib/publicFeedback";
+import { useToast } from "../components/ToastProvider";
 
 const STATUS_LABELS: Record<PublicFeedbackStatus, string> = {
   received: "Received",
@@ -27,6 +28,7 @@ const formatDate = (value: string) => new Intl.DateTimeFormat("en-PH", {
 }).format(new Date(value));
 
 export default function FeedbackPage() {
+  const toast = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [submission, setSubmission] = useState<{
     referenceNumber: string;
@@ -48,14 +50,19 @@ export default function FeedbackPage() {
       return;
     }
     setLookingUp(true);
+    const progressToastId = toast.progress("Looking up your feedback…", { title: "Tracking feedback" });
     setLookupError("");
     setTrackedFeedback(null);
     try {
       const result = await lookupPublicFeedback(normalizedReference);
       setReferenceNumber(normalizedReference);
       setTrackedFeedback(result);
+      toast.update(progressToastId, "Your feedback record was found.", "success", { title: "Feedback found" });
     } catch (lookupFailure) {
-      setLookupError(lookupFailure instanceof Error ? lookupFailure.message : "Feedback lookup failed.");
+      const message = lookupFailure instanceof Error ? lookupFailure.message : "Feedback lookup failed.";
+      setLookupError(message);
+      if (/not found|invalid|reference/i.test(message)) toast.update(progressToastId, message, "info", { title: "Feedback not found" });
+      else toast.update(progressToastId, message, "error", { error: lookupFailure, title: "Lookup failed" });
     } finally {
       setLookingUp(false);
     }
@@ -69,6 +76,7 @@ export default function FeedbackPage() {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
+    const progressToastId = toast.progress("Sending your feedback…", { title: "Submitting feedback" });
     setError("");
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") || "").trim().toLowerCase();
@@ -85,9 +93,11 @@ export default function FeedbackPage() {
         receiptSent: result.receipt.sent,
       });
       setReferenceNumber(result.feedback.referenceNumber);
+      toast.update(progressToastId, "Your feedback was submitted.", "success", { title: "Feedback sent" });
     } catch (submitFailure) {
       console.error("Site feedback failed:", submitFailure);
       setError(submitFailure instanceof Error ? submitFailure.message : "Your feedback could not be sent. Please try again.");
+      toast.update(progressToastId, "Your feedback could not be sent. Please try again.", "error", { error: submitFailure, title: "Submission failed" });
     } finally {
       setSubmitting(false);
     }
@@ -95,9 +105,14 @@ export default function FeedbackPage() {
 
   const copyReference = async () => {
     if (!submission) return;
-    await navigator.clipboard.writeText(submission.referenceNumber);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
+    try {
+      await navigator.clipboard.writeText(submission.referenceNumber);
+      setCopied(true);
+      toast.success("Feedback reference copied.");
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch (error) {
+      toast.info("Clipboard access was unavailable. Select and copy the reference manually.", { title: "Copy manually" });
+    }
   };
 
   return (

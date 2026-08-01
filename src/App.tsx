@@ -363,8 +363,9 @@ function RoleRouter() {
       return <Navigate to="/owner" replace />;
     case "admin":
     case "assistant_admin":
-    case "auditor":
       return <Navigate to="/admin" replace />;
+    case "auditor":
+      return <Navigate to="/auditor" replace />;
     case "customer":
     default:
       return <Navigate to="/customer" replace />;
@@ -379,7 +380,7 @@ function Layout({ children }: { children: ReactNode }) {
   const accountPathByRole: Partial<Record<Role, string>> = {
     admin: "/admin/account",
     assistant_admin: "/admin/account",
-    auditor: "/admin/account",
+    auditor: "/auditor/account",
     customer: "/customer/profile",
     staff: "/staff/account",
     store_owner: "/owner/account",
@@ -512,8 +513,13 @@ export default function App() {
       } />
       
       <Route path="/admin/*" element={
-        <ProtectedRoute allowedRoles={["admin", "assistant_admin", "auditor"]}>
-          <Layout><Suspense fallback={<DashboardShellSkeleton navigationItems={6} />}><AdminDashboard /></Suspense></Layout>
+        <ProtectedRoute allowedRoles={["admin", "assistant_admin"]}>
+          <Layout><Suspense fallback={<DashboardShellSkeleton navigationItems={6} />}><AdminDashboard portalBasePath="/admin" /></Suspense></Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/auditor/*" element={
+        <ProtectedRoute allowedRoles={["auditor"]}>
+          <Layout><Suspense fallback={<DashboardShellSkeleton navigationItems={6} />}><AdminDashboard portalBasePath="/auditor" /></Suspense></Layout>
         </ProtectedRoute>
       } />
       <Route path="*" element={<Suspense fallback={<PageSkeleton variant="content" />}><NotFoundPage /></Suspense>} />

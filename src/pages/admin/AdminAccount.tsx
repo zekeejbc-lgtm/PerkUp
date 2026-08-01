@@ -177,6 +177,7 @@ export default function AdminAccount() {
   const handleAddAssistantAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    const progressToastId = toast.progress("Creating the assistant administrator…", { title: "Adding administrator" });
     try {
       const result = await invokeAdminBackend<{ user: any }>({
         action: "create_account",
@@ -191,9 +192,10 @@ export default function AdminAccount() {
       setNewAdminName("");
       setNewAdminEmail("");
       setNewAdminPassword("");
+      toast.update(progressToastId, "Assistant administrator created.", "success", { title: "Administrator added" });
     } catch (error) {
       console.error(error);
-      alert("Failed to create assistant admin: " + (error as Error).message);
+      toast.update(progressToastId, "The assistant administrator could not be created.", "error", { error, title: "Creation failed" });
     } finally {
       setIsSubmitting(false);
     }
@@ -201,7 +203,7 @@ export default function AdminAccount() {
 
   const requestDeleteAdmin = (admin: any) => {
     if (admin.id === user?.id) {
-      alert("You cannot delete your own account here.");
+      toast.info("You cannot delete your own account here.");
       return;
     }
     setAdminToDelete(admin);
@@ -210,13 +212,15 @@ export default function AdminAccount() {
   const handleDeleteAdmin = async () => {
     if (!adminToDelete) return;
     setIsDeletingAdmin(true);
+    const progressToastId = toast.progress("Deleting the administrator account…", { title: "Deleting administrator" });
     try {
       await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_user", userId: adminToDelete.id });
       setAdmins((current) => current.filter((admin) => admin.id !== adminToDelete.id));
       setAdminToDelete(null);
+      toast.update(progressToastId, "The administrator account was deleted.", "success", { title: "Administrator deleted" });
     } catch (error) {
       console.error(error);
-      alert("Failed to delete admin");
+      toast.update(progressToastId, "The administrator account could not be deleted.", "error", { error, title: "Delete failed" });
     } finally {
       setIsDeletingAdmin(false);
     }
@@ -235,6 +239,7 @@ export default function AdminAccount() {
     event.preventDefault();
     if (!replacementAuditorId) return;
     setIsTransferringAuditor(true);
+    const progressToastId = toast.progress("Transferring primary auditor authority…", { title: "Transferring authority" });
     try {
       await invokeAdminBackend({
         action: "transfer_auditor_authority",
@@ -253,9 +258,15 @@ export default function AdminAccount() {
       setTransferPassword("");
       setTransferConfirmation("");
       await refreshUser();
+      toast.update(progressToastId, "Primary auditor authority was transferred.", "success", { title: "Authority transferred" });
     } catch (error) {
       console.error(error);
-      alert(error instanceof Error ? error.message : "Auditor authority could not be transferred.");
+      const message = error instanceof Error ? error.message : "Auditor authority could not be transferred.";
+      if (/password|confirmation|replacement|eligible|cannot transfer/i.test(message)) {
+        toast.update(progressToastId, message, "info", { title: "Check transfer details" });
+      } else {
+        toast.update(progressToastId, message, "error", { error, title: "Transfer failed" });
+      }
     } finally {
       setIsTransferringAuditor(false);
     }

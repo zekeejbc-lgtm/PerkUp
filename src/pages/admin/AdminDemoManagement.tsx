@@ -296,7 +296,7 @@ export default function AdminDemoManagement() {
       setCopied(key);
       window.setTimeout(() => setCopied(""), 1800);
     } catch {
-      toast.error("Clipboard access was unavailable. Select and copy the value manually.");
+      toast.info("Clipboard access was unavailable. Select and copy the value manually.", { title: "Copy manually" });
     }
   };
 

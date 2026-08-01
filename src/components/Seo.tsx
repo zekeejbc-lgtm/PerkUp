@@ -128,7 +128,7 @@ const routeMetadata: Record<string, Omit<SeoProps, "canonicalPath">> = {
   "/data-deletion": { title: "Data Deletion | Perk", description: "Learn how to request deletion of your Perk account and associated personal data." },
 };
 
-const privateRoutePattern = /^\/(?:admin|owner|staff|customer)(?:\/|$)|^\/(?:dashboard|reset-password|scan|feedback)(?:\/|$)/;
+const privateRoutePattern = /^\/(?:admin|auditor|owner|staff|customer)(?:\/|$)|^\/(?:dashboard|reset-password|scan|feedback)(?:\/|$)/;
 
 export function RouteSeo() {
   const { pathname } = useLocation();
