@@ -4,6 +4,7 @@ import { PublicPageShell } from "../components/PublicPageShell";
 import { CustomDropdown } from "../components/CustomDropdown";
 import { lookupPublicFeedback, PublicFeedbackStatus, submitPublicFeedback, TrackedFeedback } from "../lib/publicFeedback";
 import { useToast } from "../components/ToastProvider";
+import { Link } from "react-router-dom";
 
 const STATUS_LABELS: Record<PublicFeedbackStatus, string> = {
   received: "Received",
@@ -162,6 +163,7 @@ export default function FeedbackPage() {
             ]} />
           </label>
           <label className="block text-sm font-semibold">Message<textarea name="message" required minLength={10} maxLength={2000} rows={6} className="mt-2 w-full resize-y rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 font-normal outline-none focus:ring-2 focus:ring-black dark:border-white/10 dark:bg-white/5 dark:focus:ring-white" /></label>
+          <p className="text-xs leading-5 text-gray-500">By sending feedback, you acknowledge that Perk will store the submitted content and optional contact details for support and service improvement for up to 24 months. Public status lookup requires the random reference number. See the <Link to="/privacy" className="font-semibold underline">Privacy Policy</Link>.</p>
           {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
           <button disabled={submitting} className="inline-flex items-center gap-2 rounded-full bg-[#1b1b1b] px-6 py-3 text-sm font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-[#1b1b1b]">{submitting && <Loader2 className="h-4 w-4 animate-spin" />}Send feedback</button>
         </form>

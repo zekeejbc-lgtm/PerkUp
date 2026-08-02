@@ -1,6 +1,7 @@
 import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 const { subscriptionPlans } = vi.hoisted(() => ({
   subscriptionPlans: [
@@ -66,7 +67,9 @@ afterEach(() => cleanup());
 
 describe("PartnerApplicationModal preferred plan", () => {
   it("preselects and labels the last legacy plan", async () => {
-    const { container } = render(<PartnerApplicationModal isOpen onClose={vi.fn()} />);
+    const { container } = render(
+      <MemoryRouter><PartnerApplicationModal isOpen onClose={vi.fn()} /></MemoryRouter>,
+    );
 
     fireEvent.change(screen.getByPlaceholderText("e.g. My Coffee Shop"), {
       target: { value: "Test Shop" },
@@ -105,7 +108,7 @@ describe("PartnerApplicationModal preferred plan", () => {
   });
 
   it("does not continue without a business logo", () => {
-    render(<PartnerApplicationModal isOpen onClose={vi.fn()} />);
+    render(<MemoryRouter><PartnerApplicationModal isOpen onClose={vi.fn()} /></MemoryRouter>);
 
     fireEvent.change(screen.getByPlaceholderText("e.g. My Coffee Shop"), { target: { value: "Test Shop" } });
     fireEvent.change(screen.getByPlaceholderText("Coffee, Bakery, Retail..."), { target: { value: "Coffee" } });

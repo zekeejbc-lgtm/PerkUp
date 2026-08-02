@@ -32,6 +32,7 @@ const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
 const DataDeletionPage = lazy(() => import("./pages/DataDeletionPage"));
 const TermsOfServicePage = lazy(() => import("./pages/TermsOfServicePage"));
 const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
+const NewsletterPreferencesPage = lazy(() => import("./pages/NewsletterPreferencesPage"));
 const MarketingPage = lazy(() => import("./pages/MarketingPage"));
 const PricingPage = lazy(() => import("./pages/MarketingPage").then((module) => ({ default: module.PricingPage })));
 const CustomerQrLandingPage = lazy(() => import("./pages/CustomerQrLandingPage"));
@@ -487,6 +488,7 @@ export default function App() {
       <Route path="/data-deletion" element={<Suspense fallback={<PageSkeleton variant="content" />}><DataDeletionPage /></Suspense>} />
       <Route path="/terms" element={<Suspense fallback={<PageSkeleton variant="content" />}><TermsOfServicePage /></Suspense>} />
       <Route path="/feedback" element={<Suspense fallback={<PageSkeleton variant="form" />}><FeedbackPage /></Suspense>} />
+      <Route path="/newsletter" element={<Suspense fallback={<PageSkeleton variant="content" />}><NewsletterPreferencesPage /></Suspense>} />
       <Route path="/product" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />
       <Route path="/customers" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />
       <Route path="/businesses" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />

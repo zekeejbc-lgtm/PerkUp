@@ -9,6 +9,7 @@ import {
   normalizePartnerPhone,
 } from "../_shared/partner-contact.ts";
 import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
+import { consumeRateLimit, getClientAddress } from "../_shared/rate-limit.ts";
 
 const DEFAULT_GAS_UPLOAD_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
@@ -190,13 +191,16 @@ Deno.serve(async (req) => {
       const { email, phone } = getContactInput(body);
       const validationError = getPartnerContactValidationError(email, phone);
       if (validationError) return jsonResponse({ error: validationError }, 400);
-
-      const availability = await checkPartnerContactAvailability(
-        email,
-        phone,
-        createPartnerContactLookup(admin),
-      );
-      return jsonResponse(availability);
+      const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+      const limit = await consumeRateLimit(admin, {
+        key: getClientAddress(req), purpose: "partner-availability-address",
+        limit: 20, windowSeconds: 60 * 60, salt: serviceKey,
+      });
+      if (!limit.allowed) return jsonResponse({ error: "Too many checks. Please try again later." }, 429);
+      // A neutral response prevents this public helper from becoming an
+      // account/application enumeration oracle. Uniqueness is enforced when
+      // the rate-limited application is actually submitted.
+      return jsonResponse({ emailAvailable: true, phoneAvailable: true });
     }
 
     if (action === "track") {
@@ -267,9 +271,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const forwarded = req.headers.get("cf-connecting-ip") ||
-      req.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() ||
-      "unknown";
+    const forwarded = getClientAddress(req);
     const clientHash = await sha256(`${forwarded}:${requiredEnv("SUPABASE_URL")}`);
     const now = new Date();
     const { data: limitRow, error: limitError } = await admin
@@ -312,6 +314,9 @@ Deno.serve(async (req) => {
     const personalFacebookUrl = cleanOptionalUrl(body.personalFacebookUrl, "Personal Facebook URL", true);
     const businessFacebookUrl = cleanOptionalUrl(body.businessFacebookUrl, "Business Facebook URL", true);
     const businessWebsiteUrl = cleanOptionalUrl(body.businessWebsiteUrl, "Business website URL");
+    if (body.privacyConsent !== true) {
+      return jsonResponse({ error: "Applicant privacy acknowledgement is required." }, 400);
+    }
     const availability = await checkPartnerContactAvailability(
       email,
       phone,
@@ -322,7 +327,10 @@ Deno.serve(async (req) => {
       availability.phoneAvailable,
     );
     if (contactConflict) {
-      return jsonResponse({ error: contactConflict.message, code: contactConflict.code }, 409);
+      return jsonResponse({
+        error: "The contact details could not be accepted. Use different verified contact details or contact support.",
+        code: "contact_unavailable",
+      }, 409);
     }
 
     let logoUrl = "";
@@ -367,6 +375,8 @@ Deno.serve(async (req) => {
       personalFacebookUrl,
       businessFacebookUrl,
       businessWebsiteUrl,
+      privacyConsentAt: new Date().toISOString(),
+      privacyNoticeVersion: "2026-08-02",
       trackingCode,
       status: "pending",
       createdAt: timestamp(),

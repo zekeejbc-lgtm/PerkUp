@@ -17,6 +17,7 @@ import { FEATURED_STORE_CATEGORIES } from '../lib/storeDirectory';
 import { ApplicationReviewFlow } from './ApplicationReviewFlow';
 import { getPreferredSubscriptionPlan, type SubscriptionPlan } from '../lib/subscriptionBilling';
 import { useToast } from './ToastProvider';
+import { Link as RouterLink } from 'react-router-dom';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -90,6 +91,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
   const locationSearchController = useRef<AbortController | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -183,6 +185,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     setCoordinates([7.4478, 125.8078]);
     setIsSuccess(false);
     setTrackingNumber('');
+    setPrivacyAccepted(false);
   };
 
   const handleClose = () => {
@@ -249,6 +252,10 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
       toast.info("Please select a subscription plan before submitting.", { title: "Subscription required" });
       return;
     }
+    if (!privacyAccepted) {
+      toast.info("Review and accept the applicant privacy notice before submitting.", { title: "Privacy acknowledgement required" });
+      return;
+    }
     setIsSubmitting(true);
     const progressToastId = toast.progress("Submitting your partner application…", { title: "Sending application" });
     try {
@@ -265,6 +272,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
         personalFacebookUrl,
         businessFacebookUrl,
         businessWebsiteUrl,
+        privacyConsent: true,
       }, logoFile);
       setTrackingNumber(result.trackingNumber || formatApplicationTrackingCode(result.applicationId, businessName));
       setIsSuccess(true);
@@ -623,6 +631,10 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                       <div className="col-span-full text-center py-8 text-gray-500">No subscription plans are currently available. Please try again later.</div>
                     )}
                   </div>
+                  <label className="mt-6 flex items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm leading-6 text-gray-700 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-200">
+                    <input type="checkbox" required checked={privacyAccepted} onChange={(event) => setPrivacyAccepted(event.target.checked)} className="mt-1" />
+                    <span>I understand that Perk will use my identity, contact details, business information, location, social links, and logo to assess this application, contact me, prevent duplicate or abusive submissions, and create the store account if approved. Approved application contact data is removed after 90 days; unsuccessful applications are deleted after 24 months. See the <RouterLink to="/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold underline">Privacy Policy</RouterLink>.</span>
+                  </label>
                 </div>
               )}
 
@@ -640,7 +652,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
               )}
               <button
                 type="submit"
-                disabled={isSubmitting || (step === 2 && plans.length === 0)}
+                disabled={isSubmitting || (step === 2 && (plans.length === 0 || !privacyAccepted))}
                 className="inline-flex h-10 min-w-0 items-center justify-center whitespace-nowrap rounded-lg bg-[#1b1b1b] px-5 text-sm font-semibold leading-none text-white transition-all hover:bg-black active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
               >
                 {isSubmitting ? 'Submitting...' : step === 1 ? 'Next Step' : 'Submit Application'}

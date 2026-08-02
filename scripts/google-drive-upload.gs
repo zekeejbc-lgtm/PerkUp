@@ -28,6 +28,7 @@ function doPost(e) {
     }
 
     if (action === "request_otp" || action === "requestotp") {
+      requireCrudSecret(data.secret);
       return createJsonResponse({
         success: true,
         otp: requestEmailOtp(data.recipientEmail, data.userName, data.purpose)
@@ -35,6 +36,7 @@ function doPost(e) {
     }
 
     if (action === "verify_otp" || action === "verifyotp") {
+      requireCrudSecret(data.secret);
       return createJsonResponse({
         success: true,
         otp: verifyEmailOtp(data.otpToken, data.otpCode, data.recipientEmail, data.purpose)
@@ -42,6 +44,7 @@ function doPost(e) {
     }
 
     if (action === "otp" || action === "sendotp" || action === "send_otp") {
+      requireCrudSecret(data.secret);
       return createJsonResponse({
         success: true,
         email: sendOtpEmail(data.recipientEmail, data.userName, data.otpCode)
@@ -49,9 +52,32 @@ function doPost(e) {
     }
 
     if (action === "confirmation" || action === "confirmemail" || action === "confirm_email") {
+      requireCrudSecret(data.secret);
       return createJsonResponse({
         success: true,
         email: sendConfirmationEmail(data.recipientEmail, data.userName, data.confirmationLink)
+      });
+    }
+
+    if (action === "newsletter_confirmation") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        email: sendNewsletterConfirmationEmail(
+          data.recipientEmail,
+          data.confirmationLink
+        )
+      });
+    }
+
+    if (action === "newsletter_confirmed") {
+      requireCrudSecret(data.secret);
+      return createJsonResponse({
+        success: true,
+        email: sendNewsletterConfirmedEmail(
+          data.recipientEmail,
+          data.unsubscribeLink
+        )
       });
     }
 

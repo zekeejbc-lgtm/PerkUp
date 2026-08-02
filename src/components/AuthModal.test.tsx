@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { toast } = vi.hoisted(() => ({
@@ -107,7 +108,9 @@ describe("AuthModal mobile signup layout", () => {
   it("keeps a long OTP email and final actions compact on narrow screens", async () => {
     const user = userEvent.setup();
     const { container } = render(
-      <AuthModal isOpen onClose={vi.fn()} initialMode="signup" />,
+      <MemoryRouter>
+        <AuthModal isOpen onClose={vi.fn()} initialMode="signup" />
+      </MemoryRouter>,
     );
 
     await user.click(screen.getByRole("button", { name: "Agree" }));

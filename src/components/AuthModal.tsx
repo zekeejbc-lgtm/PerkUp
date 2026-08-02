@@ -20,6 +20,7 @@ import {
   TrustedLoginProfile,
 } from '@/src/lib/trustedDevice';
 import { useRuntimeMode } from '@/src/contexts/RuntimeModeContext';
+import { Link } from 'react-router-dom';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -472,7 +473,7 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
       let errorMessage = '';
       let isUserError = false;
       if (err.code === 'auth/email-already-in-use') {
-        errorMessage = 'This email is already registered.';
+        errorMessage = 'Registration could not be completed. Try signing in or resetting the password for this email.';
         isUserError = true;
       } else if (mode === 'signin' && (err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential')) {
         errorMessage = 'The email or password is incorrect. Please try again.';
@@ -639,8 +640,9 @@ export function AuthModal({ isOpen, onClose, initialMode = 'signin', allowedSign
                     Your data is used to create and secure your customer account, identify you when earning or redeeming rewards, maintain loyalty cards and transaction history, provide customer support, prevent misuse, and improve Perk services. Authorized partner store staff may only access customer information needed to operate loyalty and promotion workflows.
                   </p>
                   <p className="mt-3">
-                    By selecting Agree, you confirm that you understand this notice and consent to the collection and use of your data for these purposes.
+                    Essential account and loyalty processing is needed to provide the service. By selecting Agree, you acknowledge this notice and consent to processing your birthday and profile information where consent is required. Optional marketing requires a separate opt-in and is not a condition of creating an account.
                   </p>
+                  <p className="mt-3">Read the full <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold underline">Privacy Policy</Link>, including recipients, retention periods, international processing, and your rights.</p>
                 </div>
               </div>
 

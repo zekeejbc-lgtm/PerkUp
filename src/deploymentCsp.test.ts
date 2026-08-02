@@ -47,11 +47,18 @@ test("permits scanner audio embedded as a data URL", () => {
   expect(mediaSources).toContain("data:");
 });
 
-test("permits configured HTTPS video embeds and direct video links", () => {
+test("permits only configured video embed providers and HTTPS media", () => {
   const frameSources = getCatchAllCspDirectiveSources("frame-src");
   const mediaSources = getCatchAllCspDirectiveSources("media-src");
 
-  expect(frameSources).toContain("https:");
+  expect(frameSources).toEqual(expect.arrayContaining([
+    "https://www.youtube-nocookie.com",
+    "https://drive.google.com",
+    "https://www.facebook.com",
+    "https://player.vimeo.com",
+    "https://www.loom.com",
+  ]));
+  expect(frameSources).not.toContain("https:");
   expect(mediaSources).toContain("https:");
   expect(mediaSources).toContain("blob:");
 });

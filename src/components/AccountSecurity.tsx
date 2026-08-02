@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, CalendarClock, CheckCircle2, KeyRound, Loader2, Lock, Mail, QrCode, ShieldCheck, Smartphone, Trash2, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, Download, KeyRound, Loader2, Lock, Mail, QrCode, ShieldCheck, Smartphone, Trash2, X } from "lucide-react";
 import { auth, db } from "@/src/lib/backend";
 import { supabase } from "@/src/lib/supabase";
 import { getPasswordStrength, sanitizePasswordInput, validateStrongPassword } from "@/src/lib/passwordStrength";
@@ -10,7 +10,6 @@ import { requestEmailOtp, verifyEmailOtp } from "@/src/lib/emailOtp";
 import { SkeletonBlock } from "@/src/components/LoadingSkeleton";
 import { updateEmail } from "@/src/lib/supabaseAuthCompat";
 import { useAuth } from "@/src/contexts/AuthContext";
-import { doc, serverTimestamp, setDoc } from "@/src/lib/dataCompat";
 import { invokeAdminBackend } from "@/src/lib/adminBackend";
 import { formatPhilippineDateTime } from "@/src/lib/dateTime";
 import { PasswordVisibilityButton } from "@/src/components/PasswordVisibilityButton";
@@ -43,7 +42,7 @@ const formatEnrollmentDate = (dateValue?: string) => {
 };
 
 export default function AccountSecurity() {
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
   const toast = useToast();
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -83,6 +82,7 @@ export default function AccountSecurity() {
   const [deletionAcknowledged, setDeletionAcknowledged] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<Message | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const passwordStrength = useMemo(() => getPasswordStrength(newPassword), [newPassword]);
 
   const loadFactors = async () => {
@@ -216,6 +216,25 @@ export default function AccountSecurity() {
     }
   };
 
+  const exportMyData = async () => {
+    setIsExporting(true);
+    try {
+      const data = await invokeAdminBackend<Record<string, unknown>>({ action: "export_my_data" });
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `perk-personal-data-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success("Your personal-data export was downloaded.", { title: "Export ready" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Your data export could not be created.", { error, title: "Export failed" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handleStartEmailChange = async (event: React.FormEvent) => {
     event.preventDefault();
     setEmailMessage(null);
@@ -280,12 +299,7 @@ export default function AccountSecurity() {
     try {
       await verifyEmailOtp(emailOtpToken, emailOtpCode, normalizedEmail, "email_change");
       await updateEmail(auth, normalizedEmail);
-      await setDoc(doc(db, "users", user.id), {
-        email: normalizedEmail,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-      await refreshUser();
-      setEmailMessage({ text: "Email updated successfully.", type: "success" });
+      setEmailMessage({ text: "Confirmation links were sent to your current and new email addresses. The change takes effect only after both are confirmed.", type: "success" });
       resetEmailForm();
     } catch (error) {
       console.error("Email update failed:", error);
@@ -923,6 +937,29 @@ export default function AccountSecurity() {
             </div>
           </form>
         )}
+      </section>
+
+      <section className="rounded-3xl border border-gray-200 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-800/50">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white">
+              <Download className="h-5 w-5 text-gray-400" />
+              Download your data
+            </h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Get a JSON copy of personal data linked to your account. Passwords and active security secrets are excluded.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={exportMyData}
+            disabled={isExporting}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-black disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
+          >
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Download JSON
+          </button>
+        </div>
       </section>
 
       {user?.role === "customer" && (

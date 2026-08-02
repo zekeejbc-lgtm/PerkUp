@@ -13,7 +13,7 @@ enroll_enabled = true
 verify_enabled = true
 
 [auth.email]
-double_confirm_changes = false
+double_confirm_changes = true
 max_frequency = "1m0s"
 otp_length = 8
 
@@ -54,6 +54,12 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.error-reports]
+verify_jwt = false
+
+[functions.email-otp]
+verify_jwt = false
+
+[functions.newsletter]
 verify_jwt = false
 
 [functions.subscription-billing-worker]

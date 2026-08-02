@@ -119,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       const authProfile = getAuthProfile(sessionUser);
       const profilePatch: Partial<AppUser> = {};
+      if (authProfile.email && existingUser.email !== authProfile.email) profilePatch.email = authProfile.email;
       if (!existingUser.name && authProfile.name) profilePatch.name = authProfile.name;
       if (!existingUser.avatarUrl && authProfile.avatarUrl) profilePatch.avatarUrl = authProfile.avatarUrl;
       if (!existingUser.photoURL && authProfile.photoURL) profilePatch.photoURL = authProfile.photoURL;

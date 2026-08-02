@@ -124,6 +124,44 @@ function sendConfirmationEmail(recipientEmail, userName, confirmationLink) {
   });
 }
 
+function sendNewsletterConfirmationEmail(recipientEmail, confirmationLink) {
+  validateEmailInput_(recipientEmail, "Perk subscriber");
+  if (!confirmationLink || !/^https:\/\//i.test(String(confirmationLink))) {
+    throw new Error("A secure newsletter confirmation link is required.");
+  }
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: "Confirm your Perk updates subscription",
+    userName: "Perk subscriber",
+    heading: "Confirm your subscription",
+    introText: "Confirm that you want to receive occasional Perk product and partner updates.",
+    secondaryText: "If you did not request this, ignore this email. You will not be subscribed.",
+    buttonText: "Confirm subscription",
+    buttonLink: String(confirmationLink),
+    showButton: true,
+    plainText: "Confirm your Perk updates subscription: " + String(confirmationLink)
+  });
+}
+
+function sendNewsletterConfirmedEmail(recipientEmail, unsubscribeLink) {
+  validateEmailInput_(recipientEmail, "Perk subscriber");
+  if (!unsubscribeLink || !/^https:\/\//i.test(String(unsubscribeLink))) {
+    throw new Error("A secure newsletter unsubscribe link is required.");
+  }
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: "Your Perk updates subscription is active",
+    userName: "Perk subscriber",
+    heading: "Subscription confirmed",
+    introText: "You will now receive occasional Perk product and partner updates.",
+    secondaryText: "You can stop these emails at any time using the link below.",
+    buttonText: "Unsubscribe",
+    buttonLink: String(unsubscribeLink),
+    showButton: true,
+    plainText: "Your Perk updates subscription is active. Unsubscribe: " + String(unsubscribeLink)
+  });
+}
+
 function sendStoreCreatedEmail(recipientEmail, userName, store, loginLink, requirePasswordChange) {
   validateEmailInput_(recipientEmail, userName);
   store = store || {};

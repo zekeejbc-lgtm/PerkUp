@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
+import { consumeRateLimit, getClientAddress } from "../_shared/rate-limit.ts";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
@@ -71,27 +72,28 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Enter a valid phone number." }, 400);
     }
 
+    const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
     const admin = createClient(
       requiredEnv("SUPABASE_URL"),
-      requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),
+      serviceKey,
       { auth: { persistSession: false, autoRefreshToken: false } },
     );
     const runtime = await readRuntimeConfig(admin);
     if (runtime.mode === "maintenance") return jsonResponse(maintenanceError(runtime), 503);
+    const limit = await consumeRateLimit(admin, {
+      key: getClientAddress(req),
+      purpose: "signup-availability-address",
+      limit: 20,
+      windowSeconds: 15 * 60,
+      salt: serviceKey,
+    });
+    if (!limit.allowed) return jsonResponse({ error: "Too many availability checks. Please try again later." }, 429);
 
     let emailAvailable: boolean | undefined;
     if (email) {
+      // Do not disclose whether a login exists. Supabase signup and the
+      // verified profile-creation transaction enforce uniqueness later.
       emailAvailable = true;
-      const perPage = 1000;
-      for (let page = 1; ; page += 1) {
-        const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-        if (error) throw error;
-        if (data.users.some((user) => user.email?.trim().toLowerCase() === email)) {
-          emailAvailable = false;
-          break;
-        }
-        if (data.users.length < perPage) break;
-      }
     }
 
     let usernameAvailable: boolean | undefined;
@@ -114,13 +116,9 @@ Deno.serve(async (req) => {
 
     let phoneAvailable: boolean | undefined;
     if (phone) {
-      const { data, error } = await admin
-        .from("customer_phones")
-        .select("phone")
-        .eq("phone", phone)
-        .limit(1);
-      if (error) throw error;
-      phoneAvailable = !data?.length;
+      // Phone membership is likewise private and is checked only during the
+      // final verified registration transaction.
+      phoneAvailable = true;
     }
 
     return jsonResponse({

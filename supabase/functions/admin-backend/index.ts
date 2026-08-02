@@ -383,8 +383,53 @@ const handleAdminRequest = async (req: Request) => {
       return jsonResponse(maintenanceError(runtimeConfig), 503);
     }
 
-    if (actor.isDemo && actor.role === "admin" && !["list_accounts", "list_account_stores"].includes(action)) {
+    if (actor.isDemo && actor.role === "admin" && !["list_accounts", "list_account_stores", "export_my_data"].includes(action)) {
       return jsonResponse({ error: "Demo administrator access is a read-only sandbox preview." }, 403);
+    }
+
+    if (action === "export_my_data") {
+      const userId = authData.user.id;
+      const email = authData.user.email || actor.email || "";
+      const results = await Promise.all([
+        admin.from("users").select("id,data,created_at,updated_at").eq("id", userId).maybeSingle(),
+        admin.from("customers").select("id,data,created_at,updated_at").eq("id", userId).maybeSingle(),
+        admin.from("cards").select("id,data,created_at,updated_at").eq("data->>customerId", userId),
+        admin.from("promotions_scanned").select("id,data,created_at,updated_at").eq("data->>customerId", userId),
+        admin.from("feedback").select("id,data,created_at,updated_at").eq("data->>customerId", userId),
+        admin.from("store_reviews").select("id,data,created_at,updated_at").eq("data->>customerId", userId),
+        admin.from("store_referral_redemptions").select("store_id,customer_id,created_at").eq("customer_id", userId),
+        admin.from("promotion_claims").select("id,promotion_id,store_id,card_id,status,claimed_at,expires_at,redeemed_at,redemption_method").eq("customer_id", userId),
+        admin.from("customer_qr_tokens").select("created_at,expires_at,used_at").eq("customer_id", userId),
+        admin.from("drive_files").select("purpose,url,created_at").eq("owner_id", userId),
+        admin.from("stores").select("id,data,created_at,updated_at").eq("data->>ownerId", userId),
+        admin.from("billing_subscriptions").select("*").eq("owner_user_id", userId),
+        admin.from("billing_invoices").select("id,public_id,store_id,period_start,period_end,due_at,amount_centavos,currency,status,paymongo_reference_number,paid_at,created_at,updated_at").eq("owner_user_id", userId),
+        admin.from("audit_events").select("id,public_id,action,entity_type,entity_id,metadata,created_at").eq("actor_user_id", userId),
+        admin.from("applications").select("id,public_id,data,created_at,updated_at").ilike("data->>email", email),
+      ]);
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
+      return jsonResponse({
+        exportVersion: "2026-08-02",
+        generatedAt: new Date().toISOString(),
+        identity: { authUserId: userId, email },
+        profile: results[0].data,
+        customer: results[1].data,
+        loyaltyCards: results[2].data || [],
+        scanAndRedemptionHistory: results[3].data || [],
+        storeFeedback: results[4].data || [],
+        storeReviews: results[5].data || [],
+        referralRedemptions: results[6].data || [],
+        promotionClaims: results[7].data || [],
+        qrTokenMetadata: results[8].data || [],
+        managedFiles: results[9].data || [],
+        ownedStores: results[10].data || [],
+        billingSubscriptions: results[11].data || [],
+        billingInvoices: results[12].data || [],
+        activityLog: results[13].data || [],
+        partnerApplications: results[14].data || [],
+        exclusions: ["password hashes", "active QR/redeem secrets", "security credentials", "another person's data"],
+      });
     }
 
     if (action === "get_activity_log_overview") {
@@ -3209,6 +3254,11 @@ const handleAdminRequest = async (req: Request) => {
       const { error: profileError } = await admin.from("users").delete().eq("id", userId);
       if (profileError) throw profileError;
 
+      const accessToken = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+      if (accessToken) {
+        const { error: revokeError } = await admin.auth.admin.signOut(accessToken, "global");
+        if (revokeError && !revokeError.message.toLowerCase().includes("not found")) throw revokeError;
+      }
       const { error: authDeleteError } = await admin.auth.admin.deleteUser(userId);
       if (authDeleteError && !authDeleteError.message.toLowerCase().includes("not found")) {
         throw authDeleteError;
