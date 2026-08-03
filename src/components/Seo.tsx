@@ -2,7 +2,8 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 
 const SITE_URL = "https://www.perktoday.com";
-const DEFAULT_IMAGE = `${SITE_URL}/icons/perk-logo-source.png`;
+const LOGO_IMAGE = `${SITE_URL}/icons/perk-wordmark-dark-transparent.png`;
+const DEFAULT_IMAGE = `${SITE_URL}/images/perk-social-preview-v3.png`;
 const DEFAULT_DESCRIPTION = "Perk is a secure digital loyalty system for customers, staff, and local partner stores.";
 
 type JsonLd = Record<string, unknown> | Array<Record<string, unknown>>;
@@ -88,7 +89,7 @@ const routeMetadata: Record<string, Omit<SeoProps, "canonicalPath">> = {
         "@type": "Organization",
         name: "Perk",
         url: SITE_URL,
-        logo: DEFAULT_IMAGE,
+        logo: LOGO_IMAGE,
       },
       {
         "@context": "https://schema.org",

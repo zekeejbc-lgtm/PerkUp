@@ -7,7 +7,8 @@ const root = process.cwd();
 const distDirectory = path.join(root, "dist");
 const baseHtml = await readFile(path.join(distDirectory, "index.html"), "utf8");
 const siteUrl = "https://www.perktoday.com";
-const defaultImage = `${siteUrl}/icons/perk-logo-source.png`;
+const logoImage = `${siteUrl}/icons/perk-wordmark-dark-transparent.png`;
+const defaultImage = `${siteUrl}/images/perk-social-preview-v3.png`;
 
 const escapeHtml = (value = "") => String(value)
   .replaceAll("&", "&amp;")
@@ -155,7 +156,7 @@ for (const page of pages) {
   const target = page.path === "/" ? path.join(distDirectory, "index.html") : path.join(distDirectory, page.path.slice(1), "index.html");
   await mkdir(path.dirname(target), { recursive: true });
   const jsonLd = page.path === "/" ? [
-    { "@context": "https://schema.org", "@type": "Organization", name: "Perk", url: siteUrl, logo: defaultImage },
+    { "@context": "https://schema.org", "@type": "Organization", name: "Perk", url: siteUrl, logo: logoImage },
     { "@context": "https://schema.org", "@type": "WebSite", name: "Perk", url: siteUrl },
   ] : undefined;
   await writeFile(target, renderPage(page, { jsonLd, extra: page.path === "/stores" ? storeLinks : "" }));
