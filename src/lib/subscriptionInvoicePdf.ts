@@ -67,6 +67,7 @@ export type SubscriptionInvoicePdfData = {
   };
   subscription: {
     planId: string | null;
+    planName?: string | null;
     billingEmail: string | null;
     intervalDays: number | null;
     gracePeriodDays: number | null;
@@ -374,7 +375,9 @@ export async function downloadSubscriptionInvoicePdf(data: SubscriptionInvoicePd
   const isManualPayment = String(invoice.paymentMethod || "").startsWith("manual_") ||
     invoice.paymentMethod === "admin_confirmed";
   const documentNumber = invoice.publicId || invoiceNumber(invoice.id);
-  const planName = subscription.planId
+  const planName = subscription.planName
+    ? `${subscription.planName} subscription`
+    : subscription.planId
     ? `${titleCase(subscription.planId)} subscription`
     : "Perk subscription";
   const totalCentavos = isPaid && invoice.grossAmountCentavos

@@ -26,6 +26,8 @@ type AdminBillingInvoice = {
   store_id: string;
   owner_user_id: string;
   invoice_type: string;
+  plan_id_snapshot: string | null;
+  plan_name_snapshot: string | null;
   status: string;
   created_at: string;
   due_at: string;
@@ -179,6 +181,7 @@ export default function AdminInvoices() {
         },
         subscription: {
           planId: invoice.subscription.plan_id,
+          planName: invoice.plan_name_snapshot,
           billingEmail: invoice.subscription.billing_email,
           intervalDays: invoice.subscription.interval_days,
           gracePeriodDays: invoice.subscription.grace_period_days,

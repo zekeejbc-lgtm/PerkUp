@@ -1536,6 +1536,8 @@ const handleAdminRequest = async (req: Request) => {
         "store_id",
         "owner_user_id",
         "invoice_type",
+        "plan_id_snapshot",
+        "plan_name_snapshot",
         "status",
         "created_at",
         "due_at",
@@ -2430,6 +2432,7 @@ const handleAdminRequest = async (req: Request) => {
             }
           } else if (alreadyPaid && billingSubscription?.id) {
             const invoiceId = crypto.randomUUID();
+            const issuedAt = new Date().toISOString();
             const referenceNumber = `ADMIN-${invoiceId.slice(0, 8).toUpperCase()}`;
             const { error: invoiceError } = await admin.from("billing_invoices").insert({
               id: invoiceId,
@@ -2452,12 +2455,21 @@ const handleAdminRequest = async (req: Request) => {
             if (invoiceError) throw invoiceError;
             paidInitialInvoice = {
               invoiceId,
+              issuedAt,
+              subscriberName: name,
               storeName: store.businessName || store.name,
+              businessAddress: store.address || store.location || "",
+              businessContact: store.contact || store.contactNumber || store.phone || "",
+              billingEmail: email,
               planName: store.subscriptionLevel,
               amountCentavos: billingSubscription.amount_centavos,
               grossAmountCentavos: billingSubscription.amount_centavos,
               currency: billingSubscription.currency,
               dueAt: initialPaymentAt.toISOString(),
+              periodStart: store.subscriptionStart,
+              periodEnd: store.subscriptionEnd,
+              intervalDays: billingSubscription.interval_days,
+              gracePeriodDays: billingSubscription.grace_period_days,
               paidAt: initialPaymentAt.toISOString(),
               renewedUntil: store.subscriptionEnd,
               paymentMethod: "admin_confirmed",
@@ -2557,12 +2569,19 @@ const handleAdminRequest = async (req: Request) => {
             userName: name,
             invoice: paidInitialInvoice || {
               invoiceId: crypto.randomUUID(),
+              issuedAt: new Date().toISOString(),
+              subscriberName: name,
               storeName: store.businessName || store.name,
+              businessAddress: store.address || store.location || "",
+              businessContact: store.contact || store.contactNumber || store.phone || "",
+              billingEmail: email,
               planName: store.subscriptionLevel,
               amountCentavos,
               grossAmountCentavos: amountCentavos,
               currency: "PHP",
               dueAt: initialPaymentAt.toISOString(),
+              periodStart: store.subscriptionStart,
+              periodEnd: store.subscriptionEnd,
               paidAt: initialPaymentAt.toISOString(),
               renewedUntil: store.subscriptionEnd,
               paymentMethod: "admin_confirmed",

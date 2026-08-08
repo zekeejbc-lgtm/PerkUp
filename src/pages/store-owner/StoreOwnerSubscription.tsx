@@ -40,6 +40,8 @@ type BillingInvoice = {
   id: string;
   public_id: string;
   status: string;
+  plan_id_snapshot: string | null;
+  plan_name_snapshot: string | null;
   created_at: string;
   due_at: string;
   period_start: string;
@@ -273,7 +275,8 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
           grossAmountCentavos: invoice.gross_amount_centavos,
         },
         subscription: {
-          planId: billingSubscription?.plan_id || subscriptionStore?.subscriptionLevel || null,
+          planId: invoice.plan_id_snapshot || billingSubscription?.plan_id || subscriptionStore?.subscriptionLevel || null,
+          planName: invoice.plan_name_snapshot,
           billingEmail: billingSubscription?.billing_email || null,
           intervalDays: billingSubscription?.interval_days || null,
           gracePeriodDays: billingSubscription?.grace_period_days || null,
@@ -301,7 +304,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
     Promise.all([
       supabase.from("billing_subscriptions").select("public_id,automation_enabled,billing_email,plan_id,interval_days,grace_period_days,status,renewal_mode,auto_renew_cancelled_at,current_period_end,initial_payment_required").eq("store_id", subscriptionStore.id).maybeSingle(),
       supabase.from("billing_invoices")
-        .select("id,public_id,status,created_at,due_at,period_start,period_end,amount_centavos,currency,payment_url,paymongo_reference_number,manual_payment_reference,livemode,paid_at,payment_method,paymongo_payment_id,gross_amount_centavos,fee_centavos,net_amount_centavos")
+        .select("id,public_id,status,created_at,due_at,period_start,period_end,amount_centavos,currency,payment_url,paymongo_reference_number,manual_payment_reference,livemode,paid_at,payment_method,paymongo_payment_id,gross_amount_centavos,fee_centavos,net_amount_centavos,plan_id_snapshot,plan_name_snapshot")
         .eq("store_id", subscriptionStore.id)
         .order("created_at", { ascending: false })
         .limit(6),
