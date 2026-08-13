@@ -9,20 +9,31 @@ const googleDriveMediaProxy = () => ({
   configureServer(server: { middlewares: { use: (handler: (req: any, res: any, next: () => void) => void) => void } }) {
     server.middlewares.use(async (req, res, next) => {
       const requestUrl = new URL(req.url || '/', 'http://localhost');
-      const match = requestUrl.pathname.match(/^\/media\/google-drive\/([A-Za-z0-9_-]+)$/);
-      if (!match) return next();
+      if (requestUrl.pathname !== '/api/google-drive-video') return next();
+      const fileId = requestUrl.searchParams.get('id') || '';
+      if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) {
+        res.statusCode = 400;
+        return res.end('A valid Google Drive file ID is required.');
+      }
 
       const upstreamUrl = new URL('https://drive.usercontent.google.com/download');
       upstreamUrl.searchParams.set('export', 'download');
-      upstreamUrl.searchParams.set('id', match[1]);
+      upstreamUrl.searchParams.set('id', fileId);
       upstreamUrl.searchParams.set('confirm', 't');
       const resourceKey = requestUrl.searchParams.get('resourcekey');
       if (resourceKey) upstreamUrl.searchParams.set('resourcekey', resourceKey);
 
       try {
+        const rangeMatch = String(req.headers.range || '').match(/^bytes=(\d+)-(\d*)$/i);
+        const rangeStart = rangeMatch ? Number(rangeMatch[1]) : 0;
+        const requestedEnd = rangeMatch?.[2] ? Number(rangeMatch[2]) : rangeStart + (4 * 1024 * 1024) - 1;
+        if (!Number.isSafeInteger(rangeStart) || !Number.isSafeInteger(requestedEnd) || rangeStart < 0 || requestedEnd < rangeStart) {
+          res.statusCode = 416;
+          res.setHeader('Accept-Ranges', 'bytes');
+          return res.end('Only a single valid byte range is supported.');
+        }
         const headers = new Headers();
-        if (req.headers.range) headers.set('Range', req.headers.range);
-        if (req.headers['if-range']) headers.set('If-Range', req.headers['if-range']);
+        headers.set('Range', `bytes=${rangeStart}-${Math.min(requestedEnd, rangeStart + (4 * 1024 * 1024) - 1)}`);
         const upstream = await fetch(upstreamUrl, { headers, redirect: 'follow' });
         res.statusCode = upstream.status;
         ['accept-ranges', 'content-length', 'content-range', 'etag', 'last-modified'].forEach((name) => {

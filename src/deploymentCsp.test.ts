@@ -63,15 +63,9 @@ test("permits only configured video embed providers and HTTPS media", () => {
   expect(mediaSources).toContain("blob:");
 });
 
-test("proxies Google Drive video through a same-origin CDN rewrite", () => {
-  const config = JSON.parse(
-    readFileSync(resolve(process.cwd(), "vercel.json"), "utf8"),
-  ) as { rewrites: Array<{ source: string; destination: string }> };
-  const driveRewrite = config.rewrites.find(
-    (rewrite) => rewrite.source === "/media/google-drive/:fileId",
-  );
-
-  expect(driveRewrite?.destination).toBe(
-    "https://drive.usercontent.google.com/download?export=download&id=:fileId&confirm=t",
-  );
+test("does not expose the Google Drive origin through a transparent rewrite", () => {
+  const config = JSON.parse(readFileSync(resolve(process.cwd(), "vercel.json"), "utf8")) as {
+    rewrites: Array<{ destination: string }>;
+  };
+  expect(config.rewrites.some((rewrite) => rewrite.destination.includes("drive.usercontent.google.com"))).toBe(false);
 });

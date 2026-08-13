@@ -5,7 +5,7 @@ describe("homepage video links", () => {
   test.each([
     ["https://youtu.be/dQw4w9WgXcQ", "youtube", "youtube-nocookie.com/embed/dQw4w9WgXcQ"],
     ["https://www.youtube.com/shorts/dQw4w9WgXcQ", "youtube", "youtube-nocookie.com/embed/dQw4w9WgXcQ"],
-    ["https://drive.google.com/file/d/abc123XYZ/view?usp=sharing", "drive", "/media/google-drive/abc123XYZ"],
+    ["https://drive.google.com/file/d/abc123XYZ/view?usp=sharing", "drive", "/api/google-drive-video?id=abc123XYZ"],
     ["https://www.facebook.com/example/videos/123456", "facebook", "facebook.com/plugins/video.php"],
     ["https://vimeo.com/123456789", "vimeo", "player.vimeo.com/video/123456789"],
     ["https://cdn.example.com/demo.mp4", "direct", "cdn.example.com/demo.mp4"],

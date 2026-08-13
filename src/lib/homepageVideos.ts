@@ -65,10 +65,10 @@ export const resolveVideoSource = (value: string): VideoSource | null => {
   const googleDriveId = driveId(url);
   if (googleDriveId) {
     const resourceKey = url.searchParams.get("resourcekey");
-    const mediaUrl = `/media/google-drive/${encodeURIComponent(googleDriveId)}`;
+    const mediaUrl = `/api/google-drive-video?id=${encodeURIComponent(googleDriveId)}`;
     return {
       kind: "drive",
-      embedUrl: resourceKey ? `${mediaUrl}?resourcekey=${encodeURIComponent(resourceKey)}` : mediaUrl,
+      embedUrl: resourceKey ? `${mediaUrl}&resourcekey=${encodeURIComponent(resourceKey)}` : mediaUrl,
     };
   }
 
