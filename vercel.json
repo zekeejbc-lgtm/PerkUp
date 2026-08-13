@@ -141,6 +141,10 @@
   ],
   "rewrites": [
     {
+      "source": "/media/google-drive/:fileId",
+      "destination": "https://drive.usercontent.google.com/download?export=download&id=:fileId&confirm=t"
+    },
+    {
       "source": "/customer",
       "destination": "/index.html"
     },

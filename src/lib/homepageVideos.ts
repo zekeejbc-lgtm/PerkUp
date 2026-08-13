@@ -64,7 +64,12 @@ export const resolveVideoSource = (value: string): VideoSource | null => {
 
   const googleDriveId = driveId(url);
   if (googleDriveId) {
-    return { kind: "drive", embedUrl: `https://drive.google.com/file/d/${encodeURIComponent(googleDriveId)}/preview` };
+    const resourceKey = url.searchParams.get("resourcekey");
+    const mediaUrl = `/media/google-drive/${encodeURIComponent(googleDriveId)}`;
+    return {
+      kind: "drive",
+      embedUrl: resourceKey ? `${mediaUrl}?resourcekey=${encodeURIComponent(resourceKey)}` : mediaUrl,
+    };
   }
 
   if (host === "facebook.com" || host === "m.facebook.com" || host === "fb.watch") {

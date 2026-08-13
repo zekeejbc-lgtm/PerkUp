@@ -18,23 +18,27 @@ export function HomepageVideoPlayer({ url, title, compact = false }: HomepageVid
     );
   }
 
-  if (source.kind === "direct") {
+  // Google blocks its Drive and account pages from being framed outside Drive.
+  // Public Drive files are therefore played through the native video element.
+  if (source.kind === "direct" || source.kind === "drive") {
     return (
-      <video
-        className="aspect-video w-full rounded-2xl bg-black object-contain"
-        controls
-        preload="metadata"
-        playsInline
-        src={source.embedUrl}
-        aria-label={title}
-      >
-        <a href={url} target="_blank" rel="noopener noreferrer">Open video</a>
-      </video>
+      <div className="relative aspect-video w-full min-w-0 overflow-hidden rounded-2xl bg-black">
+        <video
+          className="block h-full w-full object-contain"
+          controls
+          preload="metadata"
+          playsInline
+          src={source.embedUrl}
+          aria-label={title}
+        >
+          <a href={url} target="_blank" rel="noopener noreferrer">Open video</a>
+        </video>
+      </div>
     );
   }
 
   return (
-    <div className="group relative aspect-video overflow-hidden rounded-2xl bg-black">
+    <div className="group relative aspect-video w-full min-w-0 overflow-hidden rounded-2xl bg-black">
       <iframe
         src={source.embedUrl}
         title={title}
