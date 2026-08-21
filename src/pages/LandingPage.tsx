@@ -399,9 +399,9 @@ export default function LandingPage() {
                   const isBusiness = video.audience === "business";
                   const AudienceIcon = isBusiness ? StoreIcon : UserRound;
                   return (
-                    <article key={video.id} className="min-w-0 overflow-hidden rounded-[2rem] border border-gray-200 bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-gray-800 dark:bg-[#202020] sm:p-5">
-                      <HomepageVideoPlayer url={video.url} title={video.title} />
-                      <div className="px-1 pb-2 pt-5 sm:px-2">
+                    <article key={video.id} className="min-w-0 overflow-hidden rounded-[2rem] border border-gray-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-gray-800 dark:bg-[#202020]">
+                      <HomepageVideoPlayer url={video.url} title={video.title} edgeToEdge />
+                      <div className="px-4 pb-5 pt-5 sm:px-7 sm:pb-7">
                         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">
                           <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
                             <AudienceIcon className="h-4 w-4" />

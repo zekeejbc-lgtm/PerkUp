@@ -17,7 +17,8 @@ export type HowItWorksConfig = {
 };
 
 export type VideoSource =
-  | { kind: "youtube" | "facebook" | "drive" | "vimeo" | "loom" | "generic"; embedUrl: string }
+  | { kind: "youtube"; embedUrl: string; posterUrl: string; videoId: string }
+  | { kind: "facebook" | "drive" | "vimeo" | "loom" | "generic"; embedUrl: string }
   | { kind: "direct"; embedUrl: string };
 
 export const DEFAULT_HOW_IT_WORKS_CONFIG: HowItWorksConfig = {
@@ -59,16 +60,21 @@ export const resolveVideoSource = (value: string): VideoSource | null => {
   const host = url.hostname.toLowerCase().replace(/^www\./, "");
   const id = youtubeId(url);
   if (id && /^[A-Za-z0-9_-]{6,20}$/.test(id)) {
-    return { kind: "youtube", embedUrl: `https://www.youtube-nocookie.com/embed/${id}` };
+    return {
+      kind: "youtube",
+      embedUrl: `https://www.youtube-nocookie.com/embed/${id}?playsinline=1&rel=0`,
+      posterUrl: `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`,
+      videoId: id,
+    };
   }
 
   const googleDriveId = driveId(url);
   if (googleDriveId) {
     const resourceKey = url.searchParams.get("resourcekey");
-    const mediaUrl = `/api/google-drive-video?id=${encodeURIComponent(googleDriveId)}`;
+    const previewUrl = `https://drive.google.com/file/d/${encodeURIComponent(googleDriveId)}/preview`;
     return {
       kind: "drive",
-      embedUrl: resourceKey ? `${mediaUrl}&resourcekey=${encodeURIComponent(resourceKey)}` : mediaUrl,
+      embedUrl: resourceKey ? `${previewUrl}?resourcekey=${encodeURIComponent(resourceKey)}` : previewUrl,
     };
   }
 

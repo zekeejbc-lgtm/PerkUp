@@ -5,7 +5,7 @@ describe("homepage video links", () => {
   test.each([
     ["https://youtu.be/dQw4w9WgXcQ", "youtube", "youtube-nocookie.com/embed/dQw4w9WgXcQ"],
     ["https://www.youtube.com/shorts/dQw4w9WgXcQ", "youtube", "youtube-nocookie.com/embed/dQw4w9WgXcQ"],
-    ["https://drive.google.com/file/d/abc123XYZ/view?usp=sharing", "drive", "/api/google-drive-video?id=abc123XYZ"],
+    ["https://drive.google.com/file/d/abc123XYZ/view?usp=sharing", "drive", "drive.google.com/file/d/abc123XYZ/preview"],
     ["https://www.facebook.com/example/videos/123456", "facebook", "facebook.com/plugins/video.php"],
     ["https://vimeo.com/123456789", "vimeo", "player.vimeo.com/video/123456789"],
     ["https://cdn.example.com/demo.mp4", "direct", "cdn.example.com/demo.mp4"],
@@ -21,7 +21,18 @@ describe("homepage video links", () => {
     expect(resolveVideoSource("not a link")).toBeNull();
   });
 
-  test("preserves a Google Drive resource key in the native video URL", () => {
+  test("creates a mobile-friendly YouTube embed and lightweight poster", () => {
+    const source = resolveVideoSource("https://youtu.be/QErxFonAUOA");
+
+    expect(source).toMatchObject({
+      kind: "youtube",
+      videoId: "QErxFonAUOA",
+      posterUrl: "https://i.ytimg.com/vi/QErxFonAUOA/maxresdefault.jpg",
+    });
+    expect(source?.embedUrl).toContain("playsinline=1");
+  });
+
+  test("preserves a Google Drive resource key in the preview URL", () => {
     const source = resolveVideoSource("https://drive.google.com/file/d/abc123XYZ/view?resourcekey=sample-key");
     expect(source?.embedUrl).toContain("resourcekey=sample-key");
   });
