@@ -593,8 +593,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
 
   if (isModalOpen) {
     return (
-      <div className="min-h-[calc(100vh-10rem)] space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-h-screen space-y-6">        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
             <button
               type="button"
@@ -613,8 +612,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
 
         <form onSubmit={handleSave} className="space-y-6">
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-            <section className="space-y-5">
-              <div className="grid gap-5 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 sm:p-6">
+            <section className="min-w-0 space-y-5">              <div className="grid gap-5 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 sm:p-6">
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Promotion Title</label>
                   <input
@@ -818,8 +816,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
             </aside>
           </div>
 
-          <div className="sticky bottom-0 z-10 -mx-4 border-t border-gray-200 bg-white/95 px-4 py-4 backdrop-blur dark:border-gray-800 dark:bg-gray-900/95 sm:mx-0 sm:rounded-2xl sm:border sm:px-5">
-            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+<div className="mt-6 border-t border-gray-200 bg-white px-4 py-4 dark:border-gray-800 dark:bg-gray-900 sm:rounded-2xl sm:border sm:px-5">            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 rounded-xl font-medium text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                 Cancel
               </button>

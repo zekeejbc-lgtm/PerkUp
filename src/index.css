@@ -134,7 +134,16 @@
 }
 
 @layer base {
-  button, input, select, textarea {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
     color: inherit;
     font: inherit;
   }
