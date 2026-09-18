@@ -7,6 +7,7 @@ import { SkeletonBlock } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { getCompletedPromotionCount, getRemainingPromotionClaimsLabel } from "../../lib/promotionProgress";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../../lib/dateTime";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
 
@@ -124,7 +125,7 @@ export default function StaffPromotions({ store }: { store: any }) {
           <p className="text-gray-500 max-w-sm mb-8">{promotions.length ? "Try another search or clear the current filters." : "This store currently doesn't have any active promotions for customers."}</p>
         </div>
       ) : (
-        <div id="staff-active-promotions-results" className="scroll-mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <ScrollableRegion label="Active promotions" id="staff-active-promotions-results" className="scroll-mt-6 grid gap-6 pr-1 sm:grid-cols-2 lg:grid-cols-3">
           {paginatedPromotions.map((promo) => (
             <Link
               key={promo.id}
@@ -132,7 +133,7 @@ export default function StaffPromotions({ store }: { store: any }) {
               className="group relative flex min-h-[430px] flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-gray-400 hover:shadow-xl dark:border-gray-800 dark:bg-gray-900 dark:hover:border-gray-600"
             >
               {promo.bannerImageUrl ? (
-                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" className="aspect-[16/7] w-full object-cover" />
+                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" decoding="async" className="aspect-[16/7] w-full object-cover" />
               ) : (
                 <div className="aspect-[16/7] w-full bg-gray-100 dark:bg-white/5" />
               )}
@@ -168,7 +169,7 @@ export default function StaffPromotions({ store }: { store: any }) {
               </div>
             </Link>
           ))}
-        </div>
+        </ScrollableRegion>
       )}
       <Pagination
         page={currentPage}

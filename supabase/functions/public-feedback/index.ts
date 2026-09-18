@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { maintenanceError, readRuntimeConfig } from "../_shared/runtime.ts";
+import { consumeRateLimit, getClientAddress } from "../_shared/rate-limit.ts";
 
 const DEFAULT_GAS_URL =
   "https://script.google.com/macros/s/AKfycbxfacR_tG28iu-riTquHZK9fRHN1aRAswJNUXAdRD36dd-YlxoqskAzQkgQvm1BWUQ/exec";
@@ -30,7 +31,8 @@ Deno.serve(async (req) => {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const action = cleanText(body.action, 20).toLowerCase();
-    const admin = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
+    const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const admin = createClient(requiredEnv("SUPABASE_URL"), serviceKey, {
       auth: { persistSession: false },
     });
     const runtime = await readRuntimeConfig(admin);
@@ -48,6 +50,11 @@ Deno.serve(async (req) => {
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return jsonResponse({ error: "Enter a valid email address or leave it blank." }, 400);
       }
+      const addressLimit = await consumeRateLimit(admin, {
+        key: getClientAddress(req), purpose: "public-feedback-address",
+        limit: 10, windowSeconds: 60 * 60, salt: serviceKey,
+      });
+      if (!addressLimit.allowed) return jsonResponse({ error: "Too many feedback submissions. Please try again later." }, 429);
 
       if (email) {
         const cooldownStart = new Date(Date.now() - 2 * 60_000).toISOString();

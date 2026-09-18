@@ -9,9 +9,11 @@ import { TemporaryPasswordField } from "../../components/TemporaryPasswordField"
 import { formatPhilippineDate, formatPhilippineDateTime } from "../../lib/dateTime";
 import { validateStrongPassword } from "../../lib/passwordStrength";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { formatCustomerCode } from "../../lib/customerId";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
+import { useToast } from "../../components/ToastProvider";
 
 const STAFF_PER_PAGE = 9;
 const SCAN_LOGS_PER_PAGE = 10;
@@ -46,6 +48,7 @@ const getTopEntry = (entries: [string, number][]) =>
   entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] || null;
 
 export default function StoreOwnerStaff({ store }: { store: any }) {
+  const toast = useToast();
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -180,7 +183,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
 
   const handleOpenModal = () => {
     if (hasReachedStaffLimit) {
-      alert(`Your current subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.`);
+      toast.info(`Your current subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.`);
       return;
     }
     setFormData({ name: "", email: "", password: "", requirePasswordChange: true });
@@ -190,14 +193,15 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateStrongPassword(formData.password, { name: formData.name, email: formData.email }).valid) {
-      alert("Use a strong password that meets every requirement.");
+      toast.info("Use a strong password that meets every requirement.");
       return;
     }
     if (hasReachedStaffLimit) {
-      alert(`Your current subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.`);
+      toast.info(`Your current subscription allows up to ${staffLimit} staff account${staffLimit === 1 ? "" : "s"}.`);
       return;
     }
     setSaving(true);
+    const progressToastId = toast.progress("Creating the staff account…", { title: "Adding staff" });
     try {
       const result = await invokeAdminBackend<{
         user: any;
@@ -216,13 +220,13 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
         ...result.user,
       }]);
       setIsModalOpen(false);
-      alert(
-        result.notification && !result.notification.sent
-          ? `Staff account created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`
-          : "Staff account created. The welcome email has been sent.",
-      );
+      if (result.notification && !result.notification.sent) {
+        toast.update(progressToastId, `The staff account was created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`, "error", { title: "Email delivery failed" });
+      } else {
+        toast.update(progressToastId, "Staff account created. The welcome email has been sent.", "success", { title: "Staff added" });
+      }
     } catch (error) {
-      alert("Failed to add staff member.");
+      toast.update(progressToastId, "The staff member could not be added.", "error", { error, title: "Staff creation failed" });
     } finally {
       setSaving(false);
     }
@@ -231,12 +235,14 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
   const handleDelete = async () => {
     if (!staffToRemove) return;
     setIsRemovingStaff(true);
+    const progressToastId = toast.progress("Removing the staff account…", { title: "Removing staff" });
     try {
       await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_user", userId: staffToRemove.id });
       setStaff((current) => current.filter((member) => member.id !== staffToRemove.id));
       setStaffToRemove(null);
+      toast.update(progressToastId, "The staff account was removed.", "success", { title: "Staff removed" });
     } catch (error) {
-      alert("Failed to remove staff member");
+      toast.update(progressToastId, "The staff member could not be removed.", "error", { error, title: "Removal failed" });
     } finally {
       setIsRemovingStaff(false);
     }
@@ -417,7 +423,8 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                 <p className="text-sm text-gray-500 mt-1">Scans will appear here after this staff member credits customers.</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <>
+                <ScrollableRegion label={`${selectedStaff.name || "Staff"} scan history`} className="space-y-3 pr-1">
                 {paginatedScanLogs.map((log) => {
                   const promotion = log.promotionId ? promotionsById[log.promotionId] : null;
                   const customer = log.customerId ? customersById[log.customerId] : null;
@@ -444,6 +451,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                     </div>
                   );
                 })}
+                </ScrollableRegion>
                 <Pagination
                   page={scanPage}
                   pageSize={SCAN_LOGS_PER_PAGE}
@@ -451,7 +459,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                   itemLabel="scans"
                   onPageChange={setScanPage}
                 />
-              </div>
+              </>
             )}
           </div>
         </div>
@@ -489,7 +497,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
         className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-12 text-sm text-gray-900 shadow-sm outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
       />
 
-      <div id="staff-management-results" className="scroll-mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <ScrollableRegion label="Staff accounts" id="staff-management-results" className="scroll-mt-6 grid gap-4 pr-1 sm:grid-cols-2 lg:grid-cols-3">
         {filteredStaff.length === 0 ? (
           <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-[#1b1b1b] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
             <BadgeCheck className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-700 mb-3" />
@@ -514,7 +522,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                <div className="flex items-start gap-4 mb-4">
                  <div className="w-12 h-12 bg-gray-100 dark:bg-white/10 rounded-full flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                     {getAvatarUrl(member) ? (
-                      <img src={getDisplayImageUrl(getAvatarUrl(member))} alt="" className="h-full w-full rounded-full object-cover" />
+                      <img src={getDisplayImageUrl(getAvatarUrl(member))} alt="" loading="lazy" decoding="async" className="h-full w-full rounded-full object-cover" />
                     ) : (
                       <span className="font-bold text-[#1b1b1b] dark:text-white text-lg uppercase">{getInitial(member.name)}</span>
                     )}
@@ -547,7 +555,7 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
             </div>
           ))
         )}
-      </div>
+      </ScrollableRegion>
       <Pagination
         page={staffPage}
         pageSize={STAFF_PER_PAGE}

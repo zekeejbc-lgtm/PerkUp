@@ -124,6 +124,44 @@ function sendConfirmationEmail(recipientEmail, userName, confirmationLink) {
   });
 }
 
+function sendNewsletterConfirmationEmail(recipientEmail, confirmationLink) {
+  validateEmailInput_(recipientEmail, "Perk subscriber");
+  if (!confirmationLink || !/^https:\/\//i.test(String(confirmationLink))) {
+    throw new Error("A secure newsletter confirmation link is required.");
+  }
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: "Confirm your Perk updates subscription",
+    userName: "Perk subscriber",
+    heading: "Confirm your subscription",
+    introText: "Confirm that you want to receive occasional Perk product and partner updates.",
+    secondaryText: "If you did not request this, ignore this email. You will not be subscribed.",
+    buttonText: "Confirm subscription",
+    buttonLink: String(confirmationLink),
+    showButton: true,
+    plainText: "Confirm your Perk updates subscription: " + String(confirmationLink)
+  });
+}
+
+function sendNewsletterConfirmedEmail(recipientEmail, unsubscribeLink) {
+  validateEmailInput_(recipientEmail, "Perk subscriber");
+  if (!unsubscribeLink || !/^https:\/\//i.test(String(unsubscribeLink))) {
+    throw new Error("A secure newsletter unsubscribe link is required.");
+  }
+  return sendSystemEmail_({
+    recipientEmail: recipientEmail,
+    subject: "Your Perk updates subscription is active",
+    userName: "Perk subscriber",
+    heading: "Subscription confirmed",
+    introText: "You will now receive occasional Perk product and partner updates.",
+    secondaryText: "You can stop these emails at any time using the link below.",
+    buttonText: "Unsubscribe",
+    buttonLink: String(unsubscribeLink),
+    showButton: true,
+    plainText: "Your Perk updates subscription is active. Unsubscribe: " + String(unsubscribeLink)
+  });
+}
+
 function sendStoreCreatedEmail(recipientEmail, userName, store, loginLink, requirePasswordChange) {
   validateEmailInput_(recipientEmail, userName);
   store = store || {};
@@ -291,11 +329,20 @@ function sendSubscriptionPaymentDueEmail(recipientEmail, userName, invoice) {
   var invoiceDetails = {
     documentNumber: documentNumber,
     status: "Payment due",
+    issuedAt: formatPhilippineDate_(invoice.issuedAt || invoice.dueAt),
     subscriberName: String(invoice.subscriberName || userName || "Store owner").trim(),
     storeName: String(invoice.storeName || "Your store").trim(),
-    planName: String(invoice.planName || "Perk subscription").trim(),
+    businessAddress: String(invoice.businessAddress || "Business address not provided").trim(),
+    businessContact: String(invoice.businessContact || "Contact number not provided").trim(),
+    billingEmail: String(invoice.billingEmail || recipientEmail || "Billing email not provided").trim(),
+    planName: getSubscriptionPlanLabel_(invoice.planName),
     amount: formattedAmount,
+    subtotalAmount: formattedAmount,
+    totalAmount: formattedAmount,
     dueDate: dueDate,
+    documentDueDate: formatPhilippineDate_(invoice.dueAt),
+    billingPeriod: formatSubscriptionPeriod_(invoice.periodStart, invoice.periodEnd),
+    intervalDays: Number(invoice.intervalDays || 30),
     referenceNumber: referenceNumber
   };
 
@@ -344,12 +391,22 @@ function sendSubscriptionPaymentReminderEmail(recipientEmail, userName, invoice)
   var invoiceDetails = {
     documentNumber: getSubscriptionDocumentNumber_(invoice),
     status: initialReminder ? "Activation pending - payment outstanding" : frozen ? "Access frozen - payment outstanding" : "Overdue - grace period active",
+    issuedAt: formatPhilippineDate_(invoice.issuedAt || invoice.dueAt),
     subscriberName: String(invoice.subscriberName || userName || "Store owner").trim(),
     storeName: String(invoice.storeName || "Your store").trim(),
-    planName: String(invoice.planName || "Perk subscription").trim(),
+    businessAddress: String(invoice.businessAddress || "Business address not provided").trim(),
+    businessContact: String(invoice.businessContact || "Contact number not provided").trim(),
+    billingEmail: String(invoice.billingEmail || recipientEmail || "Billing email not provided").trim(),
+    planName: getSubscriptionPlanLabel_(invoice.planName),
     amount: formattedAmount,
+    subtotalAmount: formattedAmount,
+    totalAmount: formattedAmount,
     dueDate: formatPhilippineDateTime_(invoice.dueAt),
+    documentDueDate: formatPhilippineDate_(invoice.dueAt),
     graceEndsAt: formatPhilippineDateTime_(invoice.graceEndsAt),
+    billingPeriod: formatSubscriptionPeriod_(invoice.periodStart, invoice.periodEnd),
+    intervalDays: Number(invoice.intervalDays || 30),
+    gracePeriodDays: Number(invoice.gracePeriodDays || 0),
     referenceNumber: referenceNumber
   };
 
@@ -388,16 +445,27 @@ function sendSubscriptionPaymentReceivedEmail(recipientEmail, userName, invoice)
   if (!isFinite(amountCentavos) || amountCentavos < 100) throw new Error("A valid paid amount is required.");
   var currency = String(invoice.currency || "PHP").toUpperCase();
   var formattedAmount = currency + " " + (amountCentavos / 100).toFixed(2);
+  var subtotalCentavos = Number(invoice.amountCentavos || amountCentavos);
+  var formattedSubtotal = currency + " " + (subtotalCentavos / 100).toFixed(2);
   var adminConfirmed = invoice.adminConfirmed === true;
   var invoiceDetails = {
     documentNumber: getSubscriptionDocumentNumber_(invoice),
     status: "Paid",
+    issuedAt: formatPhilippineDate_(invoice.issuedAt || invoice.dueAt || invoice.paidAt),
     subscriberName: String(invoice.subscriberName || userName || "Store owner").trim(),
     storeName: String(invoice.storeName || "Your store").trim(),
-    planName: String(invoice.planName || "Perk subscription").trim(),
+    businessAddress: String(invoice.businessAddress || "Business address not provided").trim(),
+    businessContact: String(invoice.businessContact || "Contact number not provided").trim(),
+    billingEmail: String(invoice.billingEmail || recipientEmail || "Billing email not provided").trim(),
+    planName: getSubscriptionPlanLabel_(invoice.planName),
     amount: formattedAmount,
+    subtotalAmount: formattedSubtotal,
+    totalAmount: formattedAmount,
     dueDate: formatPhilippineDateTime_(invoice.dueAt),
     paidAt: formatPhilippineDateTime_(invoice.paidAt),
+    documentPaidAt: formatPhilippineDate_(invoice.paidAt),
+    billingPeriod: formatSubscriptionPeriod_(invoice.periodStart, invoice.periodEnd),
+    intervalDays: Number(invoice.intervalDays || 30),
     renewedUntil: formatPhilippineDateTime_(invoice.renewedUntil),
     paymentMethod: String(invoice.paymentMethod || "PayMongo").replace(/_/g, " "),
     referenceNumber: String(invoice.referenceNumber || "").trim()
@@ -544,39 +612,61 @@ function getSubscriptionDocumentNumber_(invoice) {
   return "PU-" + (rawId.substring(0, 12) || Utilities.getUuid().replace(/-/g, "").substring(0, 12).toUpperCase());
 }
 
+function getSubscriptionPlanLabel_(value) {
+  var label = String(value || "Perk").trim().replace(/[_-]+/g, " ");
+  label = label.replace(/\b\w/g, function(character) { return character.toUpperCase(); });
+  return /\bsubscription$/i.test(label) ? label : label + " subscription";
+}
+
+function formatSubscriptionPeriod_(periodStart, periodEnd) {
+  if (!periodStart || !periodEnd) return "Not available";
+  return formatPhilippineDate_(periodStart) + " - " + formatPhilippineDate_(periodEnd);
+}
+
 function createSubscriptionDocumentPdf_(invoice, documentType) {
   var isReceipt = documentType === "receipt";
   var title = isReceipt ? "ACKNOWLEDGEMENT RECEIPT" : "INVOICE";
   var numberLabel = isReceipt ? "RECEIPT" : "INVOICE";
   var paidOrDueLabel = isReceipt ? "PAID" : "DUE DATE";
-  var paidOrDueValue = isReceipt ? invoice.paidAt : invoice.dueDate;
+  var paidOrDueValue = isReceipt
+    ? (invoice.documentPaidAt || invoice.paidAt)
+    : (invoice.documentDueDate || invoice.dueDate);
   var note = isReceipt
-    ? "Payment confirmed. Keep this receipt for your records."
-    : "Please use the secure PayMongo link in your email and include the document number with your payment.";
+    ? "1. " + (/^(admin confirmed|manual )/i.test(String(invoice.paymentMethod || ""))
+      ? "A Perk administrator recorded this payment from the paid date and reference shown."
+      : "PayMongo confirmed this payment and subscription access updated automatically.") +
+      "<br>2. Keep this receipt for your records."
+    : "1. Pay through the secure PayMongo page before the due date.<br>2. Access updates after PayMongo confirms the exact amount.";
+  var paymentMethod = isReceipt
+    ? String(invoice.paymentMethod || "Not available").replace(/[_-]+/g, " ").replace(/\b\w/g, function(character) { return character.toUpperCase(); })
+    : "Secure PayMongo link";
+  var titleFontSize = isReceipt ? "21px" : "34px";
   var html = "<!doctype html><html><head><meta charset='UTF-8'><style>" +
     "@page{size:A4;margin:0}*{box-sizing:border-box}body{margin:0;padding:38px 42px;font-family:Arial,sans-serif;color:#1b1b1b;font-size:12px}" +
     ".top{display:table;width:100%;border-bottom:3px solid #1b1b1b;padding-bottom:18px}.brand,.document{display:table-cell;vertical-align:bottom}" +
-    ".brand img{display:block;width:98px;height:auto}.document{text-align:right}.document h1{margin:0;font-size:34px;letter-spacing:1px}.number{margin-top:5px;color:#6b6b6b}" +
+    ".brand img{display:block;width:98px;height:auto}.document{text-align:right}.document h1{margin:0;font-size:" + titleFontSize + ";letter-spacing:1px}.number{margin-top:5px;color:#6b6b6b}" +
     ".company{display:table;width:100%;padding:18px 0 26px}.from,.meta{display:table-cell;width:50%;vertical-align:top}.from strong{font-size:15px}.muted{color:#6b6b6b;line-height:1.55}" +
     ".meta{text-align:right}.meta-row{margin-bottom:7px}.meta-label{display:inline-block;width:90px;color:#6b6b6b;font-weight:700}.meta-value{display:inline-block;min-width:150px}" +
     ".bill{width:52%;margin-bottom:24px}.section-title{padding:7px 12px;background:#1b1b1b;color:#fff;font-weight:700;letter-spacing:.4px}.bill-body{padding:12px}.bill-name{font-size:15px;font-weight:700;margin-bottom:6px}" +
     ".status{float:right;margin-top:-58px;padding:7px 16px;border-radius:999px;background:#f3f3f3;font-size:10px;font-weight:700}" +
     "table{width:100%;border-collapse:collapse}.items th{padding:9px 12px;background:#1b1b1b;color:#fff;text-align:left;font-size:10px}.items th:last-child,.items td:last-child{text-align:right}.items td{padding:12px;border-bottom:1px solid #e2e2e2}.items tr:nth-child(even) td{background:#f7f7f7}" +
     ".summary{display:table;width:100%;margin-top:24px}.notes,.totals{display:table-cell;vertical-align:top}.notes{width:58%;padding-right:28px}.notes-title{font-size:10px;font-weight:700;color:#6b6b6b;margin-bottom:8px}.totals{width:42%}.total-row{padding:7px 10px;border-bottom:1px solid #e2e2e2}.total-row span:last-child{float:right}.grand-total{padding:11px 10px;background:#1b1b1b;color:#fff;font-weight:700;font-size:14px}" +
-    ".details{display:table;width:100%;margin-top:26px;padding:14px;background:#f7f7f7;border-radius:8px}.detail{display:table-cell;width:50%}.detail-label{color:#6b6b6b;font-size:9px;font-weight:700;text-transform:uppercase}.detail-value{margin-top:5px;font-weight:700}" +
+    ".details{display:block;width:100%;margin-top:26px;padding:14px;background:#f7f7f7;border-radius:8px}.detail{display:inline-block;width:50%;vertical-align:top;margin-bottom:10px}.detail-label{color:#6b6b6b;font-size:9px;font-weight:700;text-transform:uppercase}.detail-value{margin-top:5px;font-weight:700}" +
     ".footer{position:absolute;left:42px;right:42px;bottom:34px;border-top:1px solid #e2e2e2;padding-top:11px;color:#6b6b6b;font-size:9px;line-height:1.45}.footer-right{float:right;text-align:right}</style></head><body>" +
     "<div class='top'><div class='brand'><img src='" + escapeHtml_(EMAIL_CONFIG.logoUrl) + "' alt='Perk'></div><div class='document'><h1>" + title + "</h1><div class='number'>" + escapeHtml_(invoice.documentNumber) + "</div></div></div>" +
-    "<div class='company'><div class='from'><strong>Perk</strong><div class='muted'>Tagum City, Davao del Norte, Philippines<br>" + escapeHtml_(EMAIL_CONFIG.contactEmail) + "<br>www.perktoday.com</div></div>" +
-    "<div class='meta'><div class='meta-row'><span class='meta-label'>DATE</span><span class='meta-value'>" + escapeHtml_(formatPhilippineDateTime_(new Date())) + "</span></div>" +
+    "<div class='company'><div class='from'><strong>Perk</strong><div class='muted'>Tagum City, Davao del Norte, Philippines<br>" + escapeHtml_(EMAIL_CONFIG.contactEmail) + "<br>0962 232 8290<br>www.perktoday.com</div></div>" +
+    "<div class='meta'><div class='meta-row'><span class='meta-label'>DATE</span><span class='meta-value'>" + escapeHtml_(invoice.issuedAt || "Not available") + "</span></div>" +
     "<div class='meta-row'><span class='meta-label'>" + numberLabel + " #</span><span class='meta-value'>" + escapeHtml_(invoice.documentNumber) + "</span></div>" +
     "<div class='meta-row'><span class='meta-label'>" + paidOrDueLabel + "</span><span class='meta-value'>" + escapeHtml_(paidOrDueValue) + "</span></div></div></div>" +
-    "<div class='bill'><div class='section-title'>BILL TO</div><div class='bill-body'><div class='bill-name'>" + escapeHtml_(invoice.subscriberName || invoice.storeName) + "</div><div class='muted'>" + escapeHtml_(invoice.storeName) + "</div></div></div>" +
+    "<div class='bill'><div class='section-title'>BILL TO</div><div class='bill-body'><div class='bill-name'>" + escapeHtml_(invoice.subscriberName || invoice.storeName) + "</div><div class='muted'>" + escapeHtml_(invoice.storeName) + "<br>" + escapeHtml_(invoice.businessAddress) + "<br>" + escapeHtml_(invoice.billingEmail) + "<br>" + escapeHtml_(invoice.businessContact) + "</div></div></div>" +
     "<div class='status'>" + escapeHtml_(invoice.status || (isReceipt ? "Paid" : "Payment due")) + "</div>" +
-    "<table class='items'><tr><th>DESCRIPTION</th><th style='text-align:center'>QTY</th><th>AMOUNT</th></tr><tr><td><strong>" + escapeHtml_(invoice.planName) + "</strong><div class='muted'>Subscription access and plan features</div></td><td style='text-align:center'>1</td><td>" + escapeHtml_(invoice.amount) + "</td></tr></table>" +
-    "<div class='summary'><div class='notes'><div class='notes-title'>" + (isReceipt ? "PAYMENT NOTE" : "NOTES") + "</div>" + escapeHtml_(note) + "</div>" +
-    "<div class='totals'><div class='total-row'><span>Subtotal</span><span>" + escapeHtml_(invoice.amount) + "</span></div><div class='grand-total'><span>" + (isReceipt ? "TOTAL PAID" : "TOTAL DUE") + "</span><span style='float:right'>" + escapeHtml_(invoice.amount) + "</span></div></div></div>" +
-    "<div class='details'><div class='detail'><div class='detail-label'>Subscription plan</div><div class='detail-value'>" + escapeHtml_(invoice.planName) + "</div></div>" +
-    "<div class='detail'><div class='detail-label'>Payment reference</div><div class='detail-value'>" + escapeHtml_(invoice.referenceNumber || "Pending") + "</div></div></div>" +
+    "<table class='items'><tr><th>DESCRIPTION</th><th style='text-align:center'>QTY</th><th>AMOUNT</th></tr><tr><td><strong>" + escapeHtml_(invoice.planName) + "</strong><div class='muted'>" + escapeHtml_(String(invoice.intervalDays || 30)) + "-day portal access and plan features</div></td><td style='text-align:center'>1</td><td>" + escapeHtml_(invoice.subtotalAmount || invoice.amount) + "</td></tr></table>" +
+    "<div class='summary'><div class='notes'><div class='notes-title'>" + (isReceipt ? "PAYMENT NOTE" : "NOTES") + "</div>" + note + "</div>" +
+    "<div class='totals'><div class='total-row'><span>Subtotal</span><span>" + escapeHtml_(invoice.subtotalAmount || invoice.amount) + "</span></div><div class='grand-total'><span>" + (isReceipt ? "TOTAL PAID" : "TOTAL DUE") + "</span><span style='float:right'>" + escapeHtml_(invoice.totalAmount || invoice.amount) + "</span></div></div></div>" +
+    "<div class='details'><div class='detail'><div class='detail-label'>Payment reference</div><div class='detail-value'>" + escapeHtml_(invoice.referenceNumber || "Pending") + "</div></div>" +
+    "<div class='detail'><div class='detail-label'>Payment method</div><div class='detail-value'>" + escapeHtml_(paymentMethod) + "</div></div>" +
+    "<div class='detail'><div class='detail-label'>Subscription plan</div><div class='detail-value'>" + escapeHtml_(invoice.planName) + "</div></div>" +
+    "<div class='detail'><div class='detail-label'>Billing period</div><div class='detail-value'>" + escapeHtml_(invoice.billingPeriod || "Not available") + "</div></div></div>" +
     "<div class='footer'><div class='footer-right'>www.perktoday.com<br>" + escapeHtml_(invoice.documentNumber) + "</div>" +
     (isReceipt
       ? "This system-generated acknowledgement receipt records a Perk payment.<br>Official Receipt will be provided upon request. For questions, contact "
@@ -753,4 +843,11 @@ function formatPhilippineDateTime_(value) {
   var date = value instanceof Date ? value : new Date(value);
   if (isNaN(date.getTime())) return String(value).trim();
   return Utilities.formatDate(date, "Asia/Manila", "MMM d, yyyy, h:mm a") + " PHT";
+}
+
+function formatPhilippineDate_(value) {
+  if (!value) return "Not available";
+  var date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) return String(value).trim() || "Not available";
+  return Utilities.formatDate(date, "Asia/Manila", "MMM d, yyyy");
 }

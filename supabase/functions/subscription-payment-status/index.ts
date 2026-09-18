@@ -78,6 +78,7 @@ const sendPaymentLinkEmail = async (
   if (existing?.status === "sent") return;
 
   const recipient = String(invoice.subscription?.billing_email || ownerRow?.data?.email || "").trim().toLowerCase();
+  const subscriberName = String(ownerRow?.data?.name || "Store owner").trim();
   if (!recipient) throw new Error("The store owner has no billing email.");
   const gasSecret = requiredEnv("DRIVE_CRUD_SECRET");
   const gasUrl = Deno.env.get("GAS_EMAIL_URL") || Deno.env.get("GOOGLE_DRIVE_UPLOAD_URL") ||
@@ -90,15 +91,24 @@ const sendPaymentLinkEmail = async (
         secret: gasSecret,
         action: "subscription_payment_due",
         recipientEmail: recipient,
-        userName: String(ownerRow?.data?.name || "Store owner").trim(),
+        userName: subscriberName,
         invoice: {
           invoiceId: invoice.id,
+          subscriberName,
           storeName: String(storeRow?.data?.businessName || storeRow?.data?.name || "your store").trim(),
+          businessAddress: String(storeRow?.data?.address || storeRow?.data?.location || "").trim(),
+          businessContact: String(storeRow?.data?.contact || storeRow?.data?.contactNumber || storeRow?.data?.phone || "").trim(),
+          billingEmail: recipient,
           planName: invoice.plan_name_snapshot || invoice.plan_id_snapshot ||
             invoice.subscription?.plan_id,
           amountCentavos: invoice.amount_centavos,
           currency: invoice.currency,
+          issuedAt: invoice.created_at,
           dueAt: invoice.due_at,
+          periodStart: invoice.period_start,
+          periodEnd: invoice.period_end,
+          intervalDays: invoice.subscription?.interval_days,
+          gracePeriodDays: invoice.subscription?.grace_period_days,
           referenceNumber: link.referenceNumber,
           paymentLink: link.url,
           testMode: !link.livemode,
@@ -250,7 +260,7 @@ Deno.serve(async (req) => {
       throw new Error("The subscription billing period is invalid.");
     }
     const expectedInvoiceType = subscription.initial_payment_required === true ? "initial" : "renewal";
-    const invoiceColumns = "id,subscription_id,store_id,owner_user_id,invoice_type,status,due_at,paymongo_link_id,payment_url,amount_centavos,currency,livemode,paid_at,period_start,period_end,paymongo_reference_number,plan_id_snapshot,plan_name_snapshot,subscription:billing_subscriptions(billing_email,plan_id,automation_enabled,renewal_mode)";
+    const invoiceColumns = "id,subscription_id,store_id,owner_user_id,invoice_type,status,created_at,due_at,paymongo_link_id,payment_url,amount_centavos,currency,livemode,paid_at,period_start,period_end,paymongo_reference_number,plan_id_snapshot,plan_name_snapshot,subscription:billing_subscriptions(billing_email,plan_id,interval_days,grace_period_days,automation_enabled,renewal_mode)";
     let invoiceQuery = admin.from("billing_invoices")
       .select(invoiceColumns)
       .eq("store_id", storeId)

@@ -25,18 +25,47 @@ if (!supabasePublishableKey) {
   console.warn("VITE_SUPABASE_PUBLISHABLE_KEY is missing. Please add it to your environment variables.");
 }
 
-export const supabase = createClient(supabaseUrl, supabasePublishableKey || 'missing-key', {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
+const createPrimarySupabaseClient = () => createClient<any>(
+  supabaseUrl,
+  supabasePublishableKey || 'missing-key',
+  {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
+    },
   },
-});
-export const secondarySupabase = createClient(supabaseUrl, supabasePublishableKey || 'missing-key', {
-  auth: {
-    storageKey: 'perk-secondary-auth',
-    persistSession: false,
-    autoRefreshToken: false,
-    detectSessionInUrl: false,
+);
+
+const createSecondarySupabaseClient = () => createClient<any>(
+  supabaseUrl,
+  supabasePublishableKey || 'missing-key',
+  {
+    auth: {
+      storageKey: 'perk-secondary-auth',
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
   },
-});
+);
+
+type SupabaseClientInstance = ReturnType<typeof createPrimarySupabaseClient>;
+type PerkSupabaseGlobal = typeof globalThis & {
+  __perkPrimarySupabaseClient?: SupabaseClientInstance;
+  __perkSecondarySupabaseClient?: SupabaseClientInstance;
+};
+
+// Keep one auth client alive across Vite hot-module replacements. Creating
+// multiple clients against the same persisted session can make both instances
+// race to consume the same one-time refresh token.
+const clientRegistry = globalThis as PerkSupabaseGlobal;
+
+export const supabase = clientRegistry.__perkPrimarySupabaseClient
+  ?? createPrimarySupabaseClient();
+
+export const secondarySupabase = clientRegistry.__perkSecondarySupabaseClient
+  ?? createSecondarySupabaseClient();
+
+clientRegistry.__perkPrimarySupabaseClient = supabase;
+clientRegistry.__perkSecondarySupabaseClient = secondarySupabase;

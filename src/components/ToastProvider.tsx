@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Info, LoaderCircle, Send, X } from "lucide-react";
 import { createErrorCode, submitErrorReport } from "../lib/errorReports";
 
@@ -38,6 +38,16 @@ interface ToastContextValue {
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
+
+const unavailableToast: ToastContextValue = {
+  showToast: () => "",
+  progress: () => "",
+  success: () => "",
+  error: () => "",
+  info: () => "",
+  update: () => undefined,
+  dismissToast: () => undefined,
+};
 
 const typeStyles: Record<ToastType, string> = {
   progress: "border-blue-200 bg-blue-50 text-blue-950 dark:border-blue-800 dark:bg-blue-950/90 dark:text-blue-100",
@@ -131,20 +141,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [dismissToast, showToast, update],
   );
 
-  // Keep older screens on the same visual system while their alert() calls are
-  // migrated to useToast. This also covers third-party callbacks that only expose
-  // the browser alert API.
-  useEffect(() => {
-    const originalAlert = window.alert;
-    window.alert = (message) => {
-      const text = String(message);
-      if (/fail|error|could not|unable/i.test(text)) showToast(text, "error");
-      else if (/success|created|saved|updated|redeemed|issued|copied/i.test(text)) showToast(text, "success");
-      else showToast(text, "info", { duration: 7000 });
-    };
-    return () => { window.alert = originalAlert; };
-  }, [showToast]);
-
   const reportError = useCallback(async (toast: Toast) => {
     if (!toast.errorCode || toast.reportState === "sending" || toast.reportState === "sent") return;
     setToasts((current) => current.map((item) => item.id === toast.id ? { ...item, reportState: "sending" } : item));
@@ -208,6 +204,5 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 export function useToast() {
   const context = useContext(ToastContext);
-  if (!context) throw new Error("useToast must be used within ToastProvider.");
-  return context;
+  return context ?? unavailableToast;
 }

@@ -13,6 +13,9 @@ import { getAverageRating, getPublicReviews, toReviewDate, type StoreReview } fr
 import { ReviewCard } from "../components/store-reviews/ReviewCard";
 import { ReviewDetailsModal } from "../components/store-reviews/ReviewDetailsModal";
 import { ReviewImageModal } from "../components/store-reviews/ReviewImageModal";
+import { ScrollableRegion } from "../components/ScrollableRegion";
+import { Pagination } from "../components/Pagination";
+import { useCollectionPagination } from "../hooks/useCollectionPagination";
 
 type ReviewStore = { id: string; name: string; logoUrl?: string; status?: string };
 
@@ -60,8 +63,9 @@ export default function StoreReviewsPage() {
   }, [storeId]);
 
   const average = useMemo(() => getAverageRating(reviews), [reviews]);
+  const reviewPagination = useCollectionPagination(reviews, 12);
 
-  if (loading) return <PageSkeleton variant="content" />;
+  if (loading) return <PageSkeleton variant="reviews" />;
   if (missing || !store) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-white px-6 text-center dark:bg-[#1b1b1b]">
@@ -103,9 +107,12 @@ export default function StoreReviewsPage() {
           </div>
         </section>
         {reviews.length ? (
-          <section data-testid="all-reviews-grid" className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {reviews.map((review) => <ReviewCard key={review.id} review={review} storeName={store.name} onOpenReview={setSelectedReview} onOpenImage={(url, alt) => setSelectedImage({ url, alt })} />)}
-          </section>
+          <>
+          <ScrollableRegion label={`${store.name} customer reviews`} data-testid="all-reviews-grid" className="mt-6 grid gap-4 pr-1 md:grid-cols-2 xl:grid-cols-3">
+            {reviewPagination.pageItems.map((review) => <ReviewCard key={review.id} review={review} storeName={store.name} onOpenReview={setSelectedReview} onOpenImage={(url, alt) => setSelectedImage({ url, alt })} />)}
+          </ScrollableRegion>
+          <Pagination page={reviewPagination.page} pageSize={reviewPagination.pageSize} totalItems={reviewPagination.totalItems} onPageChange={reviewPagination.setPage} itemLabel="reviews" />
+          </>
         ) : (
           <div className="mt-6 rounded-3xl border border-dashed border-gray-300 p-12 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">No customer reviews have been published yet.</div>
         )}
@@ -116,4 +123,3 @@ export default function StoreReviewsPage() {
     </div>
   );
 }
-

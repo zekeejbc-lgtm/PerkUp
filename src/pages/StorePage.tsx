@@ -26,6 +26,10 @@ import { ReviewImageModal } from "../components/store-reviews/ReviewImageModal";
 import { StoreContactInformation } from "../components/StoreContactInformation";
 import type { StoreSocialLink } from "../lib/storeSocialLinks";
 import { ReviewFormModal } from "../components/store-reviews/ReviewFormModal";
+import { ScrollableRegion } from "../components/ScrollableRegion";
+import { Pagination } from "../components/Pagination";
+import { useCollectionPagination } from "../hooks/useCollectionPagination";
+import { useToast } from "../components/ToastProvider";
 
 interface StoreContent {
   id: string;
@@ -219,6 +223,7 @@ function StoreGalleryCarousel({ images, storeName }: { images: string[]; storeNa
 }
 
 export default function StorePage() {
+  const toast = useToast();
   const { storeId } = useParams();
   const location = useLocation();
   const { user } = useAuth();
@@ -408,6 +413,7 @@ export default function StorePage() {
     if (!storeId || !store || !user || user.role !== "customer") return;
 
     setSubmittingFeedback(true);
+    const progressToastId = toast.progress("Submitting your review…", { title: "Sending review" });
     setFeedbackSent(false);
     let uploadedImageUrls: string[] = [];
     let reviewPersisted = false;
@@ -446,6 +452,7 @@ export default function StorePage() {
       setFeedbackSent(true);
       await fetchReviews();
       setFeedbackModalOpen(false);
+      toast.update(progressToastId, "Your review was submitted.", "success", { title: "Review sent" });
     } catch (error) {
       if (!reviewPersisted && uploadedImageUrls.length) {
         await Promise.allSettled(uploadedImageUrls.map((url) => deleteImageFromDriveSecure(url)));
@@ -454,11 +461,17 @@ export default function StorePage() {
       const message = error instanceof Error && /duplicate|unique/i.test(error.message)
         ? "You have already reviewed this store."
         : "Failed to submit review. Please try again.";
-      alert(message);
+      if (/already reviewed/i.test(message)) {
+        toast.update(progressToastId, message, "info", { title: "Review already submitted" });
+      } else {
+        toast.update(progressToastId, message, "error", { error, title: "Submission failed" });
+      }
     } finally {
       setSubmittingFeedback(false);
     }
   };
+
+  const branchPagination = useCollectionPagination(branches, 9);
 
   if (loading) {
     return <PageSkeleton variant="store" />;
@@ -722,8 +735,8 @@ export default function StorePage() {
             </div>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {branches.map((branch) => (
+          <ScrollableRegion label={`${store.name} branch locations`} className="grid gap-4 pr-1 sm:grid-cols-2 lg:grid-cols-3">
+            {branchPagination.pageItems.map((branch) => (
               <article
                 key={branch.id}
                 className={`rounded-3xl border p-5 shadow-sm ${
@@ -761,7 +774,8 @@ export default function StorePage() {
                 </div>
               </article>
             ))}
-          </div>
+          </ScrollableRegion>
+          <Pagination page={branchPagination.page} pageSize={branchPagination.pageSize} totalItems={branchPagination.totalItems} onPageChange={branchPagination.setPage} itemLabel="branches" />
         </section>
 
         {Array.isArray(store.images) && store.images.length > 0 && (

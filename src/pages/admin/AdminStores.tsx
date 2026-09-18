@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { collection, getDocs, doc, updateDoc, serverTimestamp, getDoc } from "@/src/lib/dataCompat";
 import { db, handleDataError, OperationType } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
-import { ShieldAlert, CheckCircle, Ban, Store, Plus, X, Upload, Image as ImageIcon, UserRound, MapPin } from "lucide-react";
+import { ShieldAlert, CheckCircle, Ban, Store, Plus, X, Upload, Image as ImageIcon, UserRound, MapPin, Loader2 } from "lucide-react";
 import AdminStoreDetail from "./AdminStoreDetail";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
@@ -26,6 +26,7 @@ import { TimeInput } from "../../components/TimeInput";
 import { formatStoreHours } from "../../lib/dateTime";
 import { CategoryInput } from "../../components/CategoryInput";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
 import { PayMongoDefaultsControl } from "../../components/PayMongoDefaultsControl";
 import { PAYMONGO_STANDARD_ACCESS } from "../../lib/subscriptionAccess";
@@ -80,6 +81,7 @@ export default function AdminStores() {
   const [payMongoDefaultsEnabled, setPayMongoDefaultsEnabled] = useState(false);
   const [alreadyPaid, setAlreadyPaid] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusUpdatingGroupId, setStatusUpdatingGroupId] = useState("");
   const billingPlans = subscriptionPlans.length > 0 ? subscriptionPlans : DEFAULT_SUBSCRIPTION_PLANS;
   const selectedOwedAmount = getSubscriptionOwedAmount(billingPlans, subLevel);
   const selectedSubscriptionDependencies = getSubscriptionDependencies(billingPlans, subLevel);
@@ -214,8 +216,15 @@ export default function AdminStores() {
   };
 
   const updateStoreGroupStatus = async (branches: any[], newStatus: string) => {
+    const branchIds = branches.map((branch) => String(branch.id || "")).filter(Boolean);
+    const groupId = [...branchIds].sort().join(":");
+    if (!branchIds.length || statusUpdatingGroupId) return;
+    setStatusUpdatingGroupId(groupId);
+    const progressToastId = toast.progress(
+      `${newStatus === "active" ? "Activating" : "Suspending"} ${branchIds.length} branch${branchIds.length === 1 ? "" : "es"}…`,
+      { title: "Updating store access" },
+    );
     try {
-      const branchIds = branches.map((branch) => branch.id).filter(Boolean);
       await Promise.all(branchIds.map((branchId) => updateDoc(doc(db, "stores", branchId), {
         status: newStatus,
         updatedAt: serverTimestamp()
@@ -223,8 +232,22 @@ export default function AdminStores() {
       setStores((currentStores) => currentStores.map((store) => (
         branchIds.includes(store.id) ? { ...store, status: newStatus } : store
       )));
+      toast.update(
+        progressToastId,
+        `${branchIds.length} branch${branchIds.length === 1 ? " is" : "es are"} now ${newStatus}.`,
+        "success",
+        { title: "Store access updated" },
+      );
     } catch (error) {
-      handleDataError(error, OperationType.UPDATE, "store group status");
+      console.error("Store group status update failed", error);
+      toast.update(
+        progressToastId,
+        "The store group status could not be updated. Check the branch statuses before retrying.",
+        "error",
+        { error, context: { operation: "update_store_group_status", branchIds, requestedStatus: newStatus } },
+      );
+    } finally {
+      setStatusUpdatingGroupId("");
     }
   };
 
@@ -419,7 +442,7 @@ export default function AdminStores() {
             />
           </div>
 
-          <div id="admin-store-search-results" className="scroll-mt-6 divide-y divide-gray-100 dark:divide-gray-800/50">
+          <ScrollableRegion label="Managed stores" id="admin-store-search-results" className="scroll-mt-6 divide-y divide-gray-100 dark:divide-gray-800/50">
             {filteredStoreGroups.length > 0 ? paginatedStoreGroups.map(({ id, primaryStore, branches }) => {
               const storeCategories = splitStoreCategories(primaryStore.category);
               const businessName = primaryStore.businessName || primaryStore.name;
@@ -428,6 +451,8 @@ export default function AdminStores() {
               const ownerName = ownerProfiles[primaryStore.ownerId]?.name || primaryStore.ownerName || "Unassigned owner";
               const location = primaryStore.location || primaryStore.address || "No location";
               const allBranchesSuspended = branches.length > 0 && suspendedBranches === branches.length;
+              const groupId = branches.map((branch) => String(branch.id || "")).filter(Boolean).sort().join(":");
+              const statusUpdating = statusUpdatingGroupId === groupId;
               const groupStatusLabel = allBranchesSuspended
                 ? "All suspended"
                 : activeBranches === branches.length
@@ -440,7 +465,7 @@ export default function AdminStores() {
                 }}>
                   <div className="flex min-w-0 flex-1 items-center gap-4 sm:gap-4">
                     {primaryStore.logoUrl ? (
-                      <img src={getDisplayImageUrl(primaryStore.logoUrl)} alt="Store Logo" className="h-14 w-14 shrink-0 rounded-full border border-gray-200 object-cover dark:border-gray-700 sm:h-12 sm:w-12" />
+                      <img src={getDisplayImageUrl(primaryStore.logoUrl)} alt="Store Logo" loading="lazy" decoding="async" className="h-14 w-14 shrink-0 rounded-full border border-gray-200 object-cover dark:border-gray-700 sm:h-12 sm:w-12" />
                     ) : (
                       <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-gray-100 text-lg font-bold text-[#1b1b1b] dark:border-white/15 dark:bg-white/10 dark:text-white sm:h-12 sm:w-12 sm:text-base">
                         {businessName?.charAt(0) || <Store className="h-6 w-6 sm:h-5 sm:w-5" />}
@@ -494,14 +519,20 @@ export default function AdminStores() {
                     <button
                       type="button"
                       onClick={() => updateStoreGroupStatus(branches, allBranchesSuspended ? "active" : "suspended")}
+                      disabled={Boolean(statusUpdatingGroupId)}
                       className={`rounded-full p-2 transition-colors ${
                         allBranchesSuspended
                           ? "text-green-700 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-900/50"
                           : "text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900/50"
-                      }`}
-                      title={allBranchesSuspended ? "Activate all branches" : "Suspend all branches"}
+                      } disabled:cursor-wait disabled:opacity-50`}
+                      title={statusUpdating ? "Updating store group status" : allBranchesSuspended ? "Activate all branches" : "Suspend all branches"}
+                      aria-label={statusUpdating ? "Updating store group status" : allBranchesSuspended ? "Activate all branches" : "Suspend all branches"}
                     >
-                      {allBranchesSuspended ? <CheckCircle className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
+                      {statusUpdating
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : allBranchesSuspended
+                          ? <CheckCircle className="h-4 w-4" />
+                          : <Ban className="h-4 w-4" />}
                     </button>
                   </div>
                 </div>
@@ -522,7 +553,7 @@ export default function AdminStores() {
                 )}
               </div>
             )}
-          </div>
+          </ScrollableRegion>
           <Pagination
             page={currentPage}
             pageSize={STORES_PER_PAGE}

@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { doc, getDoc, setDoc, serverTimestamp } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
-import { Layout, Save, Upload, Plus, Trash2, Loader2, ImagePlus, RefreshCcw, CheckCircle2, XCircle, Edit3, QrCode, Star, Coffee, ArrowRight, Store as StoreIcon, Search, MapPin, Mail, Phone, Video, Link2 } from "lucide-react";
+import { Layout, Save, Upload, Plus, Trash2, Loader2, ImagePlus, RefreshCcw, Edit3, QrCode, Star, Coffee, ArrowRight, Store as StoreIcon, Search, MapPin, Mail, Phone, Video, Link2 } from "lucide-react";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { BrandMark } from "../../components/BrandMark";
 import { HomepageVideoPlayer } from "../../components/HomepageVideoPlayer";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
+import { Pagination } from "../../components/Pagination";
+import { useCollectionPagination } from "../../hooks/useCollectionPagination";
+import { CustomDropdown } from "../../components/CustomDropdown";
+import { useToast } from "../../components/ToastProvider";
 import {
   DEFAULT_HOW_IT_WORKS_CONFIG,
   HowItWorksConfig,
@@ -275,10 +280,10 @@ function MiniHomepagePreview({ config }: { config: HomepageConfig }) {
 }
 
 export default function AdminHomepage() {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [toasts, setToasts] = useState<{id: string, message: string, type: 'success' | 'error', persistent: boolean}[]>([]);
   const [urlErrors, setUrlErrors] = useState<{facebook: boolean, instagram: boolean, twitter: boolean}>({
     facebook: false, instagram: false, twitter: false
   });
@@ -336,21 +341,6 @@ export default function AdminHomepage() {
     }
   };
 
-  const showToast = (message: string, type: 'success' | 'error', persistent = false) => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setToasts(prev => [...prev, { id, message, type, persistent }]);
-    
-    if (!persistent) {
-      setTimeout(() => {
-        setToasts(prev => prev.filter(t => t.id !== id));
-      }, 5000);
-    }
-  };
-
-  const dismissToast = (id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  };
-
   const handleCancel = () => {
     Object.keys(pendingImageFiles).forEach((url) => URL.revokeObjectURL(url));
     setPendingImageFiles({});
@@ -405,11 +395,12 @@ export default function AdminHomepage() {
     setUrlErrors(newErrors);
     
     if (hasErrors) {
-      showToast("Please fix the highlighted links before saving.", "error");
+      toast.info("Please fix the highlighted links before saving.", { title: "Check highlighted fields" });
       return;
     }
 
     setSaving(true);
+    const progressToastId = toast.progress("Saving the homepage configuration…", { title: "Updating homepage" });
     const uploadedImageUrls: string[] = [];
     let configPersisted = false;
     try {
@@ -448,13 +439,13 @@ export default function AdminHomepage() {
       setConfig(cloneConfig(nextConfig));
       setSavedConfig(cloneConfig(nextConfig));
       setIsEditing(false);
-      showToast("Homepage configuration saved successfully.", "success");
+      toast.update(progressToastId, "Homepage configuration saved successfully.", "success", { title: "Homepage updated" });
     } catch (error) {
       if (!configPersisted && uploadedImageUrls.length) {
         await Promise.allSettled(uploadedImageUrls.map((url) => deleteImageFromDriveSecure(url)));
       }
       console.error(error);
-      showToast("Failed to save configuration.", "error");
+      toast.update(progressToastId, "The homepage configuration could not be saved.", "error", { error, title: "Save failed" });
     } finally {
       setSaving(false);
     }
@@ -529,6 +520,9 @@ export default function AdminHomepage() {
       return next;
     });
   };
+
+  const videoPagination = useCollectionPagination(config.howItWorks.videos, 6);
+  const businessPagination = useCollectionPagination(config.trustedBusinesses, 9);
 
   if (loading) return <PageSkeleton variant="homepage" />;
 
@@ -678,8 +672,10 @@ export default function AdminHomepage() {
             </button>
           </div>
 
-          <div className="space-y-4">
-            {config.howItWorks.videos.map((video, index) => (
+          <ScrollableRegion label="Homepage videos" className="space-y-4 pr-1">
+            {videoPagination.pageItems.map((video) => {
+              const index = config.howItWorks.videos.findIndex((item) => item.id === video.id);
+              return (
               <div key={video.id} className="grid gap-5 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/70 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.85fr)]">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
@@ -697,10 +693,15 @@ export default function AdminHomepage() {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
                       <label className="mb-1 block text-xs font-semibold text-gray-500">Demo account type</label>
-                      <select value={video.audience} onChange={(event) => handleVideoChange(video.id, { audience: event.target.value as HomepageVideoConfig["audience"] })} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800">
-                        <option value="customer">Customer</option>
-                        <option value="business">Business owner</option>
-                      </select>
+                      <CustomDropdown
+                        value={video.audience}
+                        onChange={(value) => handleVideoChange(video.id, { audience: value as HomepageVideoConfig["audience"] })}
+                        ariaLabel={`Demo account type for ${video.title || `video ${index + 1}`}`}
+                        options={[
+                          { label: "Customer", value: "customer" },
+                          { label: "Business owner", value: "business" },
+                        ]}
+                      />
                     </div>
                     <div>
                       <label className="mb-1 block text-xs font-semibold text-gray-500">Video title</label>
@@ -730,13 +731,15 @@ export default function AdminHomepage() {
                   <p className="mt-2 text-center text-[11px] text-gray-500">Live embed preview</p>
                 </div>
               </div>
-            ))}
+              );
+            })}
             {config.howItWorks.videos.length === 0 && (
               <div className="rounded-2xl border-2 border-dashed border-gray-200 px-6 py-10 text-center text-sm text-gray-500 dark:border-gray-700">
                 No demo videos yet. Add one for customers and one for business owners.
               </div>
             )}
-          </div>
+          </ScrollableRegion>
+          <Pagination page={videoPagination.page} pageSize={videoPagination.pageSize} totalItems={videoPagination.totalItems} onPageChange={videoPagination.setPage} itemLabel="videos" />
         </div>
 
         {/* Trusted By Showcase */}
@@ -778,15 +781,18 @@ export default function AdminHomepage() {
               The homepage will automatically fetch and display active partner stores here.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {config.trustedBusinesses.map((b, i) => (
+            <>
+            <ScrollableRegion label="Trusted businesses" className="grid grid-cols-1 gap-4 pr-1 sm:grid-cols-2 lg:grid-cols-3">
+              {businessPagination.pageItems.map((b) => {
+                const i = config.trustedBusinesses.indexOf(b);
+                return (
                 <div key={i} className="bg-gray-50 dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-700 relative group">
                   <button onClick={() => handleRemoveBusiness(i)} className="absolute top-2 right-2 p-1.5 bg-white dark:bg-gray-800 text-red-500 rounded-md opacity-0 group-hover:opacity-100 transition-opacity shadow-sm border border-gray-200 dark:border-gray-700 hover:bg-red-50">
                     <Trash2 className="w-3 h-3" />
                   </button>
                   <div className="flex flex-col items-center text-center space-y-3">
                     <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-200 border-2 border-white dark:border-gray-800 shadow-sm relative group/img cursor-pointer">
-                      <img src={getDisplayImageUrl(b.logoUrl)} alt={b.name} className="w-full h-full object-cover" />
+                      <img src={getDisplayImageUrl(b.logoUrl)} alt={b.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                       <label className="absolute inset-0 bg-black/50 opacity-0 group-hover/img:opacity-100 flex items-center justify-center transition-opacity cursor-pointer text-white">
                         <Upload className="w-5 h-5" />
                         <input type="file" accept="image/*" onChange={(e) => handleBusinessLogoUpload(i, e)} className="hidden" />
@@ -797,11 +803,14 @@ export default function AdminHomepage() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
               {config.trustedBusinesses.length === 0 && (
                 <div className="col-span-full py-8 text-center text-gray-500 text-sm">No businesses featured yet.</div>
               )}
-            </div>
+            </ScrollableRegion>
+            <Pagination page={businessPagination.page} pageSize={businessPagination.pageSize} totalItems={businessPagination.totalItems} onPageChange={businessPagination.setPage} itemLabel="businesses" />
+            </>
           )}
         </div>
 
@@ -877,24 +886,6 @@ export default function AdminHomepage() {
         )}
       </div>
       
-      <div className="fixed bottom-6 right-6 flex flex-col gap-2 z-50">
-        {toasts.map((t) => (
-          <div key={t.id} className={`px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-in slide-in-from-bottom-2 fade-in duration-300 ${t.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
-            {t.type === 'success' ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : <XCircle className="w-5 h-5 shrink-0" />}
-            <p className="font-medium text-sm mr-4">{t.message}</p>
-            {t.persistent && (
-              <button onClick={() => dismissToast(t.id)} className="ml-auto opacity-70 hover:opacity-100 transition-opacity">
-                <XCircle className="w-4 h-4" />
-              </button>
-            )}
-            {!t.persistent && (
-              <button onClick={() => dismissToast(t.id)} className="ml-auto opacity-70 hover:opacity-100 transition-opacity">
-                <XCircle className="w-4 h-4" />
-              </button>
-             )}
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

@@ -22,6 +22,7 @@ import { CustomDropdown } from "../../components/CustomDropdown";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { useToast } from "../../components/ToastProvider";
 import { invokeAdminBackend } from "../../lib/adminBackend";
 
@@ -295,7 +296,7 @@ export default function AdminDemoManagement() {
       setCopied(key);
       window.setTimeout(() => setCopied(""), 1800);
     } catch {
-      toast.error("Clipboard access was unavailable. Select and copy the value manually.");
+      toast.info("Clipboard access was unavailable. Select and copy the value manually.", { title: "Copy manually" });
     }
   };
 
@@ -327,23 +328,26 @@ export default function AdminDemoManagement() {
             Create disposable store sandboxes with isolated owner, staff, and optional customer accounts. Demo records stay out of the public directory, production account management, billing, and live-customer activity.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={() => void loadTenants(true)}
             disabled={refreshing}
-            className="inline-flex h-11 items-center gap-2 rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            aria-label="Refresh sandboxes"
+            title="Refresh sandboxes"
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            Refresh
           </button>
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="inline-flex h-11 items-center gap-2 rounded-xl bg-gray-900 px-4 text-sm font-semibold text-white hover:bg-black dark:bg-white dark:text-gray-900"
+            className="inline-flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-gray-900 px-3 text-sm font-semibold leading-none text-white hover:bg-black dark:bg-white dark:text-gray-900"
+            aria-label="New sandbox"
+            title="New sandbox"
           >
             <Plus className="h-4 w-4" />
-            New sandbox
+            New
           </button>
         </div>
       </div>
@@ -396,7 +400,7 @@ export default function AdminDemoManagement() {
         </div>
 
         {tenants.length ? (
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          <ScrollableRegion label="Demo sandboxes" className="divide-y divide-gray-100 dark:divide-gray-800">
             {tenants.map((tenant) => {
               const isCollapsed = collapsedTenants.has(tenant.id);
               const accountsId = `demo-accounts-${tenant.id}`;
@@ -512,7 +516,7 @@ export default function AdminDemoManagement() {
               </article>
               );
             })}
-          </div>
+          </ScrollableRegion>
         ) : (
           <div className="px-6 py-16 text-center">
             <FlaskConical className="mx-auto h-10 w-10 text-gray-300" />

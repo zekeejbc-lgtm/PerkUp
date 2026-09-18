@@ -71,10 +71,23 @@ const publicIdTableNames = new Set([
 ]);
 
 const READ_CACHE_TTL_MS = 45_000;
+const READ_CACHE_MAX_ENTRIES = 250;
 const readCache = new Map<string, { expiresAt: number; value: unknown }>();
+const pendingReads = new Map<string, Promise<unknown>>();
 
-export const clearDataCache = () => {
-  readCache.clear();
+export const clearDataCache = (collectionName?: string) => {
+  if (!collectionName) {
+    readCache.clear();
+    pendingReads.clear();
+    return;
+  }
+
+  for (const key of readCache.keys()) {
+    if (key.startsWith(`${collectionName}:`)) readCache.delete(key);
+  }
+  for (const key of pendingReads.keys()) {
+    if (key.includes(`${collectionName}:`)) pendingReads.delete(key);
+  }
 };
 
 const timestampNow = (): ServerTimestampValue => ({
@@ -205,25 +218,42 @@ const selectDocument = async (ref: DocumentRef) => {
   };
 };
 
-const getCachedValue = <T>(key: string): T | null => {
+const getCachedValue = <T>(key: string): { hit: false } | { hit: true; value: T } => {
   const cached = readCache.get(key);
-  if (!cached) return null;
+  if (!cached) return { hit: false };
   if (cached.expiresAt <= Date.now()) {
     readCache.delete(key);
-    return null;
+    return { hit: false };
   }
-  return cached.value as T;
+
+  // Refresh insertion order so trimming behaves as a small LRU cache.
+  readCache.delete(key);
+  readCache.set(key, cached);
+  return { hit: true, value: cached.value as T };
 };
 
 const setCachedValue = <T>(key: string, value: T) => {
+  readCache.delete(key);
   readCache.set(key, { value, expiresAt: Date.now() + READ_CACHE_TTL_MS });
-};
-
-const clearCollectionCache = (collectionName: string) => {
-  for (const key of readCache.keys()) {
-    if (key.startsWith(`${collectionName}:`)) readCache.delete(key);
+  while (readCache.size > READ_CACHE_MAX_ENTRIES) {
+    const oldestKey = readCache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    readCache.delete(oldestKey);
   }
 };
+
+const withPendingRead = <T>(key: string, read: () => Promise<T>): Promise<T> => {
+  const pending = pendingReads.get(key);
+  if (pending) return pending as Promise<T>;
+
+  const next = read().finally(() => {
+    if (pendingReads.get(key) === next) pendingReads.delete(key);
+  });
+  pendingReads.set(key, next);
+  return next;
+};
+
+const clearCollectionCache = (collectionName: string) => clearDataCache(collectionName);
 
 const applyFilters = (builder: any, filters: FilterClause[]) =>
   filters.reduce((current, filter) => {
@@ -244,22 +274,24 @@ const fetchDoc = async (ref: DocumentRef, useCache: boolean) => {
   const cacheKey = `${ref.collectionName}:doc:${ref.id}`;
   if (useCache) {
     const cached = getCachedValue<Record<string, unknown> | null>(cacheKey);
-    if (cached !== null) return docSnapshot(ref.id, cached);
+    if (cached.hit) return docSnapshot(ref.id, cached.value);
   }
 
-  let { data, error } = await selectDocument(ref);
+  return withPendingRead(`${useCache ? "cached" : "server"}:${cacheKey}`, async () => {
+    let { data, error } = await selectDocument(ref);
 
-  if (error && isStaleAuthError(error)) {
-    const { error: refreshError } = await supabase.auth.refreshSession();
-    if (!refreshError) {
-      ({ data, error } = await selectDocument(ref));
+    if (error && isStaleAuthError(error)) {
+      const { error: refreshError } = await supabase.auth.refreshSession();
+      if (!refreshError) {
+        ({ data, error } = await selectDocument(ref));
+      }
     }
-  }
 
-  if (error) throw error;
-  const value = data ? withPublicId(data.data, data.public_id) : null;
-  setCachedValue(cacheKey, value);
-  return docSnapshot(ref.id, value);
+    if (error) throw error;
+    const value = data ? withPublicId(data.data, data.public_id) : null;
+    setCachedValue(cacheKey, value);
+    return docSnapshot(ref.id, value);
+  });
 };
 
 export async function getDoc(ref: DocumentRef) {
@@ -276,8 +308,8 @@ async function fetchDocs(ref: CollectionRef | QueryRef, useCache: boolean) {
   const cacheKey = `${collectionName}:query:${JSON.stringify(filters)}`;
   if (useCache) {
     const cached = getCachedValue<{ id: string; data: Record<string, unknown>; public_id?: string | null }[]>(cacheKey);
-    if (cached) {
-      const docs = cached.map((row) => docSnapshot(row.id, withPublicId(row.data, row.public_id)));
+    if (cached.hit) {
+      const docs = cached.value.map((row) => docSnapshot(row.id, withPublicId(row.data, row.public_id)));
       return {
         docs,
         empty: docs.length === 0,
@@ -286,20 +318,22 @@ async function fetchDocs(ref: CollectionRef | QueryRef, useCache: boolean) {
     }
   }
 
-  const { data, error } = await applyFilters(dataApi(collectionName).select(selectFields(collectionName)), filters);
+  return withPendingRead(`${useCache ? "cached" : "server"}:${cacheKey}`, async () => {
+    const { data, error } = await applyFilters(dataApi(collectionName).select(selectFields(collectionName)), filters);
 
-  if (error) throw error;
+    if (error) throw error;
 
-  const rows = (data ?? []) as { id: string; data: Record<string, unknown>; public_id?: string | null }[];
-  setCachedValue(cacheKey, rows);
+    const rows = (data ?? []) as { id: string; data: Record<string, unknown>; public_id?: string | null }[];
+    setCachedValue(cacheKey, rows);
 
-  const docs = rows.map((row) => docSnapshot(row.id, withPublicId(row.data, row.public_id)));
+    const docs = rows.map((row) => docSnapshot(row.id, withPublicId(row.data, row.public_id)));
 
-  return {
-    docs,
-    empty: docs.length === 0,
-    size: docs.length,
-  };
+    return {
+      docs,
+      empty: docs.length === 0,
+      size: docs.length,
+    };
+  });
 }
 
 export async function getDocs(ref: CollectionRef | QueryRef) {

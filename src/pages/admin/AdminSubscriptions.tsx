@@ -5,6 +5,9 @@ import { ArrowDown, ArrowUp, Check, ChevronDown, CreditCard, Edit3, Loader2, Plu
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
+import { Pagination } from "../../components/Pagination";
+import { useCollectionPagination } from "../../hooks/useCollectionPagination";
 import { useAuth } from "../../contexts/AuthContext";
 import { invokeAdminBackend } from "../../lib/adminBackend";
 import {
@@ -23,9 +26,11 @@ import {
   setPreferredSubscriptionPlan,
   validateSubscriptionTierHierarchy,
 } from "../../lib/subscriptionBilling";
+import { useToast } from "../../components/ToastProvider";
 
 export default function AdminSubscriptions() {
   const { user } = useAuth();
+  const toast = useToast();
   const canManagePlans =
     user?.role === "admin"
     || user?.role === "assistant_admin"
@@ -75,6 +80,7 @@ export default function AdminSubscriptions() {
     if (errors.length > 0) return;
 
     setSaving(true);
+    const progressToastId = toast.progress("Saving the subscription hierarchy…", { title: "Updating plans" });
     try {
       const storeSnap = await getDocs(collection(db, "stores"));
       const stores = storeSnap.docs.map((storeDoc) => ({ id: storeDoc.id, ...storeDoc.data() }));
@@ -88,9 +94,11 @@ export default function AdminSubscriptions() {
       setPendingSaveStores(stores);
       setAffectedSubscriptionCount(affectedCount);
       setShowSaveConfirmation(true);
+      toast.update(progressToastId, "Review the affected stores and confirm to save.", "info", { title: "Ready to confirm" });
     } catch (error) {
       console.error(error);
       setValidationErrors(["The hierarchy impact could not be calculated. Try again."]);
+      toast.update(progressToastId, "The hierarchy impact could not be calculated.", "error", { error, title: "Impact check failed" });
     } finally {
       setSaving(false);
     }
@@ -102,6 +110,7 @@ export default function AdminSubscriptions() {
       normalizeSubscriptionTierHierarchy(plans),
     );
     setSaving(true);
+    const progressToastId = toast.progress("Saving the subscription hierarchy…", { title: "Updating plans" });
     try {
       await setDoc(
         doc(db, "settings", "subscriptions"),
@@ -168,9 +177,11 @@ export default function AdminSubscriptions() {
       setShowSaveConfirmation(false);
       setPendingSaveStores([]);
       setStatusMessage("Subscription hierarchy saved successfully.");
+      toast.update(progressToastId, "Subscription hierarchy saved successfully.", "success", { title: "Plans updated" });
     } catch (error) {
       console.error(error);
       setValidationErrors(["Failed to save the subscription hierarchy."]);
+      toast.update(progressToastId, "The subscription hierarchy could not be saved.", "error", { error, title: "Save failed" });
     } finally {
       setSaving(false);
     }
@@ -270,6 +281,8 @@ export default function AdminSubscriptions() {
     }));
   };
 
+  const planPagination = useCollectionPagination(plans, 6);
+
   if (loading) return <PageSkeleton variant="subscriptions" />;
 
   return (
@@ -338,8 +351,9 @@ export default function AdminSubscriptions() {
           </p>
         )}
 
-        <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {plans.map((plan, planIndex) => {
+        <ScrollableRegion label="Subscription plans" className="grid grid-cols-1 items-start gap-6 pr-1 md:grid-cols-2 lg:grid-cols-3">
+          {planPagination.pageItems.map((plan) => {
+            const planIndex = plans.indexOf(plan);
             const planKey = getPlanKey(plan, planIndex);
             const dependenciesId = `plan-dependencies-${planKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
             const dependenciesOpen = Boolean(expandedDependencies[planKey]);
@@ -544,7 +558,8 @@ export default function AdminSubscriptions() {
               )}
             </div>
           )}
-        </div>
+        </ScrollableRegion>
+        <Pagination page={planPagination.page} pageSize={planPagination.pageSize} totalItems={planPagination.totalItems} onPageChange={planPagination.setPage} itemLabel="plans" />
       </div>
     </div>
     <ConfirmationModal

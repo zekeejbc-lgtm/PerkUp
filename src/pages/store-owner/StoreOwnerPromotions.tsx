@@ -11,9 +11,11 @@ import { MapBaseLayers } from "../../components/MapBaseLayers";
 import { formatPhilippineDateTime, getPhilippineDateTimeMillis, toDate } from "../../lib/dateTime";
 import { getCompletedPromotionCount, getRemainingPromotionClaimsLabel } from "../../lib/promotionProgress";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { ViewModeButton } from "../../components/ViewModeButton";
 import { AnimatePresence, motion } from "motion/react";
+import { useToast } from "../../components/ToastProvider";
 
 type PromotionFormData = {
   title: string;
@@ -89,6 +91,7 @@ function GeofenceClickHandler({ onPick }: { onPick: (lat: number, lng: number) =
 }
 
 export default function StoreOwnerPromotions({ store }: { store: any }) {
+  const toast = useToast();
   const [promotions, setPromotions] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -277,13 +280,15 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const handleGetReferralCode = async () => {
     if (!store?.id || loadingReferralCode) return;
     setLoadingReferralCode(true);
+    const progressToastId = toast.progress("Getting your referral code…", { title: "Referral code" });
     try {
       const result = await getStoreReferralCode(store.id);
       setReferralCode(result.referralCode);
       setReferralCodeExpiresAt(result.expiresAt);
       setReferralCount(result.referralCount);
+      toast.update(progressToastId, "Your referral code is ready.", "success", { title: "Code loaded" });
     } catch (error) {
-      alert((error as Error).message || "Failed to get referral code.");
+      toast.update(progressToastId, (error as Error).message || "The referral code could not be loaded.", "error", { error, title: "Code unavailable" });
     } finally {
       setLoadingReferralCode(false);
     }
@@ -293,9 +298,9 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
     if (!referralCode) return;
     try {
       await navigator.clipboard.writeText(referralCode);
-      alert("Referral code copied.");
-    } catch {
-      alert("Copy failed. Select and copy the code manually.");
+      toast.success("Referral code copied.");
+    } catch (error) {
+      toast.error("Clipboard access was unavailable. Select and copy the code manually.", { error, title: "Copy failed" });
     }
   };
 
@@ -360,6 +365,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    const progressToastId = toast.progress(editingPromo ? "Saving promotion changes…" : "Creating the promotion…", { title: editingPromo ? "Updating promotion" : "New promotion" });
     let uploadedBannerUrl = "";
     let promotionPersisted = false;
     try {
@@ -402,12 +408,13 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
       }
       setIsModalOpen(false);
       setPendingBannerFile(null);
+      toast.update(progressToastId, editingPromo ? "Promotion changes saved." : "Promotion created.", "success", { title: editingPromo ? "Promotion updated" : "Promotion created" });
     } catch (error) {
       if (!promotionPersisted && uploadedBannerUrl) {
         await deleteImageFromDriveSecure(uploadedBannerUrl).catch(console.error);
       }
       console.error("Failed to save promotion", error);
-      alert("Failed to save promotion");
+      toast.update(progressToastId, "The promotion could not be saved.", "error", { error, title: "Save failed" });
     } finally {
       setUploadingBanner(false);
       setSaving(false);
@@ -417,13 +424,15 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const handleDelete = async () => {
     if (!promotionToDelete) return;
     setIsDeleting(true);
+    const progressToastId = toast.progress("Deleting the promotion…", { title: "Deleting promotion" });
     try {
       await deleteDoc(doc(db, "promotions", promotionToDelete.id));
       if (promotionToDelete.bannerImageUrl) await deleteImageFromDriveSecure(promotionToDelete.bannerImageUrl).catch(console.error);
       setPromotions((current) => current.filter((promotion) => promotion.id !== promotionToDelete.id));
       setPromotionToDelete(null);
+      toast.update(progressToastId, "The promotion was deleted.", "success", { title: "Promotion deleted" });
     } catch (error) {
-      alert("Failed to delete promotion");
+      toast.update(progressToastId, "The promotion could not be deleted.", "error", { error, title: "Delete failed" });
     } finally {
       setIsDeleting(false);
     }
@@ -432,6 +441,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
   const handleAvailabilityToggle = async (promo: any) => {
     if (isPromotionExpired(promo)) return;
     const nextActive = !(promo.active ?? true);
+    const progressToastId = toast.progress(`${nextActive ? "Publishing" : "Pausing"} the promotion…`, { title: "Updating availability" });
 
     setAvailabilitySavingIds((current) => new Set(current).add(promo.id));
     setPromotions((current) =>
@@ -443,12 +453,13 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
         active: nextActive,
         updatedAt: serverTimestamp(),
       });
+      toast.update(progressToastId, `Promotion ${nextActive ? "published" : "paused"}.`, "success", { title: "Availability updated" });
     } catch (error) {
       console.error("Failed to update promotion availability", error);
       setPromotions((current) =>
         current.map((item) => item.id === promo.id ? { ...item, active: !nextActive } : item)
       );
-      alert("Failed to update promotion availability. Please try again.");
+      toast.update(progressToastId, "The promotion availability could not be updated.", "error", { error, title: "Update failed" });
     } finally {
       setAvailabilitySavingIds((current) => {
         const next = new Set(current);
@@ -497,7 +508,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
         className="group cursor-pointer overflow-hidden rounded-xl border border-gray-200 bg-gray-100 text-gray-600 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-300 dark:focus-visible:ring-white"
       >
         {promo.bannerImageUrl && (
-          <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" className="h-24 w-full object-cover grayscale" />
+          <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" decoding="async" className="h-24 w-full object-cover grayscale" />
         )}
         <div className="p-4">
           <div className="mb-3 flex items-start justify-between gap-3">
@@ -582,8 +593,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
 
   if (isModalOpen) {
     return (
-      <div className="min-h-[calc(100vh-10rem)] space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-h-screen space-y-6">        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
             <button
               type="button"
@@ -602,8 +612,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
 
         <form onSubmit={handleSave} className="space-y-6">
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-            <section className="space-y-5">
-              <div className="grid gap-5 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 sm:p-6">
+            <section className="min-w-0 space-y-5">              <div className="grid gap-5 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 sm:p-6">
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">Promotion Title</label>
                   <input
@@ -807,8 +816,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
             </aside>
           </div>
 
-          <div className="sticky bottom-0 z-10 -mx-4 border-t border-gray-200 bg-white/95 px-4 py-4 backdrop-blur dark:border-gray-800 dark:bg-gray-900/95 sm:mx-0 sm:rounded-2xl sm:border sm:px-5">
-            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+<div className="mt-6 border-t border-gray-200 bg-white px-4 py-4 dark:border-gray-800 dark:bg-gray-900 sm:rounded-2xl sm:border sm:px-5">            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 rounded-xl font-medium text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                 Cancel
               </button>
@@ -1008,7 +1016,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
         </p>
       </section>
 
-      <div className={`grid gap-4 ${viewMode === "grid" ? "sm:grid-cols-2 lg:grid-cols-2" : "grid-cols-1"}`}>
+      <ScrollableRegion label="Store promotions" className={`grid gap-4 pr-1 ${viewMode === "grid" ? "sm:grid-cols-2 lg:grid-cols-2" : "grid-cols-1"}`}>
         {visibleActivePromotions.length === 0 ? (
           <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-[#1b1b1b] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
             <Gift className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-700 mb-3" />
@@ -1019,7 +1027,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
           paginatedPromotions.map((promo) => (
             <div key={promo.id} className={`bg-white dark:bg-gray-900 border rounded-2xl overflow-hidden ${viewMode === "list" ? "sm:grid sm:grid-cols-[minmax(180px,260px)_minmax(0,1fr)]" : ""} ${(promo.active ?? true) ? "border-gray-300 dark:border-white/15 shadow-sm" : "border-gray-200 dark:border-gray-800 opacity-75"}`}>
               {promo.bannerImageUrl && (
-                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" className={viewMode === "list" ? "h-48 w-full object-cover sm:h-full sm:min-h-64" : "h-36 w-full object-cover"} />
+                <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" decoding="async" className={viewMode === "list" ? "h-48 w-full object-cover sm:h-full sm:min-h-64" : "h-36 w-full object-cover"} />
               )}
               <div className={`p-6 ${viewMode === "list" && !promo.bannerImageUrl ? "sm:col-span-2" : ""}`}>
                 <div className="flex justify-between items-start gap-4 mb-4">
@@ -1114,7 +1122,7 @@ export default function StoreOwnerPromotions({ store }: { store: any }) {
             </div>
           ))
         )}
-      </div>
+      </ScrollableRegion>
       <Pagination
         page={currentPage}
         pageSize={PROMOTIONS_PER_PAGE}

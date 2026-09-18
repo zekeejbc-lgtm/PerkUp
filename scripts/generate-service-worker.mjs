@@ -17,8 +17,6 @@ const selectedSources = [
   "src/pages/TermsOfServicePage.tsx",
   "src/pages/DataDeletionPage.tsx",
   "src/pages/StaffDashboard.tsx",
-  "src/pages/staff/StaffScanner.tsx",
-  "src/pages/staff/StaffPromotionScan.tsx",
 ];
 const files = new Set([
   "/",

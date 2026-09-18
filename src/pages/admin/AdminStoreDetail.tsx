@@ -36,6 +36,8 @@ import { StoreBranchesMap } from "../../components/StoreBranchesMap";
 import { PasswordVisibilityButton } from "../../components/PasswordVisibilityButton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { TemporaryPasswordField } from "../../components/TemporaryPasswordField";
+import { ScrollableRegion, ScrollableTableRegion } from "../../components/ScrollableRegion";
+import { useCollectionPagination } from "../../hooks/useCollectionPagination";
 import {
   AdminSubscriptionPlanChanges,
   type AdminSubscriptionPlanChange,
@@ -45,6 +47,7 @@ import {
   type SubscriptionAccessAssessment,
 } from "../../components/SubscriptionAccessActionModal";
 import { createAssessmentRequestController } from "../../lib/subscriptionAccessAssessmentRequest";
+import { useToast } from "../../components/ToastProvider";
 
 const ACTIVITY_LOGS_PER_PAGE = 8;
 type SubscriptionAccessAction = "active" | "warning" | "grace" | "frozen";
@@ -62,6 +65,7 @@ export default function AdminStoreDetail({
   onBack: () => void;
   onDeleted?: (deletedStoreIds: string[]) => void;
 }) {
+  const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const [store, setStore] = useState<any>(null);
   const [owner, setOwner] = useState<any>(null);
@@ -93,6 +97,7 @@ export default function AdminStoreDetail({
 
   // Edit store state
   const [isEditing, setIsEditing] = useState(false);
+  const [isSavingStore, setIsSavingStore] = useState(false);
   const [editData, setEditData] = useState<any>({});
   const [pendingLogo, setPendingLogo] = useState<File | null>(null);
   const [newBranchName, setNewBranchName] = useState("");
@@ -101,6 +106,7 @@ export default function AdminStoreDetail({
   const [newBranchLongitude, setNewBranchLongitude] = useState(125.8078);
   const [newBranchLocationSelected, setNewBranchLocationSelected] = useState(false);
   const [branchBusy, setBranchBusy] = useState(false);
+  const [branchBusyAction, setBranchBusyAction] = useState("");
   const [branchError, setBranchError] = useState("");
   const [branchRequestsOpen, setBranchRequestsOpen] = useState(true);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -418,9 +424,14 @@ export default function AdminStoreDetail({
       if (store?.id === result.storeId) setStore({ ...store, accountRestriction: result.accountRestriction });
       setBranches((current) => current.map((branch) => branch.id === result.storeId ? { ...branch, accountRestriction: result.accountRestriction } : branch));
       setRestrictionMessage(status === "suspended" ? "Administrative suspension applied. Payments cannot restore access." : "Administrative suspension lifted.");
+      toast.success(status === "suspended" ? "Administrative suspension applied." : "Administrative suspension lifted.");
       setPendingRestrictionAction(null);
     } catch (error) {
       setRestrictionError((error as Error).message);
+      toast.error((error as Error).message || "The account restriction could not be updated.", {
+        error,
+        context: { operation: "update_account_restriction", storeId: subscriptionStore.id, status },
+      });
     } finally {
       setRestrictionBusy(false);
     }
@@ -510,9 +521,14 @@ export default function AdminStoreDetail({
       setPlanChangeCancelTarget(null);
       setPlanChangeCancelReason("");
       setSubscriptionPlanChangeMessage("The scheduled upgrade was cancelled. No invoice or PayMongo payment was changed.");
+      toast.success("The scheduled subscription upgrade was cancelled.");
       await loadSubscriptionPlanChanges();
     } catch (error) {
       setSubscriptionPlanChangeError((error as Error).message);
+      toast.error((error as Error).message || "The scheduled upgrade could not be cancelled.", {
+        error,
+        context: { operation: "cancel_scheduled_plan_change", planChangeId: planChangeCancelTarget.id },
+      });
     } finally {
       setPlanChangeCancelBusy(false);
     }
@@ -545,9 +561,19 @@ export default function AdminStoreDetail({
         status === "grace" ? `Grace access started for ${subscriptionAccessForm.gracePeriodDays} day${subscriptionAccessForm.gracePeriodDays === 1 ? "" : "s"}.` :
         "Store owner and staff access frozen.",
       );
+      toast.success(
+        status === "active" ? "Store access restored." :
+        status === "warning" ? "Subscription warning published." :
+        status === "grace" ? "Grace access started." :
+        "Store access frozen for non-payment.",
+      );
       return true;
     } catch (error) {
       setSubscriptionAccessError((error as Error).message);
+      toast.error((error as Error).message || "Subscription access could not be updated.", {
+        error,
+        context: { operation: "update_subscription_access", storeId: subscriptionStore.id, status },
+      });
       return false;
     } finally {
       setSubscriptionAccessBusy(false);
@@ -595,9 +621,14 @@ export default function AdminStoreDetail({
     try {
       await invokeAdminBackend({ action: "retry_billing_invoice", invoiceId });
       setSubscriptionAccessMessage("Billing retry queued. The hourly worker will process it safely.");
+      toast.success("Billing retry queued.");
       await loadBillingInvoices();
     } catch (error) {
       setSubscriptionAccessError((error as Error).message);
+      toast.error((error as Error).message || "The billing retry could not be queued.", {
+        error,
+        context: { operation: "retry_billing_invoice", invoiceId },
+      });
     } finally {
       setBillingRetryId("");
     }
@@ -660,10 +691,15 @@ export default function AdminStoreDetail({
       )));
       setSubscriptionAccessForm(normalizeSubscriptionAccess(updatedAccess));
       setSubscriptionAccessMessage("Manual payment recorded. The invoice is paid and subscription access is active.");
+      toast.success("Manual payment recorded and subscription access activated.");
       setManualPaymentInvoiceId("");
       await loadBillingInvoices();
     } catch (error) {
       setManualPaymentError((error as Error).message);
+      toast.error((error as Error).message || "The manual payment could not be recorded.", {
+        error,
+        context: { operation: "record_manual_payment", invoiceId: invoice.id },
+      });
     } finally {
       setManualPaymentBusy(false);
     }
@@ -676,6 +712,11 @@ export default function AdminStoreDetail({
   };
 
   const handleUpdateStore = async () => {
+    if (isSavingStore) return;
+    setIsSavingStore(true);
+    const progressToastId = toast.progress("Saving store details and synchronizing billing…", {
+      title: "Updating store",
+    });
     let uploadedLogoUrl = "";
     let storePersisted = false;
     let billingDatesRolledBack = false;
@@ -792,6 +833,9 @@ export default function AdminStoreDetail({
       });
       setIsEditing(false);
       setPendingLogo(null);
+      toast.update(progressToastId, "Store details and billing settings were saved.", "success", {
+        title: "Store updated",
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to update store";
       if (storePersisted && message.includes("ACTIVE_UPGRADE_PERIOD_CHANGE")) {
@@ -810,11 +854,17 @@ export default function AdminStoreDetail({
         await deleteImageFromDriveSecure(uploadedLogoUrl).catch(console.error);
       }
       console.error(error);
-      alert(billingDatesRolledBack
+      const failureMessage = billingDatesRolledBack
         ? "Other store details were saved, but the subscription dates were restored. Cancel the active upgrade before changing its billing period."
         : storePersisted
         ? `Store details were saved, but billing synchronization failed: ${message}`
-        : message.replace(/^ACTIVE_UPGRADE_PERIOD_CHANGE:\s*/i, ""));
+        : message.replace(/^ACTIVE_UPGRADE_PERIOD_CHANGE:\s*/i, "");
+      toast.update(progressToastId, failureMessage, "error", {
+        error,
+        context: { operation: "update_store", storeId, storePersisted, billingDatesRolledBack },
+      });
+    } finally {
+      setIsSavingStore(false);
     }
   };
 
@@ -868,8 +918,9 @@ export default function AdminStoreDetail({
   };
 
   const handleAddBranch = async () => {
-    if (!owner || !newBranchName.trim() || !newBranchAddress.trim() || !newBranchLocationSelected) return;
+    if (!owner || branchBusy || !newBranchName.trim() || !newBranchAddress.trim() || !newBranchLocationSelected) return;
     setBranchBusy(true);
+    setBranchBusyAction("add");
     setBranchError("");
     try {
       const result = await invokeAdminBackend<{ store: any }>({
@@ -890,15 +941,23 @@ export default function AdminStoreDetail({
       setNewBranchName("");
       setNewBranchAddress("");
       setNewBranchLocationSelected(false);
+      toast.success(`${result.store.branchName || result.store.name || "Branch"} was created.`);
     } catch (error) {
       setBranchError((error as Error).message);
+      toast.error((error as Error).message || "The branch could not be created.", {
+        error,
+        context: { operation: "create_branch", ownerId: owner.id },
+      });
     } finally {
       setBranchBusy(false);
+      setBranchBusyAction("");
     }
   };
 
   const handleBranchRequestDecision = async (requestId: string, decision: "approved" | "denied") => {
+    if (branchBusy) return;
     setBranchBusy(true);
+    setBranchBusyAction(`${decision}:${requestId}`);
     setBranchError("");
     try {
       const result = await invokeAdminBackend<{ request: any; store?: any }>({
@@ -908,10 +967,16 @@ export default function AdminStoreDetail({
       });
       setBranchRequests(branchRequests.map(request => request.id === requestId ? result.request : request));
       if (result.store) setBranches([...branches, result.store]);
+      toast.success(decision === "approved" ? "Branch request approved." : "Branch request denied.");
     } catch (error) {
       setBranchError((error as Error).message);
+      toast.error((error as Error).message || "The branch request could not be updated.", {
+        error,
+        context: { operation: "decide_branch_request", requestId, decision },
+      });
     } finally {
       setBranchBusy(false);
+      setBranchBusyAction("");
     }
   };
 
@@ -939,6 +1004,7 @@ export default function AdminStoreDetail({
 
     setIsDeleting(true);
     setDeleteError("");
+    const progressToastId = toast.progress(`Deleting the ${deleteScope}…`, { title: `Deleting ${deleteScope}` });
     try {
       const result = await invokeAdminBackend<{
         deleted: boolean;
@@ -956,7 +1022,9 @@ export default function AdminStoreDetail({
       onDeleted?.(result.deletedStoreIds || [storeId]);
       setShowDeleteModal(false);
       if (result.cleanupComplete === false) {
-        alert(`${result.cleanupWarning || "Some external cleanup could not be completed."}\n\nFailed accounts: ${result.failedUsers || 0}\nFailed files: ${result.failedFiles || 0}`);
+        toast.update(progressToastId, `${result.cleanupWarning || "Some external cleanup could not be completed."} Failed accounts: ${result.failedUsers || 0}. Failed files: ${result.failedFiles || 0}.`, "error", { title: "Cleanup incomplete" });
+      } else {
+        toast.update(progressToastId, `The ${deleteScope} was deleted.`, "success", { title: `${deleteScope === "store" ? "Store" : "Branch"} deleted` });
       }
       if (deleteScope === "store") {
         onBack();
@@ -974,7 +1042,13 @@ export default function AdminStoreDetail({
       }
     } catch (error) {
       console.error(error);
-      setDeleteError((error as Error).message || `The ${deleteScope} could not be deleted. Please try again.`);
+      const message = (error as Error).message || `The ${deleteScope} could not be deleted. Please try again.`;
+      setDeleteError(message);
+      if (/password|confirmation|type delete/i.test(message)) {
+        toast.update(progressToastId, message, "info", { title: "Check confirmation" });
+      } else {
+        toast.update(progressToastId, message, "error", { error, title: "Delete failed" });
+      }
       setIsDeleting(false);
     }
   };
@@ -987,6 +1061,7 @@ export default function AdminStoreDetail({
     }
     setResetPasswordBusy(true);
     setResetPasswordError("");
+    const progressToastId = toast.progress("Resetting the account password…", { title: "Resetting password" });
     try {
       await invokeAdminBackend<{ updated: boolean }>({
         action: "reset_password",
@@ -994,7 +1069,7 @@ export default function AdminStoreDetail({
         password: temporaryPassword,
         forcePasswordReset: requirePasswordChange,
       });
-      alert(`Password has been reset for ${resetModalUser.email}.\nTemporary password: ${temporaryPassword}`);
+      toast.update(progressToastId, `Password reset for ${resetModalUser.email}. Temporary password: ${temporaryPassword}`, "success", { title: "Password reset" });
       setResetModalUser(null);
     } catch (e) {
       console.error(e);
@@ -1002,7 +1077,7 @@ export default function AdminStoreDetail({
         ? e.message
         : "The password could not be reset. Please try again.";
       setResetPasswordError(message);
-      alert(message);
+      toast.update(progressToastId, message, "error", { error: e, title: "Password reset failed" });
     } finally {
       setResetPasswordBusy(false);
     }
@@ -1020,6 +1095,13 @@ export default function AdminStoreDetail({
     setResetModalUser(null);
     setResetPasswordError("");
   };
+
+  const pendingBranchRequests = branchRequests.filter((request) => request.status === "pending");
+  const billingPagination = useCollectionPagination(billingInvoices, 6);
+  const branchPagination = useCollectionPagination(branches, 9);
+  const requestPagination = useCollectionPagination(pendingBranchRequests, 6);
+  const analyticsPagination = useCollectionPagination(branchAnalytics, 8);
+  const reviewPagination = useCollectionPagination(selectedBranchReviews, 10);
 
   if (loading) {
     return <PageSkeleton variant="form" />;
@@ -1071,11 +1153,12 @@ export default function AdminStoreDetail({
                   </button>
                 ) : (
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={handleCancelEdit} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800">
+                    <button type="button" onClick={handleCancelEdit} disabled={isSavingStore} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800">
                       <X className="h-4 w-4" /> Cancel
                     </button>
-                    <button type="button" onClick={handleUpdateStore} className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-green-700">
-                      <Save className="h-4 w-4" /> Save changes
+                    <button type="button" onClick={handleUpdateStore} disabled={isSavingStore} className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-green-700 disabled:cursor-wait disabled:opacity-60">
+                      {isSavingStore ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      {isSavingStore ? "Saving…" : "Save changes"}
                     </button>
                   </div>
                 )}
@@ -1244,11 +1327,12 @@ export default function AdminStoreDetail({
                   </button>
                 ) : (
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={handleCancelEdit} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800">
+                    <button type="button" onClick={handleCancelEdit} disabled={isSavingStore} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800">
                       <X className="h-3.5 w-3.5" /> Cancel
                     </button>
-                    <button type="button" onClick={handleUpdateStore} className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-green-700">
-                      <Save className="h-3.5 w-3.5" /> Save
+                    <button type="button" onClick={handleUpdateStore} disabled={isSavingStore} className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-green-700 disabled:cursor-wait disabled:opacity-60">
+                      {isSavingStore ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                      {isSavingStore ? "Saving…" : "Save"}
                     </button>
                   </div>
                 ))}
@@ -1533,8 +1617,9 @@ export default function AdminStoreDetail({
               {billingInvoicesLoading ? (
                 <div className="mt-5 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading payment history…</div>
               ) : billingInvoices.length ? (
-                <div className="mt-5 space-y-3">
-                  {billingInvoices.map((invoice) => (
+                <>
+                <ScrollableRegion label="Subscription payment history" className="mt-5 space-y-3 pr-1">
+                  {billingPagination.pageItems.map((invoice) => (
                     <div key={invoice.id} className={`rounded-xl border p-4 ${invoice.last_error ? "border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/20" : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"}`}>
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
@@ -1587,19 +1672,21 @@ export default function AdminStoreDetail({
                           <div className="grid gap-3 sm:grid-cols-2">
                             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
                               Payment method <span className="text-red-500">*</span>
-                              <select
+                              <CustomDropdown
                                 value={manualPaymentForm.paymentMethod}
-                                onChange={(event) => setManualPaymentForm({ ...manualPaymentForm, paymentMethod: event.target.value })}
+                                onChange={(value) => setManualPaymentForm({ ...manualPaymentForm, paymentMethod: value })}
                                 disabled={manualPaymentBusy}
-                                className="mt-1.5 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-normal text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                              >
-                                <option value="bank_transfer">Bank transfer</option>
-                                <option value="cash">Cash</option>
-                                <option value="gcash">GCash</option>
-                                <option value="maya">Maya</option>
-                                <option value="cheque">Cheque</option>
-                                <option value="other">Other</option>
-                              </select>
+                                ariaLabel="Manual payment method"
+                                className="mt-1.5 font-normal"
+                                options={[
+                                  { label: "Bank transfer", value: "bank_transfer" },
+                                  { label: "Cash", value: "cash" },
+                                  { label: "GCash", value: "gcash" },
+                                  { label: "Maya", value: "maya" },
+                                  { label: "Cheque", value: "cheque" },
+                                  { label: "Other", value: "other" },
+                                ]}
+                              />
                             </label>
                             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
                               Paid date and time <span className="text-red-500">*</span>
@@ -1643,7 +1730,9 @@ export default function AdminStoreDetail({
                       {invoice.last_error && <p className="mt-3 break-words text-xs leading-5 text-red-700 dark:text-red-300">{invoice.last_error}</p>}
                     </div>
                   ))}
-                </div>
+                </ScrollableRegion>
+                <Pagination page={billingPagination.page} pageSize={billingPagination.pageSize} totalItems={billingPagination.totalItems} onPageChange={billingPagination.setPage} itemLabel="invoices" />
+                </>
               ) : (
                 <p className="mt-5 rounded-xl bg-white px-4 py-3 text-sm text-gray-600 dark:bg-gray-900 dark:text-gray-300">No billing invoice has been issued for this store yet.</p>
               )}
@@ -1669,8 +1758,8 @@ export default function AdminStoreDetail({
                 </div>
                 <StoreBranchesMap branches={branches} onOpenBranch={openBranchDashboard} />
               </div>
-              <div className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {branches.map(branch => (
+              <ScrollableRegion label="Store branches" className="mb-5 grid gap-2 pr-1 sm:grid-cols-2 lg:grid-cols-3">
+                {branchPagination.pageItems.map(branch => (
                   <button
                     key={branch.id}
                     type="button"
@@ -1687,7 +1776,8 @@ export default function AdminStoreDetail({
                     <p className="mt-2 text-xs font-medium text-green-600">Open branch dashboard</p>
                   </button>
                 ))}
-              </div>
+              </ScrollableRegion>
+              <Pagination page={branchPagination.page} pageSize={branchPagination.pageSize} totalItems={branchPagination.totalItems} onPageChange={branchPagination.setPage} itemLabel="branches" />
               <div className="mb-6 border-t border-gray-200 pt-5 dark:border-gray-700">
                 <button
                   type="button"
@@ -1704,10 +1794,10 @@ export default function AdminStoreDetail({
                 </button>
                 <div id="admin-branch-requests" className={`grid transition-[grid-template-rows,opacity] duration-500 ease-in-out motion-reduce:transition-none ${branchRequestsOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
                   <div className="min-h-0 overflow-hidden">
-                  <div className="mt-3 space-y-3">
-                  {branchRequests.filter(request => request.status === "pending").length === 0 ? (
+                  <ScrollableRegion label="Pending branch requests" className="mt-3 space-y-3 pr-1">
+                  {pendingBranchRequests.length === 0 ? (
                     <p className="text-sm text-gray-500">No pending branch requests.</p>
-                  ) : branchRequests.filter(request => request.status === "pending").map(request => (
+                  ) : requestPagination.pageItems.map(request => (
                     <div key={request.id} className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/60 dark:bg-amber-950/20 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="font-semibold text-gray-900 dark:text-white">{request.branchName}</p>
@@ -1717,15 +1807,18 @@ export default function AdminStoreDetail({
                       </div>
                       <div className="flex gap-2">
                         <button type="button" disabled={branchBusy || branches.length >= branchLimit} onClick={() => handleBranchRequestDecision(request.id, "approved")} className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                          <Check className="h-4 w-4" /> Confirm
+                          {branchBusyAction === `approved:${request.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                          {branchBusyAction === `approved:${request.id}` ? "Approving…" : "Confirm"}
                         </button>
                         <button type="button" disabled={branchBusy} onClick={() => handleBranchRequestDecision(request.id, "denied")} className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                          <X className="h-4 w-4" /> Deny
+                          {branchBusyAction === `denied:${request.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                          {branchBusyAction === `denied:${request.id}` ? "Denying…" : "Deny"}
                         </button>
                       </div>
                     </div>
                   ))}
-                  </div>
+                  </ScrollableRegion>
+                  <Pagination page={requestPagination.page} pageSize={requestPagination.pageSize} totalItems={requestPagination.totalItems} onPageChange={requestPagination.setPage} itemLabel="requests" />
                   <div className="mt-6 space-y-3 border-t border-gray-200 pt-5 dark:border-gray-700">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="space-y-1 text-xs font-semibold text-gray-500">
@@ -1755,7 +1848,8 @@ export default function AdminStoreDetail({
                   </p>
                 </div>
                 <button type="button" disabled={branchBusy || !newBranchName.trim() || !newBranchAddress.trim() || !newBranchLocationSelected || branches.length >= branchLimit} onClick={handleAddBranch} className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 sm:w-auto">
-                  <Plus className="h-4 w-4" /> Add branch
+                  {branchBusyAction === "add" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  {branchBusyAction === "add" ? "Adding branch…" : "Add branch"}
                 </button>
                   </div>
                   {branchError && <p className="mt-3 text-sm text-red-600">{branchError}</p>}
@@ -1880,7 +1974,7 @@ export default function AdminStoreDetail({
               <section className="rounded-2xl border border-gray-100 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-800/50">
                 <div className="mb-5"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">Branch performance chart</h4><p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Customers and completed scans across the whole store.</p></div>
                 <div className="space-y-5">
-                  {branchAnalytics.map((branch) => {
+                  {analyticsPagination.pageItems.map((branch) => {
                     const scale = Math.max(1, ...branchAnalytics.flatMap((row) => [row.customers, row.claims]));
                     return <div key={branch.id}>
                       <div className="mb-2 flex items-center justify-between gap-3"><span className="truncate text-sm font-semibold text-gray-900 dark:text-white">{branch.name}</span><span className="text-xs text-gray-600 dark:text-gray-400">{branch.customers} customers · {branch.claims} scans</span></div>
@@ -1897,13 +1991,14 @@ export default function AdminStoreDetail({
 
               <section className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
                 <div className="border-b border-gray-200 p-5 dark:border-gray-700"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">Branch analytics table</h4><p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Cumulative totals are shown above; this table provides the branch breakdown.</p></div>
-                <div className="overflow-x-auto">
+                <ScrollableTableRegion label="Branch analytics">
                   <table className="w-full whitespace-nowrap text-left text-sm">
                     <thead className="bg-gray-100 text-xs uppercase tracking-wider text-gray-600 dark:bg-gray-900 dark:text-gray-300"><tr><th className="px-5 py-3">Branch</th><th className="px-4 py-3 text-right">Customers</th><th className="px-4 py-3 text-right">Promotions</th><th className="px-4 py-3 text-right">Scans</th><th className="px-5 py-3 text-right">Reviews</th></tr></thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">{branchAnalytics.map((branch) => <tr key={branch.id}><td className="px-5 py-3 font-semibold text-gray-900 dark:text-white">{branch.name}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.customers}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.promotions}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.claims}</td><td className="px-5 py-3 text-right text-gray-600 dark:text-gray-300">{branch.reviews}</td></tr>)}</tbody>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">{analyticsPagination.pageItems.map((branch) => <tr key={branch.id}><td className="px-5 py-3 font-semibold text-gray-900 dark:text-white">{branch.name}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.customers}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.promotions}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{branch.claims}</td><td className="px-5 py-3 text-right text-gray-600 dark:text-gray-300">{branch.reviews}</td></tr>)}</tbody>
                     <tfoot className="border-t-2 border-gray-300 bg-white font-bold text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-white"><tr><td className="px-5 py-3">All branches</td><td className="px-4 py-3 text-right">{analytics.customers}</td><td className="px-4 py-3 text-right">{analytics.promotions}</td><td className="px-4 py-3 text-right">{analytics.claims}</td><td className="px-5 py-3 text-right">{reviews.length}</td></tr></tfoot>
                   </table>
-                </div>
+                </ScrollableTableRegion>
+                <Pagination page={analyticsPagination.page} pageSize={analyticsPagination.pageSize} totalItems={analyticsPagination.totalItems} onPageChange={analyticsPagination.setPage} itemLabel="branches" />
               </section>
             </div>
 
@@ -1911,7 +2006,7 @@ export default function AdminStoreDetail({
                <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-black/20">
                  <h4 className="text-sm font-bold uppercase tracking-widest text-gray-600 dark:text-gray-200">System Activity Log</h4>
                </div>
-               <div className="p-0 overflow-x-auto">
+               <ScrollableTableRegion label="System activity log">
                  <table className="w-full text-sm text-left whitespace-nowrap">
                    <thead className="bg-gray-100 text-gray-600 dark:bg-gray-800/80 dark:text-gray-300">
                      <tr>
@@ -1930,7 +2025,7 @@ export default function AdminStoreDetail({
                      ))}
                    </tbody>
                  </table>
-               </div>
+               </ScrollableTableRegion>
                <Pagination
                  page={activityPage}
                  pageSize={ACTIVITY_LOGS_PER_PAGE}
@@ -1964,15 +2059,15 @@ export default function AdminStoreDetail({
               </section>
               <section className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
                 <div className="border-b border-gray-200 p-5 dark:border-gray-700"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Analytics table</h4></div>
-                <table className="w-full text-sm"><thead className="bg-gray-100 text-left text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-900"><tr><th className="px-5 py-3">Metric</th><th className="px-5 py-3 text-right">Total</th><th className="px-5 py-3">Branch context</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{[
+                <ScrollableTableRegion label="Branch analytics metrics"><table className="w-full text-sm"><thead className="bg-gray-100 text-left text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-900"><tr><th className="px-5 py-3">Metric</th><th className="px-5 py-3 text-right">Total</th><th className="px-5 py-3">Branch context</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{[
                   ["Unique customers", selectedBranchAnalytics.customers, "Loyalty cards"], ["Published promotions", selectedBranchAnalytics.promotions, "All promotion records"], ["Completed scans", selectedBranchAnalytics.claims, "Staff transactions"], ["Customer reviews", selectedBranchReviews.length, selectedBranchReviews.length ? `${selectedBranchAverageRating.toFixed(1)} average` : "No ratings"],
-                ].map(([label, value, context]) => <tr key={String(label)}><td className="px-5 py-4 font-semibold text-gray-900 dark:text-white">{label}</td><td className="px-5 py-4 text-right font-bold text-gray-900 dark:text-white">{value}</td><td className="px-5 py-4 text-gray-500">{context}</td></tr>)}</tbody></table>
+                ].map(([label, value, context]) => <tr key={String(label)}><td className="px-5 py-4 font-semibold text-gray-900 dark:text-white">{label}</td><td className="px-5 py-4 text-right font-bold text-gray-900 dark:text-white">{value}</td><td className="px-5 py-4 text-gray-500">{context}</td></tr>)}</tbody></table></ScrollableTableRegion>
               </section>
             </div>
 
             <section className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
               <div className="border-b border-gray-200 p-5 dark:border-gray-700"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Branch activity log</h4></div>
-              <div className="overflow-x-auto"><table className="w-full whitespace-nowrap text-left text-sm"><thead className="bg-gray-100 text-gray-500 dark:bg-gray-900"><tr><th className="px-6 py-3">Date</th><th className="px-6 py-3">Event</th><th className="px-6 py-3">Actor</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{paginatedActivityRows.map((row) => <tr key={row.id}><td className="px-6 py-3 font-mono text-xs text-gray-500">{row.date}</td><td className="px-6 py-3 font-medium text-gray-900 dark:text-white">{row.event}</td><td className="px-6 py-3 text-gray-500">{row.actor}</td></tr>)}</tbody></table></div>
+              <ScrollableTableRegion label="Branch activity log"><table className="w-full whitespace-nowrap text-left text-sm"><thead className="bg-gray-100 text-gray-500 dark:bg-gray-900"><tr><th className="px-6 py-3">Date</th><th className="px-6 py-3">Event</th><th className="px-6 py-3">Actor</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{paginatedActivityRows.map((row) => <tr key={row.id}><td className="px-6 py-3 font-mono text-xs text-gray-500">{row.date}</td><td className="px-6 py-3 font-medium text-gray-900 dark:text-white">{row.event}</td><td className="px-6 py-3 text-gray-500">{row.actor}</td></tr>)}</tbody></table></ScrollableTableRegion>
               <Pagination page={activityPage} pageSize={ACTIVITY_LOGS_PER_PAGE} totalItems={visibleActivityRows.length} itemLabel="events" onPageChange={setActivityPage} />
             </section>
           </div>
@@ -1995,7 +2090,8 @@ export default function AdminStoreDetail({
 
             <section className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
               <div className="border-b border-gray-200 p-5 dark:border-gray-700"><h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Customer feedback table</h4></div>
-              {selectedBranchReviews.length ? <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-gray-100 text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-900"><tr><th className="px-5 py-3">Customer</th><th className="px-5 py-3">Rating</th><th className="px-5 py-3">Comment</th><th className="px-5 py-3">Response</th><th className="px-5 py-3">Date</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{selectedBranchReviews.map((review) => <tr key={review.id}><td className="px-5 py-4 font-semibold text-gray-900 dark:text-white">{review.anonymous ? "Anonymous" : review.customerName || "Customer"}</td><td className="px-5 py-4"><span className="inline-flex items-center gap-1 font-bold text-amber-600">{Number(review.rating || 0)} <Star className="h-3.5 w-3.5 fill-current" /></span></td><td className="max-w-sm px-5 py-4 text-gray-600 dark:text-gray-300"><p className="line-clamp-3">{review.comment || "No written comment"}</p></td><td className="px-5 py-4">{review.ownerReply ? <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-700 dark:bg-green-950/40 dark:text-green-300">Responded</span> : <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">Awaiting response</span>}</td><td className="px-5 py-4 text-xs text-gray-500">{formatPhilippineDateTime(review.createdAt)}</td></tr>)}</tbody></table></div> : <div className="p-12 text-center"><MessageSquare className="mx-auto h-10 w-10 text-gray-300" /><p className="mt-3 font-semibold text-gray-900 dark:text-white">No ratings or feedback yet</p><p className="mt-1 text-sm text-gray-500">Customer reviews for this branch will appear here.</p></div>}
+              {selectedBranchReviews.length ? <ScrollableTableRegion label="Customer feedback"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-gray-100 text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-900"><tr><th className="px-5 py-3">Customer</th><th className="px-5 py-3">Rating</th><th className="px-5 py-3">Comment</th><th className="px-5 py-3">Response</th><th className="px-5 py-3">Date</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-gray-700">{reviewPagination.pageItems.map((review) => <tr key={review.id}><td className="px-5 py-4 font-semibold text-gray-900 dark:text-white">{review.anonymous ? "Anonymous" : review.customerName || "Customer"}</td><td className="px-5 py-4"><span className="inline-flex items-center gap-1 font-bold text-amber-600">{Number(review.rating || 0)} <Star className="h-3.5 w-3.5 fill-current" /></span></td><td className="max-w-sm px-5 py-4 text-gray-600 dark:text-gray-300"><p className="line-clamp-3">{review.comment || "No written comment"}</p></td><td className="px-5 py-4">{review.ownerReply ? <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-700 dark:bg-green-950/40 dark:text-green-300">Responded</span> : <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">Awaiting response</span>}</td><td className="px-5 py-4 text-xs text-gray-500">{formatPhilippineDateTime(review.createdAt)}</td></tr>)}</tbody></table></ScrollableTableRegion> : <div className="p-12 text-center"><MessageSquare className="mx-auto h-10 w-10 text-gray-300" /><p className="mt-3 font-semibold text-gray-900 dark:text-white">No ratings or feedback yet</p><p className="mt-1 text-sm text-gray-500">Customer reviews for this branch will appear here.</p></div>}
+              <Pagination page={reviewPagination.page} pageSize={reviewPagination.pageSize} totalItems={reviewPagination.totalItems} onPageChange={reviewPagination.setPage} itemLabel="reviews" />
             </section>
           </div>
         )}

@@ -91,7 +91,8 @@ describe("AdminSubscriptionPlanChanges", () => {
     expect(screen.getByText(/resolve the attached invoice through billing controls/i)).toBeInTheDocument();
   });
 
-  it("renders cancellation and failure reasons for the audit trail", () => {
+  it("archives cancelled changes by default while preserving their audit trail", async () => {
+    const user = userEvent.setup();
     render(
       <AdminSubscriptionPlanChanges
         changes={[
@@ -114,7 +115,32 @@ describe("AdminSubscriptionPlanChanges", () => {
       />,
     );
 
-    expect(screen.getByText(/The owner requested a different package/i)).toBeInTheDocument();
+    expect(screen.queryByText(/The owner requested a different package/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Subscription no longer active/i)).toBeInTheDocument();
+
+    const archiveButton = screen.getByRole("button", { name: /archived cancelled upgrades/i });
+    expect(archiveButton).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(archiveButton);
+
+    expect(archiveButton).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(/The owner requested a different package/i)).toBeInTheDocument();
+  });
+
+  it("uses a compact archived state when every change was cancelled", () => {
+    render(
+      <AdminSubscriptionPlanChanges
+        changes={[change({ status: "cancelled", cancellation_reason: "No longer needed." })]}
+        loading={false}
+        error=""
+        message=""
+        busy={false}
+        onRefresh={vi.fn()}
+        onRequestCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/No active plan changes/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No longer needed/i)).not.toBeInTheDocument();
   });
 });

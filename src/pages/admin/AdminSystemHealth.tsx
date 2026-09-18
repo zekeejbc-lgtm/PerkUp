@@ -100,10 +100,12 @@ export default function AdminSystemHealth() {
           type="button"
           onClick={() => void loadHealth(true)}
           disabled={refreshing}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+          className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-gray-200 px-3 text-sm font-semibold leading-none text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+          aria-label="Run diagnostics"
+          title="Run diagnostics"
         >
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Run diagnostics
+          Diagnose
         </button>
       </div>
 

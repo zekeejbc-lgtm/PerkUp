@@ -18,6 +18,10 @@ import { useAuth } from "../../contexts/AuthContext";
 import { BackendOperationError, invokeAdminBackend } from "../../lib/adminBackend";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { SubscriptionUpgradeTermsModal } from "../../components/SubscriptionUpgradeTermsModal";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
+import { Pagination } from "../../components/Pagination";
+import { useCollectionPagination } from "../../hooks/useCollectionPagination";
+import { useToast } from "../../components/ToastProvider";
 import {
   cancelSubscriptionUpgrade,
   confirmSubscriptionUpgrade,
@@ -36,6 +40,8 @@ type BillingInvoice = {
   id: string;
   public_id: string;
   status: string;
+  plan_id_snapshot: string | null;
+  plan_name_snapshot: string | null;
   created_at: string;
   due_at: string;
   period_start: string;
@@ -75,6 +81,7 @@ const isManualPayment = (invoice: BillingInvoice) =>
 export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
   const { formatCurrency } = useCurrency();
   const { user } = useAuth();
+  const toast = useToast();
   const subscriptionStore = stores.find((store) => store.isPrimaryBranch === true) ||
     stores.find((store) => store.subscriptionLevel || store.subscriptionDependencies) ||
     stores[0] || null;
@@ -246,6 +253,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
 
   const downloadInvoice = async (invoice: BillingInvoice) => {
     setDownloadingInvoiceId(invoice.id);
+    const progressToastId = toast.progress("Preparing the invoice PDF…", { title: "Generating PDF" });
     try {
       await downloadSubscriptionInvoicePdf({
         invoice: {
@@ -267,7 +275,8 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
           grossAmountCentavos: invoice.gross_amount_centavos,
         },
         subscription: {
-          planId: billingSubscription?.plan_id || subscriptionStore?.subscriptionLevel || null,
+          planId: invoice.plan_id_snapshot || billingSubscription?.plan_id || subscriptionStore?.subscriptionLevel || null,
+          planName: invoice.plan_name_snapshot,
           billingEmail: billingSubscription?.billing_email || null,
           intervalDays: billingSubscription?.interval_days || null,
           gracePeriodDays: billingSubscription?.grace_period_days || null,
@@ -279,9 +288,10 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
           contact: subscriptionStore?.contact || subscriptionStore?.contactNumber || subscriptionStore?.phone || null,
         },
       });
+      toast.update(progressToastId, "The invoice PDF was downloaded.", "success", { title: "Download ready" });
     } catch (error) {
       console.error("Could not generate subscription invoice PDF", error);
-      window.alert("We could not prepare this PDF. Please refresh the page and try again.");
+      toast.update(progressToastId, "We could not prepare this PDF. Please refresh the page and try again.", "error", { error, title: "PDF failed" });
     } finally {
       setDownloadingInvoiceId(null);
     }
@@ -294,7 +304,7 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
     Promise.all([
       supabase.from("billing_subscriptions").select("public_id,automation_enabled,billing_email,plan_id,interval_days,grace_period_days,status,renewal_mode,auto_renew_cancelled_at,current_period_end,initial_payment_required").eq("store_id", subscriptionStore.id).maybeSingle(),
       supabase.from("billing_invoices")
-        .select("id,public_id,status,created_at,due_at,period_start,period_end,amount_centavos,currency,payment_url,paymongo_reference_number,manual_payment_reference,livemode,paid_at,payment_method,paymongo_payment_id,gross_amount_centavos,fee_centavos,net_amount_centavos")
+        .select("id,public_id,status,created_at,due_at,period_start,period_end,amount_centavos,currency,payment_url,paymongo_reference_number,manual_payment_reference,livemode,paid_at,payment_method,paymongo_payment_id,gross_amount_centavos,fee_centavos,net_amount_centavos,plan_id_snapshot,plan_name_snapshot")
         .eq("store_id", subscriptionStore.id)
         .order("created_at", { ascending: false })
         .limit(6),
@@ -317,6 +327,8 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
     });
     return () => { cancelled = true; };
   }, [subscriptionStore?.id]);
+
+  const invoicePagination = useCollectionPagination(billingInvoices, 6);
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -570,8 +582,9 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
             {billingLoading ? (
               <div className="flex items-center gap-2 py-8 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading billing history...</div>
             ) : billingInvoices.length ? (
-              <div className="mt-5 space-y-3">
-                {billingInvoices.map((invoice) => (
+              <>
+              <ScrollableRegion label="Payment history" className="mt-5 space-y-3 pr-1">
+                {invoicePagination.pageItems.map((invoice) => (
                   <div key={invoice.id} className="flex flex-col gap-3 rounded-2xl border border-gray-200 p-4 transition-colors hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">{invoice.status === "paid" ? "Receipt" : "Invoice"} {invoiceNumber(invoice)}</p>
@@ -601,7 +614,9 @@ export default function StoreOwnerSubscription({ stores }: { stores: any[] }) {
                     </div>
                   </div>
                 ))}
-              </div>
+              </ScrollableRegion>
+              <Pagination page={invoicePagination.page} pageSize={invoicePagination.pageSize} totalItems={invoicePagination.totalItems} onPageChange={invoicePagination.setPage} itemLabel="invoices" />
+              </>
             ) : (
               <div className="mt-5 rounded-2xl bg-gray-50 p-4 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">
                 {manualRenewal

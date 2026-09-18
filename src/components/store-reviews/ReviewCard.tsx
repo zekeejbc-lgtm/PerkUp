@@ -29,7 +29,7 @@ export function ReviewCard({ review, storeName, onOpenReview, onOpenImage, compa
           <span className="flex min-w-0 items-center gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 text-sm font-black text-gray-600 dark:bg-white/10 dark:text-gray-200">
               {reviewer.avatarUrl ? (
-                <img src={getDisplayImageUrl(reviewer.avatarUrl)} alt="" className="h-full w-full object-cover" />
+                <img src={getDisplayImageUrl(reviewer.avatarUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
               ) : reviewer.initials ? (
                 <span>{reviewer.initials}</span>
               ) : (
@@ -73,7 +73,7 @@ export function ReviewCard({ review, storeName, onOpenReview, onOpenImage, compa
                 aria-label={`Open ${alt.toLowerCase()}`}
                 className="h-14 w-14 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 transition hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900/30 dark:border-gray-700 dark:bg-gray-800 dark:focus-visible:ring-white/40"
               >
-                <img src={getDisplayImageUrl(imageUrl)} alt="" className="h-full w-full object-cover" loading="lazy" />
+                <img src={getDisplayImageUrl(imageUrl)} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
               </button>
             );
           })}
@@ -82,4 +82,3 @@ export function ReviewCard({ review, storeName, onOpenReview, onOpenImage, compa
     </article>
   );
 }
-

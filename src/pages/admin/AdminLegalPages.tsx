@@ -13,10 +13,12 @@ import {
 } from "../../lib/legalContent";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { useSearchParams } from "react-router-dom";
+import { useToast } from "../../components/ToastProvider";
 
 const pageKeys = Object.keys(LEGAL_PAGE_LABELS) as LegalPageKey[];
 
 export default function AdminLegalPages() {
+  const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const [pages, setPages] = useState<LegalPagesContent>(cloneLegalPages(DEFAULT_LEGAL_PAGES));
   const [publishedPages, setPublishedPages] = useState<LegalPagesContent>(cloneLegalPages(DEFAULT_LEGAL_PAGES));
@@ -59,9 +61,10 @@ export default function AdminLegalPages() {
       .catch((loadError) => {
         console.error("Could not load legal pages:", loadError);
         setError("The legal-page content could not be loaded.");
+        toast.error("The legal-page content could not be loaded.", { error: loadError });
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [toast]);
 
   const updatePage = (patch: Partial<LegalPagesContent[LegalPageKey]>) => {
     editRevisions.current[activePage] += 1;
@@ -103,6 +106,7 @@ export default function AdminLegalPages() {
     }
 
     setSaving(true);
+    const progressToastId = toast.progress(`Saving ${LEGAL_PAGE_LABELS[pageKey]}…`, { title: "Updating legal page" });
     try {
       await setDoc(doc(db, "settings", "legal-pages"), {
         [`pages.${pageKey}`]: pageToSave,
@@ -116,9 +120,11 @@ export default function AdminLegalPages() {
         setSavedPage(pageKey);
         setIsEditing(false);
       }
+      toast.update(progressToastId, `${LEGAL_PAGE_LABELS[pageKey]} saved.`, "success", { title: "Legal page updated" });
     } catch (saveError) {
       console.error(`Could not save ${LEGAL_PAGE_LABELS[pageKey]}:`, saveError);
       setError("The changes could not be saved. Confirm that you are signed in as an administrator.");
+      toast.update(progressToastId, "The changes could not be saved.", "error", { error: saveError, title: "Save failed" });
     } finally {
       setSaving(false);
     }

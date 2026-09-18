@@ -7,6 +7,8 @@ import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { Pagination } from "../../components/Pagination";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
 import { moderateStoreReview } from "../../lib/storeReviewModeration";
+import { ScrollableRegion, ScrollableTableRegion } from "../../components/ScrollableRegion";
+import { useToast } from "../../components/ToastProvider";
 
 const REVIEWS_PER_PAGE = 6;
 
@@ -25,6 +27,7 @@ const getInitials = (name?: string) => {
 };
 
 export default function StoreOwnerFeedback({ store }: { store: any }) {
+  const toast = useToast();
   const [feedback, setFeedback] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
@@ -65,6 +68,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
     const reply = (replyDrafts[review.id] ?? review.ownerReply ?? "").trim();
     if (!reply) return;
     setSavingReplyId(review.id);
+    const progressToastId = toast.progress("Saving your reply…", { title: "Review reply" });
     try {
       const isUpdatingExistingReply = Boolean(review.ownerReply) && reply !== review.ownerReply;
       const replyPatch = {
@@ -84,9 +88,10 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
           : item
       )));
       setReplyDrafts((current) => ({ ...current, [review.id]: reply }));
+      toast.update(progressToastId, "Your reply was saved.", "success", { title: "Reply saved" });
     } catch (error) {
       console.error("Failed to save store reply", error);
-      alert("Failed to save reply. Please try again.");
+      toast.update(progressToastId, "Your reply could not be saved.", "error", { error, title: "Save failed" });
     } finally {
       setSavingReplyId("");
     }
@@ -363,7 +368,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
               <h3 id="monthly-performance-heading" className="text-sm font-bold uppercase tracking-widest text-gray-900 dark:text-white">Monthly Performance</h3>
               <p className="mt-1 text-xs text-gray-500">Volume, average rating, and response coverage</p>
             </div>
-            <div className="overflow-x-auto">
+            <ScrollableTableRegion label="Monthly review performance">
               <table className="w-full min-w-[32rem] text-left text-sm">
                 <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500 dark:bg-gray-800/60">
                   <tr><th className="px-5 py-3">Month</th><th className="px-4 py-3 text-right">Reviews</th><th className="px-4 py-3 text-right">Avg. rating</th><th className="px-5 py-3 text-right">Response rate</th></tr>
@@ -379,7 +384,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollableTableRegion>
           </section>
         </div>
 
@@ -409,7 +414,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
               </div>
             </div>
 
-            <div className="grid gap-4">
+            <ScrollableRegion label="Customer feedback" className="grid gap-4 pr-1">
           {paginatedFeedback.map((item) => {
             const createdAt = toDate(item.createdAt);
             const replyUpdatedAt = toDate(item.ownerReplyUpdatedAt);
@@ -525,7 +530,7 @@ export default function StoreOwnerFeedback({ store }: { store: any }) {
               <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">No reviews match this filter.</p>
             </div>
           )}
-            </div>
+            </ScrollableRegion>
             <Pagination
               page={currentPage}
               pageSize={REVIEWS_PER_PAGE}

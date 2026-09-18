@@ -7,6 +7,7 @@ import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { getDisplayImageUrl } from "../../lib/imageStorage";
 import { getCompletedPromotionCount, getRemainingPromotionClaims } from "../../lib/promotionProgress";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion, ScrollableTableRegion } from "../../components/ScrollableRegion";
 import { formatPhilippineDate, getPhilippineDateTimeMillis } from "../../lib/dateTime";
 import { ViewModeButton } from "../../components/ViewModeButton";
 import {
@@ -289,7 +290,7 @@ export default function CustomerPromotions() {
 
   const openPromotion = (promo: any) => setSelectedPromotion(promo);
   const renderCardView = (items: any[]) => (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <ScrollableRegion label="Customer promotions" className="grid grid-cols-1 gap-4 pr-1 md:grid-cols-2 xl:grid-cols-3">
       {items.map((promo) => {
         const availability = getPromotionAvailability(promo);
         return (
@@ -325,11 +326,11 @@ export default function CustomerPromotions() {
           </button>
         );
       })}
-    </div>
+    </ScrollableRegion>
   );
 
   const renderPageView = (items: any[]) => (
-    <div className="space-y-3">
+    <ScrollableRegion label="Customer promotions" className="space-y-3 pr-1">
       {items.map((promo) => (
         <button
           key={promo.id}
@@ -369,12 +370,12 @@ export default function CustomerPromotions() {
           </div>
         </button>
       ))}
-    </div>
+    </ScrollableRegion>
   );
 
   const renderTableView = (items: any[]) => (
     <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-      <div className="overflow-x-auto">
+      <ScrollableTableRegion label="Customer promotions table">
         <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
           <thead className="bg-gray-50 text-left text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:bg-white/5 dark:text-gray-400">
             <tr>
@@ -421,7 +422,7 @@ export default function CustomerPromotions() {
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollableTableRegion>
     </div>
   );
 

@@ -4,7 +4,6 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App.tsx';
 import { AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './components/ToastProvider';
-import { AlertModalProvider } from './components/AlertModalProvider';
 import { installLazyImageDefaults } from './lib/performance';
 import { installChunkRecovery } from './lib/chunkRecovery';
 import { registerServiceWorker } from './lib/pwa';
@@ -23,19 +22,17 @@ rootElement.replaceChildren();
 createRoot(rootElement).render(
   <StrictMode>
     <ThemeProvider>
-      <AlertModalProvider>
-        <ToastProvider>
-          <RuntimeModeProvider>
-            <AuthProvider>
-              <CurrencyProvider>
-                <BrowserRouter>
-                  <App />
-                </BrowserRouter>
-              </CurrencyProvider>
-            </AuthProvider>
-          </RuntimeModeProvider>
-        </ToastProvider>
-      </AlertModalProvider>
+      <ToastProvider>
+        <RuntimeModeProvider>
+          <AuthProvider>
+            <CurrencyProvider>
+              <BrowserRouter>
+                <App />
+              </BrowserRouter>
+            </CurrencyProvider>
+          </AuthProvider>
+        </RuntimeModeProvider>
+      </ToastProvider>
     </ThemeProvider>
   </StrictMode>,
 );

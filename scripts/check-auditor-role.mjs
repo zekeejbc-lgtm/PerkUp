@@ -4,12 +4,17 @@ import { glob } from "node:fs/promises";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-const [runtimeControl, maintenanceScreen, app, authContext, adminBackend] = await Promise.all([
+const [runtimeControl, maintenanceScreen, app, adminDashboard, seo, vercelConfig, authContext, adminBackend, adminAccount, accountHierarchy] = await Promise.all([
   read("src/pages/admin/AdminRuntimeControl.tsx"),
   read("src/components/MaintenanceScreen.tsx"),
   read("src/App.tsx"),
+  read("src/pages/AdminDashboard.tsx"),
+  read("src/components/Seo.tsx"),
+  read("vercel.json"),
   read("src/contexts/AuthContext.tsx"),
   read("supabase/functions/admin-backend/index.ts"),
+  read("src/pages/admin/AdminAccount.tsx"),
+  read("supabase/functions/_shared/account-role-hierarchy.ts"),
 ]);
 
 assert.match(runtimeControl, /action:\s*"end_maintenance_mode"/);
@@ -22,6 +27,15 @@ assert.match(maintenanceScreen, /<AuthModal[\s\S]*?initialMode="signin"/);
 assert.match(maintenanceScreen, /allowedSignInRoles=\{\["auditor", "admin"\]\}/);
 assert.doesNotMatch(maintenanceScreen, /variant="maintenance"/);
 assert.match(app, /\["admin", "auditor"\]\.includes\(user\?\.role \|\| ""\)/);
+assert.match(app, /case "auditor":[\s\S]*?Navigate to="\/auditor"/);
+assert.match(app, /auditor:\s*"\/auditor\/account"/);
+assert.match(app, /path="\/admin\/\*"[\s\S]*?allowedRoles=\{\["admin", "assistant_admin"\]\}/);
+assert.match(app, /path="\/auditor\/\*"[\s\S]*?allowedRoles=\{\["auditor"\]\}/);
+assert.match(adminDashboard, /navigate\(`\$\{portalBasePath\}\?tab=\$\{item\.id\}`\)/);
+assert.match(adminDashboard, /navigate\(`\$\{portalBasePath\}\/account`\)/);
+assert.match(seo, /admin\|auditor\|owner\|staff\|customer/);
+assert.match(vercelConfig, /"source": "\/auditor"/);
+assert.match(vercelConfig, /"source": "\/auditor\/\(\.\*\)"/);
 assert.match(authContext, /\["admin", "auditor"\]\.includes\(existingUser\.role \|\| ""\)/);
 assert.match(authContext, /runtimeModeRef\.current === "maintenance" && !hasMaintenanceAccess/);
 assert.match(authContext, /if \(runtimeModeLoading\) return;[\s\S]*?auth\.onAuthStateChanged/);
@@ -54,6 +68,16 @@ for (const action of requiredAuditedMutations) {
 
 assert.match(adminBackend, /admin\.rpc\("get_auditor_audit_overview"\)/);
 assert.match(adminBackend, /admin\.rpc\("list_auditor_audit_records"/);
+assert.match(adminBackend, /action === "transfer_auditor_authority"/);
+assert.match(adminBackend, /admin\.rpc\(\s*"transfer_primary_auditor_authority"/);
+assert.match(adminBackend, /canManageAccountRole\(actor\.role, target\?\.role\)/);
+assert.match(adminAccount, /admin\.id !== user\?\.id/);
+assert.match(adminAccount, /admin\.id !== primaryAuditorUserId/);
+assert.match(adminAccount, /transferConfirmation !== "TRANSFER AUDITOR"/);
+assert.doesNotMatch(adminAccount, /admin\.role !== 'admin'/);
+assert.match(accountHierarchy, /auditor:\s*3/);
+assert.match(accountHierarchy, /admin:\s*2/);
+assert.match(accountHierarchy, /assistant_admin:\s*1/);
 
 const migrationPaths = [];
 for await (const path of glob("supabase/migrations/*harden_auditor_audit_pipeline.sql", {
@@ -68,6 +92,25 @@ assert.match(migration, /grant execute on function public\.get_auditor_audit_ove
 assert.match(
   migration,
   /revoke all on function public\.list_auditor_audit_records[\s\S]*?from public, anon, authenticated/,
+);
+
+const authorityMigrationPaths = [];
+for await (const path of glob("supabase/migrations/*add_primary_auditor_authority_transfer.sql", {
+  cwd: new URL("..", import.meta.url),
+})) {
+  authorityMigrationPaths.push(path);
+}
+assert.equal(authorityMigrationPaths.length, 1, "Expected exactly one primary auditor transfer migration");
+const authorityMigration = await read(authorityMigrationPaths[0].replaceAll("\\", "/"));
+assert.match(authorityMigration, /create table private\.primary_auditor_authority/);
+assert.match(authorityMigration, /create or replace function public\.transfer_primary_auditor_authority/);
+assert.match(
+  authorityMigration,
+  /revoke all on function public\.transfer_primary_auditor_authority\(text, text\)[\s\S]*?from public, anon, authenticated/,
+);
+assert.match(
+  authorityMigration,
+  /grant execute on function public\.transfer_primary_auditor_authority\(text, text\)[\s\S]*?to service_role/,
 );
 
 console.log("Auditor role regression checks passed.");

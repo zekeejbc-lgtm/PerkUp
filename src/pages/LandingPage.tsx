@@ -383,7 +383,7 @@ export default function LandingPage() {
 
         {homepageVideos.enabled && publishedHomepageVideos.length > 0 && (
           <section className="border-t border-[#1b1b1b]/10 bg-gray-50 py-20 transition-colors dark:border-white/10 dark:bg-[#181818] sm:py-28" aria-labelledby="how-it-works-heading">
-            <div className="mx-auto max-w-7xl px-6">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6">
               <div className="mx-auto max-w-3xl text-center">
                 <p className="text-xs font-bold uppercase tracking-[0.22em] text-gray-500 dark:text-gray-400">Demo accounts</p>
                 <h2 id="how-it-works-heading" className="mt-3 text-3xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-4xl">
@@ -394,14 +394,14 @@ export default function LandingPage() {
                 </p>
               </div>
 
-              <div className={`mx-auto mt-12 grid max-w-6xl gap-6 ${publishedHomepageVideos.length > 1 ? "lg:grid-cols-2" : "max-w-3xl"}`}>
+              <div className={`mx-auto mt-12 grid gap-6 ${publishedHomepageVideos.length > 1 ? "max-w-6xl lg:grid-cols-2" : "max-w-3xl"}`}>
                 {publishedHomepageVideos.map((video) => {
                   const isBusiness = video.audience === "business";
                   const AudienceIcon = isBusiness ? StoreIcon : UserRound;
                   return (
-                    <article key={video.id} className="overflow-hidden rounded-[2rem] border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-gray-800 dark:bg-[#202020] sm:p-5">
-                      <HomepageVideoPlayer url={video.url} title={video.title} />
-                      <div className="px-1 pb-2 pt-5 sm:px-2">
+                    <article key={video.id} className="min-w-0 overflow-hidden rounded-[2rem] border border-gray-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-gray-800 dark:bg-[#202020]">
+                      <HomepageVideoPlayer url={video.url} title={video.title} edgeToEdge />
+                      <div className="px-4 pb-5 pt-5 sm:px-7 sm:pb-7">
                         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">
                           <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
                             <AudienceIcon className="h-4 w-4" />
@@ -439,7 +439,7 @@ export default function LandingPage() {
                   className="block w-full rounded-full border-0 py-4 pl-12 pr-12 text-gray-900 dark:text-white bg-white dark:bg-[#202020] shadow-sm ring-1 ring-inset ring-[#1b1b1b]/10 dark:ring-white/10 placeholder:text-gray-400 dark:placeholder:text-gray-600 focus:ring-2 focus:ring-inset focus:ring-[#1b1b1b] dark:focus:ring-white sm:text-sm sm:leading-6 transition-colors"
               />
               <div className="mx-auto mt-5 max-w-3xl" aria-label="Store filters">
-                <div className="flex items-center gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div className="flex items-center justify-center gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <button
                     type="button"
                     aria-pressed={openNowOnly}

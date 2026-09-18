@@ -32,6 +32,7 @@ const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
 const DataDeletionPage = lazy(() => import("./pages/DataDeletionPage"));
 const TermsOfServicePage = lazy(() => import("./pages/TermsOfServicePage"));
 const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
+const NewsletterPreferencesPage = lazy(() => import("./pages/NewsletterPreferencesPage"));
 const MarketingPage = lazy(() => import("./pages/MarketingPage"));
 const PricingPage = lazy(() => import("./pages/MarketingPage").then((module) => ({ default: module.PricingPage })));
 const CustomerQrLandingPage = lazy(() => import("./pages/CustomerQrLandingPage"));
@@ -98,6 +99,45 @@ function ScrollPositionManager() {
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [location.key, location.hash, navigationType]);
+
+  return null;
+}
+
+function AutoHideScrollbars() {
+  useEffect(() => {
+    const root = document.documentElement;
+    let hideTimer: number | undefined;
+
+    const revealScrollbars = () => {
+      root.classList.add("scrollbars-visible");
+      if (hideTimer !== undefined) window.clearTimeout(hideTimer);
+      hideTimer = window.setTimeout(() => {
+        root.classList.remove("scrollbars-visible");
+      }, 1000);
+    };
+
+    const activityEvents: Array<keyof DocumentEventMap> = [
+      "keydown",
+      "pointermove",
+      "touchmove",
+      "wheel",
+    ];
+
+    document.addEventListener("scroll", revealScrollbars, true);
+    activityEvents.forEach((eventName) => {
+      document.addEventListener(eventName, revealScrollbars, { passive: true });
+    });
+    revealScrollbars();
+
+    return () => {
+      document.removeEventListener("scroll", revealScrollbars, true);
+      activityEvents.forEach((eventName) => {
+        document.removeEventListener(eventName, revealScrollbars);
+      });
+      if (hideTimer !== undefined) window.clearTimeout(hideTimer);
+      root.classList.remove("scrollbars-visible");
+    };
+  }, []);
 
   return null;
 }
@@ -324,8 +364,9 @@ function RoleRouter() {
       return <Navigate to="/owner" replace />;
     case "admin":
     case "assistant_admin":
-    case "auditor":
       return <Navigate to="/admin" replace />;
+    case "auditor":
+      return <Navigate to="/auditor" replace />;
     case "customer":
     default:
       return <Navigate to="/customer" replace />;
@@ -340,7 +381,7 @@ function Layout({ children }: { children: ReactNode }) {
   const accountPathByRole: Partial<Record<Role, string>> = {
     admin: "/admin/account",
     assistant_admin: "/admin/account",
-    auditor: "/admin/account",
+    auditor: "/auditor/account",
     customer: "/customer/profile",
     staff: "/staff/account",
     store_owner: "/owner/account",
@@ -431,6 +472,7 @@ export default function App() {
   return (
     <>
       <ScrollPositionManager />
+      <AutoHideScrollbars />
       <RouteSeo />
       <GlobalImageViewer />
       <PwaPrompts />
@@ -439,18 +481,19 @@ export default function App() {
       <Route path="/reset-password" element={<Suspense fallback={<PageSkeleton variant="auth" />}><ResetPasswordPage /></Suspense>} />
       <Route path="/stores" element={<Suspense fallback={<PageSkeleton variant="directory" />}><StoresPage /></Suspense>} />
       <Route path="/store/:storeId" element={<Suspense fallback={<PageSkeleton variant="store" />}><StorePage /></Suspense>} />
-      <Route path="/store/:storeId/reviews" element={<Suspense fallback={<PageSkeleton variant="content" />}><StoreReviewsPage /></Suspense>} />
-      <Route path="/store/:storeId/products" element={<Suspense fallback={<PageSkeleton variant="products" />}><StoreProductsPage /></Suspense>} />
-      <Route path="/store/:storeId/promotions" element={<Suspense fallback={<PageSkeleton variant="promotions" />}><StorePromotionsPage /></Suspense>} />
+      <Route path="/store/:storeId/reviews" element={<Suspense fallback={<PageSkeleton variant="reviews" />}><StoreReviewsPage /></Suspense>} />
+      <Route path="/store/:storeId/products" element={<Suspense fallback={<PageSkeleton variant="public-products" />}><StoreProductsPage /></Suspense>} />
+      <Route path="/store/:storeId/promotions" element={<Suspense fallback={<PageSkeleton variant="public-promotions" />}><StorePromotionsPage /></Suspense>} />
       <Route path="/privacy" element={<Suspense fallback={<PageSkeleton variant="content" />}><PrivacyPolicyPage /></Suspense>} />
       <Route path="/data-deletion" element={<Suspense fallback={<PageSkeleton variant="content" />}><DataDeletionPage /></Suspense>} />
       <Route path="/terms" element={<Suspense fallback={<PageSkeleton variant="content" />}><TermsOfServicePage /></Suspense>} />
       <Route path="/feedback" element={<Suspense fallback={<PageSkeleton variant="form" />}><FeedbackPage /></Suspense>} />
+      <Route path="/newsletter" element={<Suspense fallback={<PageSkeleton variant="content" />}><NewsletterPreferencesPage /></Suspense>} />
       <Route path="/product" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />
       <Route path="/customers" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />
       <Route path="/businesses" element={<Suspense fallback={<PageSkeleton variant="marketing" />}><MarketingPage /></Suspense>} />
       <Route path="/pricing" element={<Suspense fallback={<PageSkeleton variant="pricing" />}><PricingPage /></Suspense>} />
-      <Route path="/scan" element={<Suspense fallback={<PageSkeleton variant="content" />}><CustomerQrLandingPage /></Suspense>} />
+      <Route path="/scan" element={<Suspense fallback={<PageSkeleton variant="qr-landing" />}><CustomerQrLandingPage /></Suspense>} />
       <Route path="/dashboard" element={<RoleRouter />} />
       
       <Route path="/customer/*" element={
@@ -472,8 +515,13 @@ export default function App() {
       } />
       
       <Route path="/admin/*" element={
-        <ProtectedRoute allowedRoles={["admin", "assistant_admin", "auditor"]}>
-          <Layout><Suspense fallback={<DashboardShellSkeleton navigationItems={6} />}><AdminDashboard /></Suspense></Layout>
+        <ProtectedRoute allowedRoles={["admin", "assistant_admin"]}>
+          <Layout><Suspense fallback={<DashboardShellSkeleton navigationItems={6} />}><AdminDashboard portalBasePath="/admin" /></Suspense></Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/auditor/*" element={
+        <ProtectedRoute allowedRoles={["auditor"]}>
+          <Layout><Suspense fallback={<DashboardShellSkeleton navigationItems={6} />}><AdminDashboard portalBasePath="/auditor" /></Suspense></Layout>
         </ProtectedRoute>
       } />
       <Route path="*" element={<Suspense fallback={<PageSkeleton variant="content" />}><NotFoundPage /></Suspense>} />
