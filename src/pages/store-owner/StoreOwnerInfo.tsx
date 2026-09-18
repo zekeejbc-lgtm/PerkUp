@@ -14,6 +14,7 @@ import { CustomDropdown } from "../../components/CustomDropdown";
 import { getSubscriptionGalleryPhotoLimit, SubscriptionDependencies } from "../../lib/subscriptionBilling";
 import { StoreSocialLinksEditor } from "../../components/StoreSocialLinks";
 import { normalizeSocialLinks } from "../../lib/storeSocialLinks";
+import { useToast } from "../../components/ToastProvider";
 
 function LocationPicker({ setPosition }: { position: [number, number], setPosition: (p: [number, number]) => void }) {
   useMapEvents({
@@ -48,6 +49,7 @@ const getStoreFormData = (store: any) => ({
 });
 
 export default function StoreOwnerInfo({ store, setStore, subscriptionDependencies }: { store: any, setStore: (s: any) => void, subscriptionDependencies?: SubscriptionDependencies | null }) {
+  const toast = useToast();
   const galleryPhotoLimit = getSubscriptionGalleryPhotoLimit(subscriptionDependencies);
   const [formData, setFormData] = useState(() => getStoreFormData(store));
   const [isEditing, setIsEditing] = useState(false);
@@ -112,6 +114,7 @@ export default function StoreOwnerInfo({ store, setStore, subscriptionDependenci
       return;
     }
     setSaving(true);
+    const progressToastId = toast.progress("Saving your store information…", { title: "Updating store" });
     setSaved(false);
     setUploadProgress("");
     const uploadedImageUrls: string[] = [];
@@ -175,12 +178,13 @@ export default function StoreOwnerInfo({ store, setStore, subscriptionDependenci
       setSaved(true);
       setIsEditing(false);
       setTimeout(() => setSaved(false), 3000);
+      toast.update(progressToastId, "Your store information was saved.", "success", { title: "Store updated" });
     } catch (error) {
       if (!storePersisted && uploadedImageUrls.length) {
         await Promise.allSettled(uploadedImageUrls.map((url) => deleteImageFromDriveSecure(url)));
       }
       console.error(error);
-      alert("Failed to update store info");
+      toast.update(progressToastId, "Your store information could not be updated.", "error", { error, title: "Save failed" });
     } finally {
       setSaving(false);
       setUploadProgress("");

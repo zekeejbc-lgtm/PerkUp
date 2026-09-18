@@ -13,16 +13,9 @@ import { formatPhilippineDate } from "@/src/lib/dateTime";
 import { formatCustomerCode } from "@/src/lib/customerId";
 import { PROMOTION_REDEEM_QR_PREFIX, redeemPromotionClaim } from "@/src/lib/promotionClaims";
 import { configureQrScannerRuntime } from "@/src/lib/qrScannerRuntime";
+import { useToast } from "../../components/ToastProvider";
 
 configureQrScannerRuntime();
-
-type OfflineScan = {
-  id: string;
-  points: number;
-  timestamp: number;
-  storeId: string;
-  promotionId: string;
-};
 
 type RedemptionInput = {
   scanToken?: string;
@@ -35,16 +28,9 @@ type ScannerLocation = {
   accuracy?: number;
 };
 
-const LEGACY_OFFLINE_QUEUE_KEY = "offlineScanQueue";
-const OFFLINE_QUEUE_PREFIX = "perk:offlineScanQueue";
-const OFFLINE_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_OFFLINE_QUEUE_ITEMS = 100;
 const MAX_POINTS_PER_SCAN = 100;
 const DUPLICATE_SCAN_COOLDOWN_MS = 20000;
 const DUPLICATE_SCAN_ALERT_COOLDOWN_MS = 1500;
-
-const getOfflineQueueKey = (storeId: string, promotionId: string) =>
-  `${OFFLINE_QUEUE_PREFIX}:${storeId}:${promotionId}`;
 
 const isValidCustomerQr = (scanToken: string) => isSecureCustomerQr(scanToken);
 
@@ -103,63 +89,9 @@ const getCustomerLabel = (card: any) => {
 const normalizeCardRows = (rows: { id: string; data: Record<string, unknown> | null }[]) =>
   rows.map((row) => ({ id: row.id, ...(row.data || {}) }));
 
-const normalizeOfflineQueue = (
-  value: unknown,
-  storeId: string,
-  promotionId: string,
-): OfflineScan[] => {
-  if (!Array.isArray(value)) return [];
-
-  const cutoff = Date.now() - OFFLINE_QUEUE_TTL_MS;
-
-  return value
-    .map((item): OfflineScan | null => {
-      if (!item || typeof item !== "object") return null;
-      const scan = item as Partial<OfflineScan>;
-      const customerId = String(scan.id || "").trim();
-      const timestamp = Number(scan.timestamp || 0);
-
-      if (!isValidCustomerQr(customerId)) return null;
-      if (!Number.isFinite(timestamp) || timestamp < cutoff) return null;
-      if (scan.storeId && scan.storeId !== storeId) return null;
-      if (scan.promotionId && scan.promotionId !== promotionId) return null;
-
-      return {
-        id: customerId,
-        points: normalizePoints(Number(scan.points || 1)),
-        timestamp,
-        storeId,
-        promotionId,
-      };
-    })
-    .filter((item): item is OfflineScan => Boolean(item))
-    .slice(-MAX_OFFLINE_QUEUE_ITEMS);
-};
-
-const readOfflineQueue = (key: string, storeId: string, promotionId: string): OfflineScan[] => {
-  try {
-    return normalizeOfflineQueue(JSON.parse(localStorage.getItem(key) || "[]"), storeId, promotionId);
-  } catch (_error) {
-    localStorage.removeItem(key);
-    return [];
-  }
-};
-
-const writeOfflineQueue = (key: string, queue: OfflineScan[]) => {
-  try {
-    if (queue.length === 0) {
-      localStorage.removeItem(key);
-      return;
-    }
-
-    localStorage.setItem(key, JSON.stringify(queue));
-  } catch (error) {
-    console.warn("Failed to persist offline scan queue.", error);
-  }
-};
-
 export default function StaffPromotionScan({ store }: { store: any }) {
   const { id } = useParams();
+  const toast = useToast();
   const [promo, setPromo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   
@@ -187,12 +119,23 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   const [showScanSuccess, setShowScanSuccess] = useState(false);
   const duplicateScanRef = useRef<{ id: string; scannedAt: number; alertedAt: number } | null>(null);
 
-  // Offline Sync Queue
-  const [offlineQueueKey, setOfflineQueueKey] = useState("");
-  const [offlineQueue, setOfflineQueue] = useState<OfflineScan[]>([]);
-
   // Promotion Customers state
   const [promoCustomers, setPromoCustomers] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Remove obsolete plaintext queues from releases that offered offline crediting.
+    // Current secure redemptions are server-confirmed and are never queued locally.
+    try {
+      for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+        const key = localStorage.key(index);
+        if (key === "offlineScanQueue" || key?.startsWith("perk:offlineScanQueue:")) {
+          localStorage.removeItem(key);
+        }
+      }
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }, []);
 
   const loadPromoCustomers = useCallback(async () => {
     if (!store?.id) return;
@@ -205,24 +148,6 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     if (error) throw error;
     setPromoCustomers(normalizeCardRows((data || []) as { id: string; data: Record<string, unknown> | null }[]));
   }, [store?.id]);
-
-  useEffect(() => {
-    if (!store?.id || !id) {
-      setOfflineQueueKey("");
-      setOfflineQueue([]);
-      return;
-    }
-
-    const key = getOfflineQueueKey(store.id, id);
-    setOfflineQueue(readOfflineQueue(key, store.id, id));
-    setOfflineQueueKey(key);
-    localStorage.removeItem(LEGACY_OFFLINE_QUEUE_KEY);
-  }, [store?.id, id]);
-
-  useEffect(() => {
-    if (!offlineQueueKey) return;
-    writeOfflineQueue(offlineQueueKey, offlineQueue);
-  }, [offlineQueue, offlineQueueKey]);
 
   useEffect(() => {
     async function init() {
@@ -291,34 +216,6 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   }, [store?.id, loadPromoCustomers]);
 
   useEffect(() => {
-    const handleOnline = async () => {
-      if (offlineQueue.length > 0) {
-        const queueCopy = [...offlineQueue];
-        setOfflineQueue([]); // Clear early to prevent duplicates
-        let failed = [];
-
-        for (const item of queueCopy) {
-          try {
-            await processPointsForCustomer(item.id, item.points);
-          } catch (e) {
-            console.error("Offline sync failed for", item.id, e);
-            failed.push(item);
-          }
-        }
-        
-        if (failed.length > 0 && store?.id && id) {
-            setOfflineQueue(prev => normalizeOfflineQueue([...prev, ...failed], store.id, id));
-        }
-        
-        await loadPromoCustomers();
-      }
-    };
-    
-    window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
-  }, [offlineQueue, store?.id, id, loadPromoCustomers]);
-
-  useEffect(() => {
     const checkLocation = () => {
       const geofence = getPromotionGeofence(promo);
       if (!geofence) {
@@ -369,18 +266,21 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
     if (scannedId.startsWith(PROMOTION_REDEEM_QR_PREFIX)) {
       if (!navigator.onLine) {
-        alert("Reward redemption requires an internet connection.");
+        toast.info("Reward redemption requires an internet connection.", { title: "You are offline" });
         return;
       }
       setIsProcessing(true);
       setIsScannerActive(false);
+      const progressToastId = toast.progress("Redeeming the scanned reward…", { title: "Reward redemption" });
       try {
         const claim = await redeemPromotionClaim({ storeId: store.id, lookup: scannedId, method: "qr" });
         setShowScanSuccess(true);
         setTimeout(() => setShowScanSuccess(false), 1000);
-        alert(`Reward redeemed successfully. Claim ${claim.redeemCode} is now marked as used.`);
+        toast.update(progressToastId, `Claim ${claim.redeemCode} is now marked as used.`, "success", { title: "Reward redeemed" });
       } catch (error) {
-        alert(error instanceof Error ? error.message : "Could not redeem this reward QR.");
+        const message = error instanceof Error ? error.message : "Could not redeem this reward QR.";
+        if (/already|expired|invalid|not found|does not belong/i.test(message)) toast.update(progressToastId, message, "info", { title: "Reward not redeemable" });
+        else toast.update(progressToastId, message, "error", { error, title: "Redemption failed" });
       } finally {
         setIsProcessing(false);
         setIsScannerActive(true);
@@ -390,7 +290,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
     const parsedQr = parseCustomerQr(scannedId);
     if (!parsedQr) {
-      alert("Invalid Perk QR code. Ask the customer to open or download their QR from the Perk app.");
+      toast.info("Invalid Perk QR code. Ask the customer to open or download their QR from the Perk app.", { title: "QR not recognized" });
       return;
     }
     const redemptionInput: RedemptionInput = parsedQr.kind === "secure"
@@ -406,14 +306,14 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       now - lastDuplicateScan.scannedAt < DUPLICATE_SCAN_COOLDOWN_MS
     ) {
       if (now - lastDuplicateScan.alertedAt > DUPLICATE_SCAN_ALERT_COOLDOWN_MS) {
-        alert("This QR code has already been scanned. Please wait a few seconds before scanning it again.");
+        toast.info("This QR code has already been scanned. Please wait a few seconds before scanning it again.", { title: "Duplicate scan" });
         duplicateScanRef.current = { ...lastDuplicateScan, alertedAt: now };
       }
       return;
     }
 
     if (isBatchMode && batchQueue.some(item => item.id === scanKey)) {
-      alert("This QR code has already been scanned in the current batch.");
+      toast.info("This QR code has already been scanned in the current batch.", { title: "Duplicate scan" });
       duplicateScanRef.current = { id: scanKey, scannedAt: now, alertedAt: now };
       return;
     }
@@ -430,12 +330,13 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     }
 
     if (!navigator.onLine) {
-        alert("Secure QR scans require an internet connection so Perk can authenticate the staff account and QR ticket.");
+        toast.info("Secure QR scans require an internet connection so Perk can authenticate the staff account and QR ticket.", { title: "You are offline" });
         return;
     }
 
     setIsProcessing(true);
     setIsScannerActive(false);
+    const progressToastId = toast.progress("Verifying the customer QR…", { title: "Checking QR" });
 
     try {
       const result = await redeemCustomerScan({
@@ -459,10 +360,13 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       });
 
       setShowConfirmModal(true);
+      toast.update(progressToastId, "Customer verified. Confirm the points to continue.", "success", { title: "QR verified" });
 
     } catch (err) {
       console.error(err);
-      alert(err instanceof Error ? err.message : "Failed to process scanned QR code.");
+      const message = err instanceof Error ? err.message : "Failed to process scanned QR code.";
+      if (/invalid|expired|already|not found/i.test(message)) toast.update(progressToastId, message, "info", { title: "QR not accepted" });
+      else toast.update(progressToastId, message, "error", { error: err, title: "QR verification failed" });
       setIsScannerActive(true);
     } finally {
       setIsProcessing(false);
@@ -501,20 +405,20 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     if (!method || !lookup || !store?.id || isProcessing) return;
     setIsProcessing(true);
     setRewardCodeError("");
+    const progressToastId = toast.progress("Redeeming the reward…", { title: "Reward redemption" });
     try {
       const claim = await redeemPromotionClaim({ storeId: store.id, lookup, method });
       setRewardCode("");
-      alert(`Reward ${claim.redeemCode} redeemed successfully.`);
+      toast.update(progressToastId, `Reward ${claim.redeemCode} redeemed successfully.`, "success", { title: "Reward redeemed" });
     } catch (error) {
-      setRewardCodeError(error instanceof Error ? error.message : "Could not redeem this claim.");
+      const message = error instanceof Error ? error.message : "Could not redeem this claim.";
+      setRewardCodeError(message);
+      if (/already|expired|invalid|not found|does not belong/i.test(message)) toast.update(progressToastId, message, "info", { title: "Reward not redeemable" });
+      else toast.update(progressToastId, message, "error", { error, title: "Redemption failed" });
     } finally {
       setIsProcessing(false);
       setRewardRedemptionMethod(null);
     }
-  };
-
-  const processPointsForCustomer = async (scannedId: string, points: number) => {
-    return processPointsForCustomerInput({ scanToken: scannedId }, points);
   };
 
   const handleManualLookup = async () => {
@@ -562,16 +466,17 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     if (!scannedCustomer || !store) return;
 
     if (!navigator.onLine) {
-        alert("Secure QR scans require an internet connection.");
+        toast.info("Secure QR scans require an internet connection.", { title: "You are offline" });
         return;
     }
 
     setIsProcessing(true);
+    const progressToastId = toast.progress("Crediting the customer’s card…", { title: "Issuing points" });
 
     try {
       const result = await processPointsForCustomerInput(scannedCustomer.redemptionInput, pointsToAdd);
 
-      alert(`Scan successful. Ticket ${result.ticket?.ticketNumber || "issued"} — credited ${pointsToAdd} points to @${scannedCustomer.username}.`);
+      toast.update(progressToastId, `Ticket ${result.ticket?.ticketNumber || "issued"} — credited ${pointsToAdd} points to @${scannedCustomer.username}.`, "success", { title: "Points credited" });
       
       setShowConfirmModal(false);
       setScannedCustomer(null);
@@ -583,7 +488,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       
     } catch (err) {
       console.error(err);
-      alert("Failed to credit points.");
+      toast.update(progressToastId, "The points could not be credited.", "error", { error: err, title: "Credit failed" });
     } finally {
       setIsProcessing(false);
     }
@@ -593,11 +498,12 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     if (!store?.id || !id) return;
 
     if (!navigator.onLine) {
-        alert("Secure QR scans require an internet connection.");
+        toast.info("Secure QR scans require an internet connection.", { title: "You are offline" });
         return;
     }
 
     setIsProcessing(true);
+    const progressToastId = toast.progress(`Issuing ${batchQueue.length} tickets…`, { title: "Processing batch" });
     try {
         const ticketNumbers: string[] = [];
         for (const item of batchQueue) {
@@ -605,7 +511,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
             if (result.ticket?.ticketNumber) ticketNumbers.push(result.ticket.ticketNumber);
         }
         
-        alert(`Successfully issued ${batchQueue.length} tickets${ticketNumbers.length ? `: ${ticketNumbers.join(", ")}` : "."}`);
+        toast.update(progressToastId, `Successfully issued ${batchQueue.length} tickets${ticketNumbers.length ? `: ${ticketNumbers.join(", ")}` : "."}`, "success", { title: "Batch complete" });
         setBatchQueue([]);
         setShowBatchModal(false);
         
@@ -613,7 +519,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
         
     } catch(e) {
         console.error(e);
-        alert("Failed to process some batch items.");
+        toast.update(progressToastId, "Some batch items could not be processed.", "error", { error: e, title: "Batch incomplete" });
     } finally {
         setIsProcessing(false);
     }
@@ -679,18 +585,6 @@ export default function StaffPromotionScan({ store }: { store: any }) {
           <div>
             <h4 className="text-sm font-bold text-red-900 dark:text-red-200 block">Security Geofence Alert</h4>
             <p className="text-sm text-red-700 dark:text-red-300/80 mt-1">{locationError}</p>
-          </div>
-        </div>
-      )}
-
-      {offlineQueue.length > 0 && (
-        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4 rounded-2xl flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />
-          <div>
-            <h4 className="text-sm font-bold text-yellow-900 dark:text-yellow-200 block">Offline Mode Active</h4>
-            <p className="text-sm text-yellow-700 dark:text-yellow-300/80 mt-1">
-              {offlineQueue.length} scan(s) queued for synchronization when connection is restored.
-            </p>
           </div>
         </div>
       )}
@@ -765,7 +659,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                  onError={(error) => {
                    console.error("Promotion QR scanner failed", error);
                    setIsScannerActive(false);
-                   alert(`Scanner unavailable: ${error instanceof Error ? error.message : "The camera or QR decoder could not start."} Check camera permission, then restart the scanner.`);
+                   toast.error(`Scanner unavailable: ${error instanceof Error ? error.message : "The camera or QR decoder could not start."} Check camera permission, then restart the scanner.`, { error, title: "Scanner unavailable" });
                  }}
                />
             ) : (

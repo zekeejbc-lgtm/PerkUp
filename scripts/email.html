@@ -82,7 +82,9 @@
           colors without honoring prefers-color-scheme, but it does not recolor
           the pixels inside this image, so the wordmark remains readable.
         -->
-        <img src="<?= logoUrl ?>" alt="<?= systemName ?> Logo" class="brand-logo" width="112">
+        <a href="<?= websiteLink ?>" aria-label="Open <?= systemName ?>" style="display: inline-block; text-decoration: none;">
+          <img src="<?= logoUrl ?>" alt="<?= systemName ?> Logo" class="brand-logo" width="112">
+        </a>
       </div>
 
       <div class="content">

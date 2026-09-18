@@ -38,12 +38,14 @@ import { ImageCropEditor } from "../../components/ImageCropEditor";
 import { TemporaryPasswordField } from "../../components/TemporaryPasswordField";
 import { validateStrongPassword } from "../../lib/passwordStrength";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { PayMongoDefaultsControl } from "../../components/PayMongoDefaultsControl";
 import { PAYMONGO_STANDARD_ACCESS } from "../../lib/subscriptionAccess";
 import { AlreadyPaidControl } from "../../components/AlreadyPaidControl";
 import { CategoryInput } from "../../components/CategoryInput";
 import { FEATURED_STORE_CATEGORIES } from "../../lib/storeDirectory";
 import { getPartnerApplicationStoreDefaults } from "../../lib/partnerApplicationStore";
+import { useToast } from "../../components/ToastProvider";
 
 const APPLICATIONS_PER_PAGE = 8;
 
@@ -81,6 +83,7 @@ const formatApplicationDateTime = (value: any) => {
 };
 
 export default function AdminApplications() {
+  const toast = useToast();
   const [applications, setApplications] = useState<any[]>([]);
   const [storesById, setStoresById] = useState<Record<string, any>>({});
   const [loadingApps, setLoadingApps] = useState(true);
@@ -112,6 +115,7 @@ export default function AdminApplications() {
   const [payMongoDefaultsEnabled, setPayMongoDefaultsEnabled] = useState(false);
   const [alreadyPaid, setAlreadyPaid] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [rejectingApplicationId, setRejectingApplicationId] = useState("");
 
   const billingPlans = subscriptionPlans.length > 0 ? subscriptionPlans : DEFAULT_SUBSCRIPTION_PLANS;
   const selectedOwedAmount = getSubscriptionOwedAmount(billingPlans, subLevel);
@@ -254,26 +258,35 @@ export default function AdminApplications() {
   };
 
   const handleRejectApplication = async (appId: string) => {
+    if (rejectingApplicationId) return;
+    setRejectingApplicationId(appId);
     try {
       await invokeAdminBackend<{ rejected: boolean }>({ action: "reject_application", applicationId: appId });
       setApplications((current) => current.map((app) => app.id === appId ? { ...app, status: "rejected" } : app));
+      toast.success("Partner application rejected.");
     } catch (error) {
       console.error("Application rejection failed", error);
-      alert("Failed to reject application.");
+      toast.error("The partner application could not be rejected.", {
+        error,
+        context: { operation: "reject_partner_application", applicationId: appId },
+      });
+    } finally {
+      setRejectingApplicationId("");
     }
   };
 
   const handleAddStore = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!alreadyPaid && !payMongoDefaultsEnabled) {
-      alert("Enable the PayMongo standard so the owner can complete the initial payment, or mark the subscription as already paid.");
+      toast.info("Enable the PayMongo standard so the owner can complete the initial payment, or mark the subscription as already paid.", { title: "Payment setup required" });
       return;
     }
     if (!validateStrongPassword(ownerPassword, { name: ownerName, email: ownerEmail }).valid) {
-      alert("Use a strong password that meets every requirement.");
+      toast.info("Use a strong password that meets every requirement.", { title: "Check password" });
       return;
     }
     setIsSubmitting(true);
+    const progressToastId = toast.progress("Approving the application and creating the store…", { title: "Creating store" });
     let uploadedLogoUrl = "";
     let storePersisted = false;
     try {
@@ -322,19 +335,19 @@ export default function AdminApplications() {
       setApplications((current) => current.filter((app) => app.id !== selectedApplicationId));
       setShowAddModal(false);
       setPendingLogo(null);
-      alert(
-        result.notification && !result.notification.sent
-          ? `Store approved and created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`
-          : alreadyPaid && result.receiptNotification && !result.receiptNotification.sent
-          ? `Store approved and the welcome email was sent, but the payment receipt could not be sent: ${result.receiptNotification.error || "Email service unavailable."}`
-          : `Store approved and created! The owner email${alreadyPaid ? " and payment receipt have" : " has"} been sent.`,
-      );
+      if (result.notification && !result.notification.sent) {
+        toast.update(progressToastId, `The store was created, but the welcome email could not be sent: ${result.notification.error || "Email service unavailable."}`, "error", { title: "Email delivery failed" });
+      } else if (alreadyPaid && result.receiptNotification && !result.receiptNotification.sent) {
+        toast.update(progressToastId, `The store was created, but the payment receipt could not be sent: ${result.receiptNotification.error || "Email service unavailable."}`, "error", { title: "Receipt delivery failed" });
+      } else {
+        toast.update(progressToastId, `Store approved and created. The owner email${alreadyPaid ? " and payment receipt have" : " has"} been sent.`, "success", { title: "Store created" });
+      }
     } catch (error) {
       if (!storePersisted && uploadedLogoUrl) {
         await deleteImageFromDriveSecure(uploadedLogoUrl).catch(console.error);
       }
       console.error(error);
-      alert("Failed to create store: " + (error as Error).message);
+      toast.update(progressToastId, "The store could not be created.", "error", { error, title: "Creation failed" });
     } finally {
       setIsSubmitting(false);
     }
@@ -374,7 +387,7 @@ export default function AdminApplications() {
             <CustomDropdown options={subscriptionOptions} value={subscriptionFilter} onChange={setSubscriptionFilter} className="w-full" />
           </div>
 
-          <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
+          <ScrollableRegion label="Partner applications" className="divide-y divide-gray-100 dark:divide-gray-800/50">
             {paginatedApplications.map((app) => (
               <div
                 key={app.id}
@@ -447,11 +460,14 @@ export default function AdminApplications() {
                           event.stopPropagation();
                           handleRejectApplication(app.id);
                         }}
-                        className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-100 px-4 py-2 text-sm font-medium text-red-700 transition-colors dark:bg-red-900/30 dark:text-red-400 lg:flex-none lg:rounded-full lg:bg-transparent lg:p-2 lg:text-transparent lg:hover:bg-red-100 dark:lg:bg-transparent dark:lg:hover:bg-red-900/50"
+                        disabled={Boolean(rejectingApplicationId)}
+                        className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-100 px-4 py-2 text-sm font-medium text-red-700 transition-colors disabled:cursor-wait disabled:opacity-50 dark:bg-red-900/30 dark:text-red-400 lg:flex-none lg:rounded-full lg:bg-transparent lg:p-2 lg:text-transparent lg:hover:bg-red-100 dark:lg:bg-transparent dark:lg:hover:bg-red-900/50"
                         title="Reject Application"
                       >
-                        <Ban className="h-5 w-5 lg:text-red-600 dark:lg:text-red-500" />
-                        <span className="lg:hidden">Reject</span>
+                        {rejectingApplicationId === app.id
+                          ? <Loader2 className="h-5 w-5 animate-spin lg:text-red-600 dark:lg:text-red-500" />
+                          : <Ban className="h-5 w-5 lg:text-red-600 dark:lg:text-red-500" />}
+                        <span className="lg:hidden">{rejectingApplicationId === app.id ? "Rejecting…" : "Reject"}</span>
                       </button>
                     </>
                   )}
@@ -466,7 +482,7 @@ export default function AdminApplications() {
                 <p className="mt-1 text-sm">Try changing the search text or filters.</p>
               </div>
             )}
-          </div>
+          </ScrollableRegion>
 
           <Pagination
             page={currentPage}
@@ -640,9 +656,11 @@ export default function AdminApplications() {
                     onClick={async () => {
                       await handleRejectApplication(detailApplication.id);
                     }}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/70"
+                    disabled={Boolean(rejectingApplicationId)}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-wait disabled:opacity-50 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/70"
                   >
-                    <Ban className="h-4 w-4" /> Reject
+                    {rejectingApplicationId === detailApplication.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                    {rejectingApplicationId === detailApplication.id ? "Rejecting…" : "Reject"}
                   </button>
                   <button type="button" onClick={() => handleApproveApplication(detailApplication)} className="rounded-xl bg-[#1b1b1b] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-black dark:border dark:border-white/10">
                     Process Setup

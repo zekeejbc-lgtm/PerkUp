@@ -3,6 +3,8 @@ import { Check, CheckCircle2, Clipboard, Clock3, Loader2, Search } from "lucide-
 import { PublicPageShell } from "../components/PublicPageShell";
 import { CustomDropdown } from "../components/CustomDropdown";
 import { lookupPublicFeedback, PublicFeedbackStatus, submitPublicFeedback, TrackedFeedback } from "../lib/publicFeedback";
+import { useToast } from "../components/ToastProvider";
+import { Link } from "react-router-dom";
 
 const STATUS_LABELS: Record<PublicFeedbackStatus, string> = {
   received: "Received",
@@ -27,6 +29,7 @@ const formatDate = (value: string) => new Intl.DateTimeFormat("en-PH", {
 }).format(new Date(value));
 
 export default function FeedbackPage() {
+  const toast = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [submission, setSubmission] = useState<{
     referenceNumber: string;
@@ -48,14 +51,19 @@ export default function FeedbackPage() {
       return;
     }
     setLookingUp(true);
+    const progressToastId = toast.progress("Looking up your feedback…", { title: "Tracking feedback" });
     setLookupError("");
     setTrackedFeedback(null);
     try {
       const result = await lookupPublicFeedback(normalizedReference);
       setReferenceNumber(normalizedReference);
       setTrackedFeedback(result);
+      toast.update(progressToastId, "Your feedback record was found.", "success", { title: "Feedback found" });
     } catch (lookupFailure) {
-      setLookupError(lookupFailure instanceof Error ? lookupFailure.message : "Feedback lookup failed.");
+      const message = lookupFailure instanceof Error ? lookupFailure.message : "Feedback lookup failed.";
+      setLookupError(message);
+      if (/not found|invalid|reference/i.test(message)) toast.update(progressToastId, message, "info", { title: "Feedback not found" });
+      else toast.update(progressToastId, message, "error", { error: lookupFailure, title: "Lookup failed" });
     } finally {
       setLookingUp(false);
     }
@@ -69,6 +77,7 @@ export default function FeedbackPage() {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
+    const progressToastId = toast.progress("Sending your feedback…", { title: "Submitting feedback" });
     setError("");
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") || "").trim().toLowerCase();
@@ -85,9 +94,11 @@ export default function FeedbackPage() {
         receiptSent: result.receipt.sent,
       });
       setReferenceNumber(result.feedback.referenceNumber);
+      toast.update(progressToastId, "Your feedback was submitted.", "success", { title: "Feedback sent" });
     } catch (submitFailure) {
       console.error("Site feedback failed:", submitFailure);
       setError(submitFailure instanceof Error ? submitFailure.message : "Your feedback could not be sent. Please try again.");
+      toast.update(progressToastId, "Your feedback could not be sent. Please try again.", "error", { error: submitFailure, title: "Submission failed" });
     } finally {
       setSubmitting(false);
     }
@@ -95,9 +106,14 @@ export default function FeedbackPage() {
 
   const copyReference = async () => {
     if (!submission) return;
-    await navigator.clipboard.writeText(submission.referenceNumber);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
+    try {
+      await navigator.clipboard.writeText(submission.referenceNumber);
+      setCopied(true);
+      toast.success("Feedback reference copied.");
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch (error) {
+      toast.info("Clipboard access was unavailable. Select and copy the reference manually.", { title: "Copy manually" });
+    }
   };
 
   return (
@@ -147,6 +163,7 @@ export default function FeedbackPage() {
             ]} />
           </label>
           <label className="block text-sm font-semibold">Message<textarea name="message" required minLength={10} maxLength={2000} rows={6} className="mt-2 w-full resize-y rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 font-normal outline-none focus:ring-2 focus:ring-black dark:border-white/10 dark:bg-white/5 dark:focus:ring-white" /></label>
+          <p className="text-xs leading-5 text-gray-500">By sending feedback, you acknowledge that Perk will store the submitted content and optional contact details for support and service improvement for up to 24 months. Public status lookup requires the random reference number. See the <Link to="/privacy" className="font-semibold underline">Privacy Policy</Link>.</p>
           {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
           <button disabled={submitting} className="inline-flex items-center gap-2 rounded-full bg-[#1b1b1b] px-6 py-3 text-sm font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-[#1b1b1b]">{submitting && <Loader2 className="h-4 w-4 animate-spin" />}Send feedback</button>
         </form>

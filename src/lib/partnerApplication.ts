@@ -22,6 +22,7 @@ export interface PartnerApplicationInput {
   personalFacebookUrl?: string;
   businessFacebookUrl?: string;
   businessWebsiteUrl?: string;
+  privacyConsent: boolean;
 }
 
 const getFunctionErrorMessage = async (error: unknown, fallback: string) => {

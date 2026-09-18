@@ -2,19 +2,24 @@ import { useState } from "react";
 import { BadgeDollarSign, RefreshCw } from "lucide-react";
 import { CustomDropdown } from "./CustomDropdown";
 import { CurrencyCode, getCurrencyName, useCurrency } from "@/src/contexts/CurrencyContext";
+import { useToast } from "./ToastProvider";
 
 export default function CurrencyPreference() {
   const { currency, currencies, rateDate, ratesLoading, setCurrency } = useCurrency();
+  const toast = useToast();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const handleChange = async (value: string) => {
     setSaving(true);
     setError("");
+    const progressToastId = toast.progress("Saving your currency preference…", { title: "Updating currency" });
     try {
       await setCurrency(value as CurrencyCode);
-    } catch {
+      toast.update(progressToastId, `Display currency changed to ${value}.`, "success", { title: "Currency updated" });
+    } catch (saveError) {
       setError("Could not save your currency preference. Please try again.");
+      toast.update(progressToastId, "Could not save your currency preference. Please try again.", "error", { error: saveError, title: "Save failed" });
     } finally {
       setSaving(false);
     }

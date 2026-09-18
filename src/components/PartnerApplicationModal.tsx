@@ -16,6 +16,8 @@ import { CategoryInput } from './CategoryInput';
 import { FEATURED_STORE_CATEGORIES } from '../lib/storeDirectory';
 import { ApplicationReviewFlow } from './ApplicationReviewFlow';
 import { getPreferredSubscriptionPlan, type SubscriptionPlan } from '../lib/subscriptionBilling';
+import { useToast } from './ToastProvider';
+import { Link as RouterLink } from 'react-router-dom';
 
 // Fix Leaflet marker icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -63,6 +65,7 @@ interface PartnerApplicationModalProps {
 }
 
 export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationModalProps) {
+  const toast = useToast();
   const { formatCurrency } = useCurrency();
   const [step, setStep] = useState(1);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
@@ -88,6 +91,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
   const locationSearchController = useRef<AbortController | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -181,6 +185,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     setCoordinates([7.4478, 125.8078]);
     setIsSuccess(false);
     setTrackingNumber('');
+    setPrivacyAccepted(false);
   };
 
   const handleClose = () => {
@@ -205,7 +210,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
     e.target.value = "";
     if (!file) return;
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 2 * 1024 * 1024) {
-      alert("Logo must be a PNG, JPEG, or WebP image no larger than 2 MB.");
+      toast.info("Logo must be a PNG, JPEG, or WebP image no larger than 2 MB.", { title: "Check logo file" });
       return;
     }
     setLogoEditFile(file);
@@ -221,23 +226,38 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (step === 1) {
+      if (!logoFile) {
+        toast.info("Please upload your business logo before continuing.", { title: "Logo required" });
+        return;
+      }
       setIsSubmitting(true);
+      const progressToastId = toast.progress("Checking your contact details…", { title: "Checking availability" });
       try {
         const availability = await checkPartnerApplicationAvailability(email, `+63${phoneNumber}`);
         const availabilityError = getPartnerApplicationAvailabilityError(availability);
         if (availabilityError) {
-          alert(availabilityError);
+          toast.update(progressToastId, availabilityError, "info", { title: "Contact already in use" });
           return;
         }
         setStep(2);
+        toast.update(progressToastId, "Your contact details are available.", "success", { title: "Details verified" });
       } catch (error) {
-        alert(error instanceof Error ? error.message : "Could not check contact availability.");
+        toast.update(progressToastId, error instanceof Error ? error.message : "Could not check contact availability.", "error", { error, title: "Availability check failed" });
       } finally {
         setIsSubmitting(false);
       }
       return;
     }
+    if (!selectedPlanId) {
+      toast.info("Please select a subscription plan before submitting.", { title: "Subscription required" });
+      return;
+    }
+    if (!privacyAccepted) {
+      toast.info("Review and accept the applicant privacy notice before submitting.", { title: "Privacy acknowledgement required" });
+      return;
+    }
     setIsSubmitting(true);
+    const progressToastId = toast.progress("Submitting your partner application…", { title: "Sending application" });
     try {
       const result = await submitPartnerApplication({
         businessName,
@@ -252,11 +272,13 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
         personalFacebookUrl,
         businessFacebookUrl,
         businessWebsiteUrl,
+        privacyConsent: true,
       }, logoFile);
       setTrackingNumber(result.trackingNumber || formatApplicationTrackingCode(result.applicationId, businessName));
       setIsSuccess(true);
+      toast.update(progressToastId, "Your partner application was submitted.", "success", { title: "Application sent" });
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to submit application");
+      toast.update(progressToastId, error instanceof Error ? error.message : "The application could not be submitted.", "error", { error, title: "Submission failed" });
     } finally {
       setIsSubmitting(false);
     }
@@ -329,6 +351,9 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
               
               {step === 1 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 md:col-span-2">
+                    All fields are required except those under Online presence.
+                  </p>
                   <div className="space-y-4">
                     <div className="space-y-1 text-left">
                       <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Business Name</label>
@@ -381,7 +406,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                       </div>
                     </div>
                     <div className="space-y-1 text-left">
-                      <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Logo Image Upload</label>
+                      <label className="text-xs font-semibold text-gray-900 dark:text-gray-100">Logo Image Upload <span className="text-red-500" aria-hidden="true">*</span></label>
                       <div className="flex items-center gap-4">
                         {logoPreview ? (
                           <button
@@ -402,7 +427,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                             <Upload className="w-4 h-4" />
                             {logoPreview ? "Change Image" : "Choose File"}
                           </div>
-                          <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleLogoUpload} className="hidden" aria-required="true" />
                         </label>
                       </div>
                       {logoPreview && <p className="text-xs text-gray-500 dark:text-gray-400">Tap the preview to adjust pinch/zoom crop.</p>}
@@ -603,9 +628,13 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
                       </button>
                     )})}
                     {plans.length === 0 && (
-                      <div className="col-span-full text-center py-8 text-gray-500">No plans configured by admin yet. Proceed to submit.</div>
+                      <div className="col-span-full text-center py-8 text-gray-500">No subscription plans are currently available. Please try again later.</div>
                     )}
                   </div>
+                  <label className="mt-6 flex items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm leading-6 text-gray-700 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-200">
+                    <input type="checkbox" required checked={privacyAccepted} onChange={(event) => setPrivacyAccepted(event.target.checked)} className="mt-1" />
+                    <span>I understand that Perk will use my identity, contact details, business information, location, social links, and logo to assess this application, contact me, prevent duplicate or abusive submissions, and create the store account if approved. Approved application contact data is removed after 90 days; unsuccessful applications are deleted after 24 months. See the <RouterLink to="/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold underline">Privacy Policy</RouterLink>.</span>
+                  </label>
                 </div>
               )}
 
@@ -623,7 +652,7 @@ export function PartnerApplicationModal({ isOpen, onClose }: PartnerApplicationM
               )}
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || (step === 2 && (plans.length === 0 || !privacyAccepted))}
                 className="inline-flex h-10 min-w-0 items-center justify-center whitespace-nowrap rounded-lg bg-[#1b1b1b] px-5 text-sm font-semibold leading-none text-white transition-all hover:bg-black active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
               >
                 {isSubmitting ? 'Submitting...' : step === 1 ? 'Next Step' : 'Submit Application'}

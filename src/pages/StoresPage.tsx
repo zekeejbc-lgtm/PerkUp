@@ -18,9 +18,14 @@ import {
 } from "../lib/storeDirectory";
 import { CategorySearchInput } from "../components/CategorySearchInput";
 import { SkeletonBlock } from "../components/LoadingSkeleton";
+import { ScrollableRegion } from "../components/ScrollableRegion";
+import { Pagination } from "../components/Pagination";
+import { useCollectionPagination } from "../hooks/useCollectionPagination";
+import { useToast } from "../components/ToastProvider";
 
 export default function StoresPage() {
   const { user, loading: authLoading } = useAuth();
+  const toast = useToast();
   const [stores, setStores] = useState<DirectoryStore[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -56,7 +61,10 @@ export default function StoresPage() {
         }));
       } catch (loadError) {
         console.error("Failed to fetch affiliated stores", loadError);
-        if (active) setError("The store directory could not be loaded. Please try again.");
+        if (active) {
+          setError("The store directory could not be loaded. Please try again.");
+          toast.error("The store directory could not be loaded. Please try again.", { error: loadError });
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -66,7 +74,7 @@ export default function StoresPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [toast]);
 
   const availableAt = useMemo(() => {
     if (!availabilityDate || !availabilityTime) return null;
@@ -85,6 +93,7 @@ export default function StoresPage() {
     [availableAt, categories, openNowOnly, searchQuery, stores],
   );
   const hasActiveFilters = Boolean(searchQuery.trim()) || openNowOnly || Boolean(availabilityDate) || Boolean(availabilityTime);
+  const storePagination = useCollectionPagination(filteredStores, 12);
 
   const openAuthModal = (mode: "signin" | "signup") => {
     setAuthMode(mode);
@@ -236,15 +245,16 @@ export default function StoresPage() {
                 </button>
               </div>
             ) : (
-              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredStores.map((store) => {
+              <>
+              <ScrollableRegion label="Store directory results" className="grid gap-5 pr-1 sm:grid-cols-2 lg:grid-cols-3">
+                {storePagination.pageItems.map((store) => {
                   const openNow = isStoreOpenNow(store.hours, availableAt || new Date());
                   return (
                     <article key={store.id} className="flex flex-col overflow-hidden rounded-[1.75rem] border border-[#1b1b1b]/10 bg-white p-5 shadow-sm transition-transform hover:-translate-y-1 dark:border-white/10 dark:bg-[#202020]">
                       <div className="flex items-start gap-4">
                         <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 dark:border-white/10 dark:bg-[#282828]">
                           {store.logoUrl ? (
-                            <img src={getDisplayImageUrl(store.logoUrl)} alt={`${store.name} logo`} className="h-full w-full object-cover" />
+                            <img src={getDisplayImageUrl(store.logoUrl)} alt={`${store.name} logo`} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                           ) : (
                             <Store className="h-7 w-7 text-gray-400" />
                           )}
@@ -292,7 +302,9 @@ export default function StoresPage() {
                     </article>
                   );
                 })}
-              </div>
+              </ScrollableRegion>
+              <Pagination {...storePagination} onPageChange={storePagination.setPage} itemLabel="stores" />
+              </>
             )}
           </div>
         </section>

@@ -13,6 +13,10 @@ import { formatPhilippineDate, formatPhilippineDateTime } from "../../lib/dateTi
 import { claimPromotion, listPromotionClaims, PromotionClaim } from "../../lib/promotionClaims";
 import { ViewModeButton } from "../../components/ViewModeButton";
 import { CustomerRewardStoreLocation } from "../../components/CustomerRewardStoreLocation";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
+import { Pagination } from "../../components/Pagination";
+import { useCollectionPagination } from "../../hooks/useCollectionPagination";
+import { useToast } from "../../components/ToastProvider";
 import {
   buildCustomerCardStores,
   filterCustomerCardStores,
@@ -36,6 +40,7 @@ const formatPromoDuration = (promotion: any) => {
 
 export default function CustomerCards() {
   const { user } = useAuth();
+  const toast = useToast();
   const { storeId } = useParams();
   const [cards, setCards] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
@@ -155,6 +160,16 @@ export default function CustomerCards() {
     () => promoCards.filter((promo) => String(promo.storeId || "") === String(storeId || "")),
     [promoCards, storeId],
   );
+  const storePagination = useCollectionPagination(visibleStores, 9);
+  const visibleRewardPromotions = useMemo(
+    () => rewardGroups.flatMap((group) => group.promotions),
+    [rewardGroups],
+  );
+  const rewardPagination = useCollectionPagination(visibleRewardPromotions, 9);
+  const paginatedRewardGroups = useMemo(
+    () => storeId ? getStoreRewardGroups(rewardPagination.pageItems, storeId, "") : [],
+    [rewardPagination.pageItems, storeId],
+  );
 
   useEffect(() => {
     setSearch("");
@@ -164,13 +179,20 @@ export default function CustomerCards() {
   const handleClaim = async (promo: any) => {
     if (claimingId) return;
     setClaimingId(promo.id);
+    const progressToastId = toast.progress("Reserving your reward…", { title: "Reward reservation" });
     try {
       const claim = await claimPromotion(promo.id);
       const nextPromo = { ...promo, claim };
       setPromoCards((current) => current.map((item) => item.id === promo.id ? { ...item, claim } : item));
       setSelectedPromo(nextPromo);
+      toast.update(progressToastId, "Your reward was reserved.", "success", { title: "Reward ready" });
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Could not reserve this reward.");
+      const message = error instanceof Error ? error.message : "Could not reserve this reward.";
+      if (/already|enough|insufficient|expired|unavailable|eligible|required/i.test(message)) {
+        toast.update(progressToastId, message, "info", { title: "Reward unavailable" });
+      } else {
+        toast.update(progressToastId, message, "error", { error, title: "Reservation failed" });
+      }
     } finally {
       setClaimingId("");
     }
@@ -210,8 +232,9 @@ export default function CustomerCards() {
         ) : !visibleStores.length ? (
           <div className="rounded-2xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-500 dark:border-gray-700">No stores match &ldquo;{search}&rdquo;.</div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {visibleStores.map((store) => (
+          <>
+          <ScrollableRegion label="Reward card stores" className="grid grid-cols-1 gap-4 pr-1 sm:grid-cols-2 xl:grid-cols-3">
+            {storePagination.pageItems.map((store) => (
               <Link
                 key={store.id}
                 to={`/customer/cards/${encodeURIComponent(store.id)}`}
@@ -234,7 +257,9 @@ export default function CustomerCards() {
                 </div>
               </Link>
             ))}
-          </div>
+          </ScrollableRegion>
+          <Pagination page={storePagination.page} pageSize={storePagination.pageSize} totalItems={storePagination.totalItems} onPageChange={storePagination.setPage} itemLabel="stores" />
+          </>
         )}
       </div>
     );
@@ -297,8 +322,9 @@ export default function CustomerCards() {
       ) : !rewardGroups.length ? (
         <div className="rounded-2xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-500 dark:border-gray-700">No reward cards match &ldquo;{search}&rdquo;.</div>
       ) : (
-        <div className="space-y-9">
-          {rewardGroups.map((group) => (
+        <>
+        <ScrollableRegion label={`${selectedStore!.name} rewards`} className="space-y-9 pr-1">
+          {paginatedRewardGroups.map((group) => (
             <section key={group.status} className="space-y-4">
               <div className="flex items-center gap-2">
                 <Clock3 className={`h-4 w-4 ${rewardSectionColor(group.status)}`} />
@@ -309,7 +335,9 @@ export default function CustomerCards() {
               </div>
             </section>
           ))}
-        </div>
+        </ScrollableRegion>
+        <Pagination page={rewardPagination.page} pageSize={rewardPagination.pageSize} totalItems={rewardPagination.totalItems} onPageChange={rewardPagination.setPage} itemLabel="rewards" />
+        </>
       )}
 
       {selectedPromo && <PromoCardDetailsModal promo={selectedPromo} stampStyle={storeStyles[String(selectedPromo.storeId || "")] || normalizeStampStyle(selectedPromo.card)} claiming={claimingId === selectedPromo.id} onClaim={() => handleClaim(selectedPromo)} onClose={() => setSelectedPromo(null)} />}
@@ -343,7 +371,7 @@ function StoreLogo({ name, logoUrl, size }: { name: string; logoUrl: string; siz
   return (
     <span className={`flex shrink-0 items-center justify-center overflow-hidden border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-white/10 ${dimension}`}>
       {logoUrl ? (
-        <img src={getDisplayImageUrl(logoUrl)} alt={`${name} logo`} className="h-full w-full object-contain" />
+        <img src={getDisplayImageUrl(logoUrl)} alt={`${name} logo`} loading="lazy" decoding="async" className="h-full w-full object-contain" />
       ) : (
         <Store className="h-7 w-7 text-gray-400" aria-hidden="true" />
       )}
@@ -363,7 +391,7 @@ function RewardCard({ promo, stampStyle, compact, claiming, onOpen, onClaim }: a
   return (
     <article className={`overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:border-gray-300 dark:border-gray-800 dark:bg-gray-900 ${compact ? "flex min-h-32" : ""}`}>
       <button type="button" onClick={onOpen} className={`min-w-0 flex-1 text-left ${compact ? "flex" : "block"}`}>
-        {promo.bannerImageUrl ? <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" className={`${compact ? "w-36 sm:w-48" : "h-28 w-full"} shrink-0 object-cover`} /> : <div className={`${compact ? "w-32" : "h-24 w-full"} flex shrink-0 items-center justify-center bg-gray-100 dark:bg-white/10`}><ImageIcon className="h-6 w-6 text-gray-400" /></div>}
+        {promo.bannerImageUrl ? <img src={getDisplayImageUrl(promo.bannerImageUrl)} alt="" loading="lazy" decoding="async" className={`${compact ? "w-36 sm:w-48" : "h-28 w-full"} shrink-0 object-cover`} /> : <div className={`${compact ? "w-32" : "h-24 w-full"} flex shrink-0 items-center justify-center bg-gray-100 dark:bg-white/10`}><ImageIcon className="h-6 w-6 text-gray-400" /></div>}
         <div className="min-w-0 p-4">
           <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h4 className="truncate text-sm font-bold text-gray-900 dark:text-white">{promo.title || "Special Promotion"}</h4>{promo.linkedProductName && <p className="mt-1 truncate text-xs text-gray-500">{promo.linkedProductName}</p>}</div><span className="shrink-0 rounded-full bg-gray-100 px-2 py-1 text-[10px] font-bold dark:bg-white/10">{progress}/{required}</span></div>
           {(promo.card?.publicId || promo.publicId) && <p className="mt-1 font-mono text-[10px] font-semibold text-gray-400">{promo.card?.publicId || promo.publicId}</p>}

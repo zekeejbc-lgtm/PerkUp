@@ -3,7 +3,7 @@ import { collection, query, where, getDocs, doc, updateDoc } from "@/src/lib/dat
 import { db, logOut } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
 import { useAuth } from "../../contexts/AuthContext";
-import { User, Mail, Plus, Trash2, Shield, Save, X, AtSign, Phone, Calendar, FileText, ImagePlus, LogOut, CheckCircle2 } from "lucide-react";
+import { User, Mail, Plus, Trash2, Shield, Save, X, AtSign, Phone, Calendar, FileText, ImagePlus, LogOut, CheckCircle2, Loader2 } from "lucide-react";
 import AccountSecurity from "@/src/components/AccountSecurity";
 import { deleteImageFromDriveSecure, getDisplayImageUrl, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { SkeletonBlock } from "../../components/LoadingSkeleton";
@@ -11,8 +11,15 @@ import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { sanitizePasswordInput } from "../../lib/passwordStrength";
 import { sanitizeUsernameInput } from "../../lib/username";
 import { PasswordVisibilityButton } from "../../components/PasswordVisibilityButton";
+import { canAssignAccountRole, canManageAccountRole } from "../../lib/accountRoleHierarchy";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
+import { Pagination } from "../../components/Pagination";
+import { useCollectionPagination } from "../../hooks/useCollectionPagination";
+import { CustomDropdown } from "../../components/CustomDropdown";
+import { useToast } from "../../components/ToastProvider";
 
 export default function AdminAccount() {
+  const toast = useToast();
   const { user, refreshUser } = useAuth();
   const [admins, setAdmins] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,6 +34,7 @@ export default function AdminAccount() {
   const [myBirthday, setMyBirthday] = useState(user?.birthday || "");
   const [myAvatarUrl, setMyAvatarUrl] = useState(user?.avatarUrl || user?.photoURL || "");
   const [myAccountSaved, setMyAccountSaved] = useState(false);
+  const [isSavingMyAccount, setIsSavingMyAccount] = useState(false);
   const [pendingMyAvatarFile, setPendingMyAvatarFile] = useState<File | null>(null);
 
   // New admin state
@@ -38,6 +46,13 @@ export default function AdminAccount() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [adminToDelete, setAdminToDelete] = useState<any>(null);
   const [isDeletingAdmin, setIsDeletingAdmin] = useState(false);
+  const [primaryAuditorUserId, setPrimaryAuditorUserId] = useState("");
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [replacementAuditorId, setReplacementAuditorId] = useState("");
+  const [transferPassword, setTransferPassword] = useState("");
+  const [transferConfirmation, setTransferConfirmation] = useState("");
+  const [showTransferPassword, setShowTransferPassword] = useState(false);
+  const [isTransferringAuditor, setIsTransferringAuditor] = useState(false);
 
   useEffect(() => {
     async function fetchAdmins() {
@@ -49,6 +64,10 @@ export default function AdminAccount() {
             .map(d => ({ id: d.id, ...d.data() }))
             .filter(account => account.isDemo !== true),
         );
+        const authority = await invokeAdminBackend<{ primaryAuditorUserId: string }>({
+          action: "get_auditor_authority",
+        });
+        setPrimaryAuditorUserId(authority.primaryAuditorUserId || "");
       } catch (error) {
         console.error("Failed to fetch admins:", error);
       } finally {
@@ -69,44 +88,51 @@ export default function AdminAccount() {
   }, [user]);
 
   const handleUpdateMyAccount = async () => {
+    if (!user?.id || isSavingMyAccount) return;
+    setIsSavingMyAccount(true);
+    const progressToastId = toast.progress("Saving your profile…", { title: "Updating account" });
     let uploadedAvatarUrl = "";
     let profilePersisted = false;
     try {
-      if (user?.id) {
-        const avatarUrl = pendingMyAvatarFile
-          ? await uploadImageFileToDriveSecure(pendingMyAvatarFile, {
-              owner: myUsername || myEmail || user.id,
-              purpose: "admin-avatar",
-            })
-          : myAvatarUrl;
-        if (pendingMyAvatarFile) uploadedAvatarUrl = avatarUrl;
-        await updateDoc(doc(db, "users", user.id), {
-          name: myName,
-          username: myUsername,
-          phone: myPhone,
-          number: myPhone,
-          bio: myBio,
-          birthday: myBirthday,
-          avatarUrl,
-          photoURL: avatarUrl,
-        });
-        profilePersisted = true;
-        const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
-        if (previousAvatarUrl && previousAvatarUrl !== avatarUrl) {
-          await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
-        }
-        await refreshUser();
-        setPendingMyAvatarFile(null);
+      const avatarUrl = pendingMyAvatarFile
+        ? await uploadImageFileToDriveSecure(pendingMyAvatarFile, {
+            owner: myUsername || myEmail || user.id,
+            purpose: "admin-avatar",
+          })
+        : myAvatarUrl;
+      if (pendingMyAvatarFile) uploadedAvatarUrl = avatarUrl;
+      await updateDoc(doc(db, "users", user.id), {
+        name: myName,
+        username: myUsername,
+        phone: myPhone,
+        number: myPhone,
+        bio: myBio,
+        birthday: myBirthday,
+        avatarUrl,
+        photoURL: avatarUrl,
+      });
+      profilePersisted = true;
+      const previousAvatarUrl = user.avatarUrl || user.photoURL || "";
+      if (previousAvatarUrl && previousAvatarUrl !== avatarUrl) {
+        await deleteImageFromDriveSecure(previousAvatarUrl).catch(console.error);
       }
+      await refreshUser();
+      setPendingMyAvatarFile(null);
       setIsEditingMyAccount(false);
       setMyAccountSaved(true);
       window.setTimeout(() => setMyAccountSaved(false), 3000);
+      toast.update(progressToastId, "Your profile was saved successfully.", "success", { title: "Profile updated" });
     } catch (e) {
       if (!profilePersisted && uploadedAvatarUrl) {
         await deleteImageFromDriveSecure(uploadedAvatarUrl).catch(console.error);
       }
       console.error(e);
-      alert("Failed to update account.");
+      toast.update(progressToastId, "Your account could not be updated.", "error", {
+        error: e,
+        context: { operation: "update_admin_profile", userId: user.id },
+      });
+    } finally {
+      setIsSavingMyAccount(false);
     }
   };
 
@@ -151,6 +177,7 @@ export default function AdminAccount() {
   const handleAddAssistantAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    const progressToastId = toast.progress("Creating the assistant administrator…", { title: "Adding administrator" });
     try {
       const result = await invokeAdminBackend<{ user: any }>({
         action: "create_account",
@@ -165,9 +192,10 @@ export default function AdminAccount() {
       setNewAdminName("");
       setNewAdminEmail("");
       setNewAdminPassword("");
+      toast.update(progressToastId, "Assistant administrator created.", "success", { title: "Administrator added" });
     } catch (error) {
       console.error(error);
-      alert("Failed to create assistant admin: " + (error as Error).message);
+      toast.update(progressToastId, "The assistant administrator could not be created.", "error", { error, title: "Creation failed" });
     } finally {
       setIsSubmitting(false);
     }
@@ -175,7 +203,7 @@ export default function AdminAccount() {
 
   const requestDeleteAdmin = (admin: any) => {
     if (admin.id === user?.id) {
-      alert("You cannot delete your own account here.");
+      toast.info("You cannot delete your own account here.");
       return;
     }
     setAdminToDelete(admin);
@@ -184,17 +212,74 @@ export default function AdminAccount() {
   const handleDeleteAdmin = async () => {
     if (!adminToDelete) return;
     setIsDeletingAdmin(true);
+    const progressToastId = toast.progress("Deleting the administrator account…", { title: "Deleting administrator" });
     try {
       await invokeAdminBackend<{ deleted: boolean }>({ action: "delete_user", userId: adminToDelete.id });
       setAdmins((current) => current.filter((admin) => admin.id !== adminToDelete.id));
       setAdminToDelete(null);
+      toast.update(progressToastId, "The administrator account was deleted.", "success", { title: "Administrator deleted" });
     } catch (error) {
       console.error(error);
-      alert("Failed to delete admin");
+      toast.update(progressToastId, "The administrator account could not be deleted.", "error", { error, title: "Delete failed" });
     } finally {
       setIsDeletingAdmin(false);
     }
   };
+
+  const closeTransferModal = () => {
+    if (isTransferringAuditor) return;
+    setShowTransferModal(false);
+    setReplacementAuditorId("");
+    setTransferPassword("");
+    setTransferConfirmation("");
+    setShowTransferPassword(false);
+  };
+
+  const handleTransferAuditor = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!replacementAuditorId) return;
+    setIsTransferringAuditor(true);
+    const progressToastId = toast.progress("Transferring primary auditor authority…", { title: "Transferring authority" });
+    try {
+      await invokeAdminBackend({
+        action: "transfer_auditor_authority",
+        replacementUserId: replacementAuditorId,
+        password: transferPassword,
+        confirmation: transferConfirmation,
+      });
+      setAdmins((current) => current.map((account) => {
+        if (account.id === replacementAuditorId) return { ...account, role: "auditor" };
+        if (account.id === user?.id) return { ...account, role: "admin" };
+        return account;
+      }));
+      setPrimaryAuditorUserId(replacementAuditorId);
+      setShowTransferModal(false);
+      setReplacementAuditorId("");
+      setTransferPassword("");
+      setTransferConfirmation("");
+      await refreshUser();
+      toast.update(progressToastId, "Primary auditor authority was transferred.", "success", { title: "Authority transferred" });
+    } catch (error) {
+      console.error(error);
+      const message = error instanceof Error ? error.message : "Auditor authority could not be transferred.";
+      if (/password|confirmation|replacement|eligible|cannot transfer/i.test(message)) {
+        toast.update(progressToastId, message, "info", { title: "Check transfer details" });
+      } else {
+        toast.update(progressToastId, message, "error", { error, title: "Transfer failed" });
+      }
+    } finally {
+      setIsTransferringAuditor(false);
+    }
+  };
+
+  const transferCandidates = admins.filter((account) =>
+    account.id !== user?.id
+    && ["admin", "assistant_admin"].includes(account.role)
+    && (account.accountStatus || "active") === "active"
+    && account.isDemo !== true
+  );
+
+  const adminPagination = useCollectionPagination(admins, 10);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-8 animate-in fade-in duration-300">
@@ -233,7 +318,7 @@ export default function AdminAccount() {
                   {isEditingMyAccount && (
                     <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
                       <ImagePlus className="w-5 h-5" />
-                      <input type="file" accept="image/*" className="hidden" onChange={handleMyAvatarUpload} />
+                      <input type="file" accept="image/*" className="hidden" onChange={handleMyAvatarUpload} disabled={isSavingMyAccount} />
                     </label>
                   )}
                 </div>
@@ -255,13 +340,13 @@ export default function AdminAccount() {
                 </button>
               ) : (
                 <div className="flex gap-2">
-                  <button type="button" onClick={handleCancelMyAccountEdit} className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800">
+                  <button type="button" onClick={handleCancelMyAccountEdit} disabled={isSavingMyAccount} className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800">
                     <X className="w-4 h-4" />
                     Cancel
                   </button>
-                  <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 dark:bg-white dark:text-gray-900">
-                    <Save className="w-4 h-4" />
-                    Save
+                  <button type="submit" disabled={isSavingMyAccount} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 disabled:cursor-wait disabled:opacity-60 dark:bg-white dark:text-gray-900">
+                    {isSavingMyAccount ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {isSavingMyAccount ? "Saving…" : "Save"}
                   </button>
                 </div>
               )}
@@ -331,9 +416,24 @@ export default function AdminAccount() {
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <h4 className="text-sm font-bold uppercase tracking-widest text-gray-500">Privileged Accounts</h4>
-            <button onClick={() => setShowAddModal(true)} className="flex items-center gap-1 text-xs font-medium bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white px-3 py-1.5 rounded-lg hover:bg-gray-200">
-              <Plus className="w-3 h-3" /> Add New
-            </button>
+            <div className="flex flex-wrap justify-end gap-2">
+              {user?.role === "auditor" && primaryAuditorUserId === user.id && (
+                <button
+                  type="button"
+                  onClick={() => setShowTransferModal(true)}
+                  disabled={!transferCandidates.length}
+                  title={transferCandidates.length ? "Assign a replacement primary auditor" : "Create an administrator before transferring auditor authority"}
+                  className="flex items-center gap-1 rounded-lg bg-violet-100 px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-violet-950/50 dark:text-violet-300"
+                >
+                  <Shield className="w-3 h-3" /> Transfer authority
+                </button>
+              )}
+              {canAssignAccountRole(user?.role, "assistant_admin") && (
+                <button onClick={() => setShowAddModal(true)} className="flex items-center gap-1 text-xs font-medium bg-gray-100 text-[#1b1b1b] dark:bg-white/10 dark:text-white px-3 py-1.5 rounded-lg hover:bg-gray-200">
+                  <Plus className="w-3 h-3" /> Add New
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
@@ -343,8 +443,9 @@ export default function AdminAccount() {
                 <SkeletonBlock className="h-16 rounded-2xl" />
               </div>
             ) : (
-              <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
-                 {admins.map(admin => (
+              <>
+              <ScrollableRegion label="Privileged accounts" className="divide-y divide-gray-100 dark:divide-gray-800/50">
+                 {adminPagination.pageItems.map(admin => (
                    <div key={admin.id} className="p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                      <div className="flex items-center gap-3">
                        <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center text-sm font-bold text-gray-600 dark:text-gray-300">
@@ -355,17 +456,21 @@ export default function AdminAccount() {
                          <p className="text-xs text-gray-500">{admin.email} • {admin.role === 'admin' ? 'Super Admin' : admin.role === 'auditor' ? 'Auditor' : 'Assistant'}</p>
                        </div>
                      </div>
-                     {admin.role !== 'admin' && (
-                       <button onClick={() => requestDeleteAdmin(admin)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
-                         <Trash2 className="w-4 h-4" />
-                       </button>
+                     {admin.id !== user?.id
+                       && admin.id !== primaryAuditorUserId
+                       && canManageAccountRole(user?.role, admin.role) && (
+                        <button onClick={() => requestDeleteAdmin(admin)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                      )}
                    </div>
                  ))}
                  {admins.length === 1 && (
                    <div className="p-6 text-center text-sm text-gray-500">No additional privileged accounts configured.</div>
                  )}
-              </div>
+              </ScrollableRegion>
+              <Pagination page={adminPagination.page} pageSize={adminPagination.pageSize} totalItems={adminPagination.totalItems} onPageChange={adminPagination.setPage} itemLabel="accounts" />
+              </>
             )}
           </div>
         </div>
@@ -402,11 +507,83 @@ export default function AdminAccount() {
           </div>
         </div>
       )}
+      {showTransferModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/60 p-4 backdrop-blur-sm">
+          <form
+            onSubmit={handleTransferAuditor}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="transfer-auditor-title"
+            className="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-800 dark:bg-gray-900"
+          >
+            <h3 id="transfer-auditor-title" className="text-xl font-bold text-gray-900 dark:text-white">
+              Transfer auditor authority
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-gray-500">
+              The replacement becomes the primary Auditor immediately. Your account becomes a Super Admin and can then be deleted by the new Auditor.
+            </p>
+            <label className="mt-5 block space-y-2">
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Replacement auditor</span>
+              <CustomDropdown
+                value={replacementAuditorId}
+                onChange={setReplacementAuditorId}
+                placeholder="Choose an active administrator"
+                ariaLabel="Replacement auditor"
+                options={transferCandidates.map((account) => ({
+                  label: `${account.name} · ${account.email}`,
+                  value: account.id,
+                }))}
+              />
+            </label>
+            <label className="mt-4 block space-y-2">
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Your Auditor password</span>
+              <div className="relative">
+                <input
+                  required
+                  type={showTransferPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={transferPassword}
+                  onChange={(event) => setTransferPassword(event.target.value)}
+                  className="min-h-11 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 pr-11 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                />
+                <PasswordVisibilityButton
+                  visible={showTransferPassword}
+                  onToggle={() => setShowTransferPassword((visible) => !visible)}
+                  label="auditor password"
+                />
+              </div>
+            </label>
+            <label className="mt-4 block space-y-2">
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                Type TRANSFER AUDITOR to confirm
+              </span>
+              <input
+                required
+                value={transferConfirmation}
+                onChange={(event) => setTransferConfirmation(event.target.value)}
+                className="min-h-11 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              />
+            </label>
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button type="button" onClick={closeTransferModal} disabled={isTransferringAuditor} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold dark:border-gray-700">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isTransferringAuditor || !replacementAuditorId || !transferPassword || transferConfirmation !== "TRANSFER AUDITOR"}
+                className="rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isTransferringAuditor ? "Transferring..." : "Transfer authority"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
       <ConfirmationModal
         isOpen={Boolean(adminToDelete)}
-        title="Delete assistant admin?"
-        description={`${adminToDelete?.name || adminToDelete?.email || "This assistant admin"} will permanently lose administrative access. This action cannot be undone.`}
-        confirmLabel="Delete admin"
+        title="Delete privileged account?"
+        description={`${adminToDelete?.name || adminToDelete?.email || "This account"} will permanently lose access. This action cannot be undone.`}
+        confirmLabel="Delete account"
         isLoading={isDeletingAdmin}
         onClose={() => setAdminToDelete(null)}
         onConfirm={handleDeleteAdmin}

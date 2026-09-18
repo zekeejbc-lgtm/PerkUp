@@ -8,9 +8,11 @@ import React, { useEffect, useState } from "react";
 import { deleteImageFromDriveSecure, uploadImageFileToDriveSecure } from "../../lib/imageStorage";
 import { ProfileAvatarImage } from "@/src/components/ProfileAvatarImage";
 import { sanitizeUsernameInput } from "@/src/lib/username";
+import { useToast } from "@/src/components/ToastProvider";
 
 export default function StaffAccount() {
   const { user, refreshUser } = useAuth();
+  const toast = useToast();
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -50,6 +52,7 @@ export default function StaffAccount() {
     if (!user?.id) return;
 
     setSaving(true);
+    const progressToastId = toast.progress("Saving your profile…", { title: "Updating profile" });
     setSaved(false);
     let uploadedAvatarUrl = "";
     let profilePersisted = false;
@@ -81,12 +84,13 @@ export default function StaffAccount() {
       setIsEditing(false);
       setSaved(true);
       window.setTimeout(() => setSaved(false), 3000);
+      toast.update(progressToastId, "Your profile was saved.", "success", { title: "Profile updated" });
     } catch (error) {
       if (!profilePersisted && uploadedAvatarUrl) {
         await deleteImageFromDriveSecure(uploadedAvatarUrl).catch(console.error);
       }
       console.error("Failed to update staff profile:", error);
-      alert("Failed to update profile.");
+      toast.update(progressToastId, "Your profile could not be updated.", "error", { error, title: "Save failed" });
     } finally {
       setSaving(false);
     }

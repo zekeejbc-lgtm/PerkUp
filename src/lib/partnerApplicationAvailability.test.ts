@@ -2,25 +2,25 @@ import { describe, expect, test } from "vitest";
 import { getPartnerApplicationAvailabilityError } from "./partnerApplicationAvailability.ts";
 
 describe("partner application availability errors", () => {
-  test("identifies an email conflict before advancing the application", () => {
+  test("does not reveal which contact field conflicts", () => {
     expect(getPartnerApplicationAvailabilityError({
       emailAvailable: false,
       phoneAvailable: true,
-    })).toBe("This email address is already associated with an account or application.");
+    })).toBe("The contact details could not be accepted. Use different verified contact details or contact support.");
   });
 
-  test("identifies a phone conflict before advancing the application", () => {
+  test("uses the same response for a phone conflict", () => {
     expect(getPartnerApplicationAvailabilityError({
       emailAvailable: true,
       phoneAvailable: false,
-    })).toBe("This phone number is already associated with an account or application.");
+    })).toBe("The contact details could not be accepted. Use different verified contact details or contact support.");
   });
 
-  test("identifies both conflicts in one message", () => {
+  test("uses the same response for both conflicts", () => {
     expect(getPartnerApplicationAvailabilityError({
       emailAvailable: false,
       phoneAvailable: false,
-    })).toBe("This email address and phone number are already associated with an account or application.");
+    })).toBe("The contact details could not be accepted. Use different verified contact details or contact support.");
   });
 
   test("returns no error when both contacts are available", () => {

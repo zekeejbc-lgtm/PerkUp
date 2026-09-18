@@ -392,12 +392,18 @@ Deno.serve(async (req) => {
         }
 
         if (invoice.notification_sent) continue;
-        const [{ data: storeRow, error: storeError }, { data: ownerRow, error: ownerError }] = await Promise.all([
+        const [
+          { data: storeRow, error: storeError },
+          { data: ownerRow, error: ownerError },
+          { data: invoiceRow, error: invoiceRowError },
+        ] = await Promise.all([
           supabase.from("stores").select("data").eq("id", invoice.store_id).maybeSingle(),
           supabase.from("users").select("data").eq("id", invoice.owner_user_id).maybeSingle(),
+          supabase.from("billing_invoices").select("created_at,period_start,period_end,plan_id_snapshot,plan_name_snapshot").eq("id", invoice.invoice_id).maybeSingle(),
         ]);
         if (storeError) throw storeError;
         if (ownerError) throw ownerError;
+        if (invoiceRowError) throw invoiceRowError;
 
         const recipient = String(invoice.billing_email || ownerRow?.data?.email || "").trim().toLowerCase();
         const userName = String(ownerRow?.data?.name || "Store owner").trim();
@@ -410,10 +416,16 @@ Deno.serve(async (req) => {
             invoiceId: invoice.invoice_id,
             subscriberName: userName,
             storeName,
-            planName: invoice.plan_id,
+            businessAddress: String(storeRow?.data?.address || storeRow?.data?.location || "").trim(),
+            businessContact: String(storeRow?.data?.contact || storeRow?.data?.contactNumber || storeRow?.data?.phone || "").trim(),
+            billingEmail: recipient,
+            planName: invoiceRow?.plan_name_snapshot || invoiceRow?.plan_id_snapshot || invoice.plan_id,
             amountCentavos: invoice.amount_centavos,
             currency: invoice.currency,
+            issuedAt: invoiceRow?.created_at,
             dueAt: invoice.due_at,
+            periodStart: invoiceRow?.period_start,
+            periodEnd: invoiceRow?.period_end,
             referenceNumber: link.referenceNumber,
             paymentLink: link.url,
             testMode: !link.livemode,
@@ -561,7 +573,7 @@ Deno.serve(async (req) => {
       try {
         const { data: invoice, error: invoiceError } = await supabase
           .from("billing_invoices")
-          .select("id,store_id,owner_user_id,invoice_type,period_start,period_end,due_at,amount_centavos,currency,status,paymongo_reference_number,manual_payment_reference,payment_url,livemode,paid_at,payment_method,gross_amount_centavos,fee_centavos,net_amount_centavos,last_error,subscription_id,plan_id_snapshot,plan_name_snapshot")
+          .select("id,store_id,owner_user_id,invoice_type,created_at,period_start,period_end,due_at,amount_centavos,currency,status,paymongo_reference_number,manual_payment_reference,payment_url,livemode,paid_at,payment_method,gross_amount_centavos,fee_centavos,net_amount_centavos,last_error,subscription_id,plan_id_snapshot,plan_name_snapshot")
           .eq("id", notification.invoice_id)
           .maybeSingle();
         if (invoiceError) throw invoiceError;
@@ -603,6 +615,9 @@ Deno.serve(async (req) => {
           invoiceId: invoice.id,
           subscriberName: userName,
           storeName,
+          businessAddress: String(storeRow?.data?.address || storeRow?.data?.location || "").trim(),
+          businessContact: String(storeRow?.data?.contact || storeRow?.data?.contactNumber || storeRow?.data?.phone || "").trim(),
+          billingEmail: recipient,
           planName: invoice.plan_name_snapshot || invoice.plan_id_snapshot ||
             subscription.plan_id,
           intervalDays: subscription.interval_days,
@@ -611,6 +626,7 @@ Deno.serve(async (req) => {
           feeCentavos: invoice.fee_centavos,
           netAmountCentavos: invoice.net_amount_centavos,
           currency: invoice.currency,
+          issuedAt: invoice.created_at,
           dueAt: invoice.due_at,
           graceEndsAt,
           periodStart: invoice.period_start,

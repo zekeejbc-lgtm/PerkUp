@@ -8,9 +8,11 @@ import AccountSecurity from "@/src/components/AccountSecurity";
 import CurrencyPreference from "@/src/components/CurrencyPreference";
 import { ProfileAvatarImage } from "@/src/components/ProfileAvatarImage";
 import { sanitizeUsernameInput } from "@/src/lib/username";
+import { useToast } from "@/src/components/ToastProvider";
 
 export default function StoreOwnerAccount() {
   const { user, refreshUser } = useAuth();
+  const toast = useToast();
   const [formData, setFormData] = useState({
     name: "",
     address: "",
@@ -55,6 +57,7 @@ export default function StoreOwnerAccount() {
     e.preventDefault();
     if (!user?.id) return;
     setSaving(true);
+    const progressToastId = toast.progress("Saving your account information…", { title: "Updating account" });
     setSaved(false);
     let uploadedAvatarUrl = "";
     let profilePersisted = false;
@@ -87,12 +90,13 @@ export default function StoreOwnerAccount() {
       setSaved(true);
       setIsEditing(false);
       setTimeout(() => setSaved(false), 3000);
+      toast.update(progressToastId, "Your account information was saved.", "success", { title: "Account updated" });
     } catch (error) {
       if (!profilePersisted && uploadedAvatarUrl) {
         await deleteImageFromDriveSecure(uploadedAvatarUrl).catch(console.error);
       }
       console.error(error);
-      alert("Failed to update account information");
+      toast.update(progressToastId, "Your account information could not be updated.", "error", { error, title: "Save failed" });
     } finally {
       setSaving(false);
     }

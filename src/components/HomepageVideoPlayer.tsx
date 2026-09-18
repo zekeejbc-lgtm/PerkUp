@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { ExternalLink, PlayCircle } from "lucide-react";
 import { resolveVideoSource } from "../lib/homepageVideos";
 
@@ -5,10 +6,17 @@ type HomepageVideoPlayerProps = {
   url: string;
   title: string;
   compact?: boolean;
+  edgeToEdge?: boolean;
 };
 
-export function HomepageVideoPlayer({ url, title, compact = false }: HomepageVideoPlayerProps) {
+export function HomepageVideoPlayer({ url, title, compact = false, edgeToEdge = false }: HomepageVideoPlayerProps) {
   const source = resolveVideoSource(url);
+  const [youtubeActive, setYoutubeActive] = useState(false);
+  const frameClassName = `relative aspect-video w-full min-w-0 overflow-hidden bg-black ${edgeToEdge ? "rounded-none" : "rounded-2xl"}`;
+
+  useEffect(() => {
+    setYoutubeActive(false);
+  }, [source?.embedUrl]);
 
   if (!source) {
     return (
@@ -20,30 +28,61 @@ export function HomepageVideoPlayer({ url, title, compact = false }: HomepageVid
 
   if (source.kind === "direct") {
     return (
-      <video
-        className="aspect-video w-full rounded-2xl bg-black object-contain"
-        controls
-        preload="metadata"
-        playsInline
-        src={source.embedUrl}
-        aria-label={title}
-      >
-        <a href={url} target="_blank" rel="noopener noreferrer">Open video</a>
-      </video>
+      <div className={frameClassName}>
+        <video
+          className="block h-full w-full object-contain"
+          controls
+          preload="metadata"
+          playsInline
+          src={source.embedUrl}
+          aria-label={title}
+        >
+          <a href={url} target="_blank" rel="noopener noreferrer">Open video</a>
+        </video>
+      </div>
+    );
+  }
+
+  if (source.kind === "youtube" && !youtubeActive) {
+    return (
+      <div className={`group ${frameClassName}`}>
+        <button
+          type="button"
+          onClick={() => setYoutubeActive(true)}
+          className="absolute inset-0 block h-full w-full cursor-pointer overflow-hidden bg-black focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/90 focus-visible:ring-inset"
+          aria-label={`Play ${title}`}
+        >
+          <img
+            src={source.posterUrl}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            decoding="async"
+            fetchPriority="low"
+            className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.015] group-hover:opacity-90 motion-reduce:transition-none"
+          />
+          <span className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-black/10" aria-hidden="true" />
+          <span className="absolute inset-0 flex items-center justify-center" aria-hidden="true">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/80 text-white shadow-xl backdrop-blur-sm transition group-hover:scale-105 group-hover:bg-black motion-reduce:transition-none">
+              <PlayCircle className="h-10 w-10" strokeWidth={1.8} />
+            </span>
+          </span>
+        </button>
+      </div>
     );
   }
 
   return (
-    <div className="group relative aspect-video overflow-hidden rounded-2xl bg-black">
+    <div className={`group ${frameClassName}`}>
       <iframe
-        src={source.embedUrl}
+        src={source.kind === "youtube" ? `${source.embedUrl}&autoplay=1` : source.embedUrl}
         title={title}
         className="h-full w-full border-0"
-        loading="lazy"
+        loading={source.kind === "youtube" ? "eager" : "lazy"}
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
         allowFullScreen
         referrerPolicy="strict-origin-when-cross-origin"
-        sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+        sandbox={source.kind === "drive" ? undefined : "allow-scripts allow-same-origin allow-presentation allow-popups"}
       />
       {source.kind === "generic" && (
         <a

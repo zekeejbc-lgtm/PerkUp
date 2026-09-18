@@ -21,6 +21,22 @@ describe("homepage video links", () => {
     expect(resolveVideoSource("not a link")).toBeNull();
   });
 
+  test("creates a mobile-friendly YouTube embed and lightweight poster", () => {
+    const source = resolveVideoSource("https://youtu.be/QErxFonAUOA");
+
+    expect(source).toMatchObject({
+      kind: "youtube",
+      videoId: "QErxFonAUOA",
+      posterUrl: "https://i.ytimg.com/vi/QErxFonAUOA/maxresdefault.jpg",
+    });
+    expect(source?.embedUrl).toContain("playsinline=1");
+  });
+
+  test("preserves a Google Drive resource key in the preview URL", () => {
+    const source = resolveVideoSource("https://drive.google.com/file/d/abc123XYZ/view?resourcekey=sample-key");
+    expect(source?.embedUrl).toContain("resourcekey=sample-key");
+  });
+
   test("normalizes stored entries and preserves audience", () => {
     const config = normalizeHowItWorksConfig({
       videos: [{

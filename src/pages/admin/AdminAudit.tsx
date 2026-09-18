@@ -4,26 +4,44 @@ import {
   AlertTriangle,
   Banknote,
   CheckCircle2,
-  CircleDollarSign,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   Database,
+  Download,
   FileClock,
-  HeartPulse,
+  History,
   Loader2,
   ReceiptText,
   RefreshCw,
   Search,
   ShieldCheck,
+  SlidersHorizontal,
+  Store,
   TicketCheck,
+  UserCog,
+  X,
 } from "lucide-react";
 import { CustomDropdown } from "../../components/CustomDropdown";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { useToast } from "../../components/ToastProvider";
+import { useAuth } from "../../contexts/AuthContext";
 import { useCurrency } from "../../contexts/CurrencyContext";
 import { invokeAdminBackend } from "../../lib/adminBackend";
+import { downloadAuditReportPdf } from "../../lib/auditReportPdf";
 
-type AuditTab = "financial" | "receipts" | "loyalty" | "events" | "health";
+type AuditTab = "financial" | "receipts" | "loyalty" | "events";
+
+type LogOverview = {
+  total: number;
+  last24Hours: number;
+  shopChanges: number;
+  privilegedChanges: number;
+  issues: number;
+  generatedAt: string;
+};
 
 type AuditOverview = {
   financial: {
@@ -36,33 +54,23 @@ type AuditOverview = {
     failedInvoices: number;
   };
   receipts: { total: number; sent: number; failed: number };
-  audit: { total: number; failures: number };
   generatedAt: string;
 };
 
-type HealthCheck = {
+type StoreOption = {
   id: string;
+  publicId: string;
   name: string;
-  status: "healthy" | "warning" | "critical";
-  value: string;
-  detail: string;
-  checkedAt: string;
-};
-
-type HealthResponse = {
-  checks: HealthCheck[];
-  overall: HealthCheck["status"];
-  generatedAt: string;
 };
 
 const PAGE_SIZE = 25;
+const EXPORT_PAGE_SIZE = 100;
 
 const TAB_OPTIONS: Array<{ id: AuditTab; label: string; icon: typeof Banknote }> = [
+  { id: "events", label: "Activity log", icon: FileClock },
   { id: "financial", label: "Money & transactions", icon: Banknote },
   { id: "receipts", label: "Receipts", icon: ReceiptText },
   { id: "loyalty", label: "Loyalty activity", icon: TicketCheck },
-  { id: "events", label: "Audit trail", icon: FileClock },
-  { id: "health", label: "System health", icon: HeartPulse },
 ];
 
 const STATUS_OPTIONS: Record<AuditTab, Array<{ label: string; value: string }>> = {
@@ -93,13 +101,50 @@ const STATUS_OPTIONS: Record<AuditTab, Array<{ label: string; value: string }>> 
     { label: "Failure", value: "failure" },
     { label: "Blocked", value: "blocked" },
   ],
-  health: [
-    { label: "All health states", value: "all" },
-    { label: "Healthy", value: "healthy" },
-    { label: "Warning", value: "warning" },
-    { label: "Critical", value: "critical" },
-  ],
 };
+
+const SOURCE_OPTIONS = [
+  { label: "All sources", value: "all" },
+  { label: "Database", value: "database" },
+  { label: "Admin actions", value: "admin_backend" },
+  { label: "Authentication", value: "auth" },
+  { label: "Billing", value: "billing" },
+  { label: "System", value: "system" },
+];
+
+const ACTOR_OPTIONS = [
+  { label: "All actors", value: "all" },
+  { label: "Auditors", value: "auditor" },
+  { label: "Super admins", value: "admin" },
+  { label: "Assistant admins", value: "assistant_admin" },
+  { label: "Shop owners", value: "store_owner" },
+  { label: "Staff", value: "staff" },
+  { label: "Customers", value: "customer" },
+  { label: "System processes", value: "system" },
+  { label: "Service operations", value: "service_role" },
+];
+
+const ENTITY_OPTIONS = [
+  { label: "All record types", value: "all" },
+  { label: "Shops", value: "stores" },
+  { label: "Products", value: "products" },
+  { label: "Promotions", value: "promotions" },
+  { label: "Shop reviews", value: "store_reviews" },
+  { label: "Accounts", value: "users" },
+  { label: "Applications", value: "applications" },
+  { label: "Loyalty cards", value: "cards" },
+  { label: "Invoices", value: "billing_invoices" },
+  { label: "Subscriptions", value: "billing_subscriptions" },
+  { label: "Runtime settings", value: "system_runtime_config" },
+];
+
+const DATE_OPTIONS = [
+  { label: "Any time", value: "all" },
+  { label: "Last 24 hours", value: "1" },
+  { label: "Last 7 days", value: "7" },
+  { label: "Last 30 days", value: "30" },
+  { label: "Last 90 days", value: "90" },
+];
 
 const titleCase = (value: unknown, fallback = "Not available") => {
   const text = String(value ?? "").trim();
@@ -115,6 +160,17 @@ const formatDateTime = (value: unknown) => {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+};
+
+const formatManilaDateKey = (value: Date) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 };
 
 const tone = (value: unknown) => {
@@ -133,18 +189,48 @@ const tone = (value: unknown) => {
 
 export default function AdminAudit() {
   const toast = useToast();
+  const { user } = useAuth();
   const { formatCurrency } = useCurrency();
-  const [overview, setOverview] = useState<AuditOverview | null>(null);
-  const [tab, setTab] = useState<AuditTab>("financial");
+  const isAuditor = user?.role === "auditor";
+  const [overview, setOverview] = useState<LogOverview | null>(null);
+  const [auditOverview, setAuditOverview] = useState<AuditOverview | null>(null);
+  const [tab, setTab] = useState<AuditTab>(() => isAuditor ? "financial" : "events");
   const [records, setRecords] = useState<any[]>([]);
-  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [stores, setStores] = useState<StoreOption[]>([]);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
+  const [source, setSource] = useState("all");
+  const [actorRole, setActorRole] = useState("all");
+  const [entityType, setEntityType] = useState("all");
+  const [storeId, setStoreId] = useState("all");
+  const [dateRange, setDateRange] = useState("30");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const visibleTabs = useMemo(
+    () => isAuditor ? TAB_OPTIONS : TAB_OPTIONS.filter((item) => item.id === "events"),
+    [isAuditor],
+  );
+
+  const dateFrom = useMemo(() => {
+    if (dateRange === "all") return "";
+    const date = new Date();
+    date.setDate(date.getDate() - Number(dateRange));
+    return date.toISOString();
+  }, [dateRange]);
+
+  const storeOptions = useMemo(() => [
+    { label: "All shops", value: "all" },
+    ...stores.map((store) => ({
+      label: `${store.name}${store.publicId ? ` · ${store.publicId}` : ""}`,
+      value: store.id,
+    })),
+  ], [stores]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -155,19 +241,39 @@ export default function AdminAudit() {
   }, [searchInput]);
 
   const loadOverview = useCallback(async () => {
-    const response = await invokeAdminBackend<AuditOverview>({ action: "get_audit_overview" });
-    setOverview(response);
+    const activityPromise = invokeAdminBackend<LogOverview>({ action: "get_activity_log_overview" });
+    const auditPromise = isAuditor
+      ? invokeAdminBackend<AuditOverview>({ action: "get_audit_overview" })
+      : Promise.resolve(null);
+    const [activity, audit] = await Promise.all([activityPromise, auditPromise]);
+    setOverview(activity);
+    setAuditOverview(audit);
+  }, [isAuditor]);
+
+  const loadStores = useCallback(async () => {
+    const response = await invokeAdminBackend<{ stores: StoreOption[] }>({ action: "list_log_stores" });
+    setStores(Array.isArray(response.stores) ? response.stores : []);
   }, []);
 
   const loadTab = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
     else setLoading(true);
     try {
-      if (tab === "health") {
-        const response = await invokeAdminBackend<HealthResponse>({ action: "get_system_health" });
-        setHealth(response);
-        setTotal(response.checks.length);
-        setRecords([]);
+      if (tab === "events") {
+        const response = await invokeAdminBackend<{ records: any[]; total: number }>({
+          action: "list_activity_logs",
+          search,
+          outcome: status,
+          source,
+          actorRole,
+          entityType,
+          storeId,
+          dateFrom,
+          page,
+          pageSize: PAGE_SIZE,
+        });
+        setRecords(Array.isArray(response.records) ? response.records : []);
+        setTotal(Number.isFinite(Number(response.total)) ? Number(response.total) : 0);
       } else {
         const response = await invokeAdminBackend<{ records: any[]; total: number }>({
           action: "list_audit_records",
@@ -181,18 +287,18 @@ export default function AdminAudit() {
         setTotal(Number.isFinite(Number(response.total)) ? Number(response.total) : 0);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Audit data could not be loaded.", { error });
+      toast.error(error instanceof Error ? error.message : "Logs could not be loaded.", { error });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [page, search, status, tab, toast]);
+  }, [actorRole, dateFrom, entityType, page, search, source, status, storeId, tab, toast]);
 
   useEffect(() => {
-    void loadOverview().catch((error) => {
-      toast.error(error instanceof Error ? error.message : "Audit totals could not be loaded.", { error });
+    void Promise.all([loadOverview(), loadStores()]).catch((error) => {
+      toast.error(error instanceof Error ? error.message : "Log filters could not be loaded.", { error });
     });
-  }, [loadOverview, toast]);
+  }, [loadOverview, loadStores, toast]);
 
   useEffect(() => {
     void loadTab();
@@ -204,46 +310,142 @@ export default function AdminAudit() {
     setSearchInput("");
     setSearch("");
     setPage(1);
+    setFiltersOpen(false);
   };
 
-  const filteredHealth = useMemo(() => {
-    const query = search.toLowerCase();
-    return (health?.checks || []).filter((check) =>
-      (status === "all" || check.status === status) &&
-      (!query || [check.name, check.status, check.value, check.detail]
-        .some((value) => String(value ?? "").toLowerCase().includes(query))));
-  }, [health, search, status]);
+  const resetEventFilters = () => {
+    setSearchInput("");
+    setSearch("");
+    setStatus("all");
+    setSource("all");
+    setActorRole("all");
+    setEntityType("all");
+    setStoreId("all");
+    setDateRange("30");
+    setPage(1);
+  };
+
+  const exportVisibleLogs = async () => {
+    setExporting(true);
+    try {
+      const generatedDate = new Date();
+      const generatedAt = generatedDate.toISOString();
+      const requestExportPage = async (exportPage: number) => {
+        if (tab === "events") {
+          return invokeAdminBackend<{ records: any[]; total: number }>({
+            action: "list_activity_logs",
+            search,
+            outcome: status,
+            source,
+            actorRole,
+            entityType,
+            storeId,
+            dateFrom,
+            page: exportPage,
+            pageSize: EXPORT_PAGE_SIZE,
+          });
+        }
+        return invokeAdminBackend<{ records: any[]; total: number }>({
+          action: "list_audit_records",
+          section: tab,
+          search,
+          status,
+          page: exportPage,
+          pageSize: EXPORT_PAGE_SIZE,
+        });
+      };
+      const firstPage = await requestExportPage(1);
+      const exportTotal = Math.max(0, Number(firstPage.total) || 0);
+      const remainingPages = Math.max(0, Math.ceil(exportTotal / EXPORT_PAGE_SIZE) - 1);
+      const remainingResponses = await Promise.all(
+        Array.from({ length: remainingPages }, (_, index) => requestExportPage(index + 2)),
+      );
+      const exportRecords = [firstPage, ...remainingResponses]
+        .flatMap((response) => Array.isArray(response.records) ? response.records : []);
+      const money = auditOverview?.financial;
+      const reportByTab = {
+        financial: {
+          title: "Money & Transactions",
+          description: "Perk revenue, payment fees, net earnings, and invoice activity. Net earned is revenue after recorded payment fees; operating expenses are not tracked here.",
+          summary: [
+            { label: "Gross revenue", value: formatCurrency(Number(money?.grossCentavos || 0) / 100) },
+            { label: "Payment fees", value: formatCurrency(Number(money?.feeCentavos || 0) / 100) },
+            { label: "Net earned / profit", value: formatCurrency(Number(money?.netCentavos || 0) / 100), detail: "After payment fees" },
+            { label: "Paid transactions", value: String(money?.paidTransactions || 0) },
+            { label: "Outstanding", value: String(money?.outstandingInvoices || 0) },
+          ],
+          columns: ["Date", "Shop", "Status", "Gross", "Fees", "Net", "Reference"],
+          columnWeights: [1.25, 1.45, 0.8, 1, 0.9, 1, 1.35],
+          rows: exportRecords.map((record) => [
+            formatDateTime(record.paid_at || record.created_at), record.storeName || record.store_id || "Unknown shop",
+            titleCase(record.status), formatCurrency(Number(record.gross_amount_centavos ?? record.amount_centavos ?? 0) / 100),
+            formatCurrency(Number(record.fee_centavos || 0) / 100), formatCurrency(Number(record.net_amount_centavos ?? record.amount_centavos ?? 0) / 100),
+            record.reference || "Not available",
+          ]),
+        },
+        receipts: {
+          title: "Receipt Delivery Log", description: "Receipt and billing-notification delivery activity.",
+          summary: [
+            { label: "Total receipts", value: String(auditOverview?.receipts.total || 0) },
+            { label: "Sent", value: String(auditOverview?.receipts.sent || 0) },
+            { label: "Failed", value: String(auditOverview?.receipts.failed || 0) },
+          ],
+          columns: ["Date", "Shop", "Recipient", "Channel", "Status", "Amount"],
+          columnWeights: [1.1, 1.3, 1.7, 0.8, 0.8, 1],
+          rows: exportRecords.map((record) => [formatDateTime(record.sent_at || record.created_at), record.storeName || record.storeId || "Unknown shop", record.recipient || "Not available", titleCase(record.channel), titleCase(record.status), formatCurrency(Number(record.amountCentavos || 0) / 100)]),
+        },
+        loyalty: {
+          title: "Loyalty Activity", description: "Recorded loyalty credits, redemptions, and scans.", summary: [{ label: "Matching records", value: String(total) }],
+          columns: ["Date", "Shop", "Activity", "Status", "Customer", "Staff"],
+          columnWeights: [1.1, 1.35, 1.15, 0.8, 1.3, 1.3],
+          rows: exportRecords.map((record) => [formatDateTime(record.occurredAt), record.storeName || record.storeId || "Unknown shop", titleCase(record.type), titleCase(record.status), record.customerId || "Not recorded", record.staffId || "Not recorded"]),
+        },
+        events: {
+          title: "Activity Log", description: "Shop, administrator, auditor, account, and system changes recorded by Perk.",
+          summary: [
+            { label: "Recorded events", value: String(overview?.total || 0) }, { label: "Last 24 hours", value: String(overview?.last24Hours || 0) },
+            { label: "Shop changes", value: String(overview?.shopChanges || 0) }, { label: "Privileged changes", value: String(overview?.privilegedChanges || 0) },
+            { label: "Needs attention", value: String(overview?.issues || 0) },
+          ],
+          columns: ["Date", "Action", "Record", "Shop", "Actor", "Outcome", "Source"],
+          columnWeights: [1.15, 1.1, 1.55, 1.3, 1.55, 0.75, 0.8],
+          rows: exportRecords.map((record) => [formatDateTime(record.created_at), titleCase(record.action), `${titleCase(record.entity_type)} / ${record.entity_id || "No ID"}`, record.store_name || record.metadata?.storeName || "Not shop-specific", record.actor_email || titleCase(record.actor_role, "System process"), titleCase(record.outcome), titleCase(record.source)]),
+        },
+      }[tab];
+      await downloadAuditReportPdf({
+        ...reportByTab,
+        generatedAt,
+        filters: [search && `Search: ${search}`, status !== "all" && `Status: ${titleCase(status)}`, tab === "events" && storeId !== "all" && `Shop: ${storeOptions.find((item) => item.value === storeId)?.label}`, tab === "events" && dateRange !== "all" && `Last ${dateRange} days`].filter(Boolean) as string[],
+        filename: `Perk-${tab}-report-${formatManilaDateKey(generatedDate)}.pdf`,
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The PDF could not be generated.", { error });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (loading && !overview) return <PageSkeleton variant="table" />;
 
-  const cards = [
-    {
-      label: "Gross earned",
-      value: formatCurrency((overview?.financial.grossCentavos || 0) / 100),
-      detail: `${overview?.financial.paidTransactions || 0} paid transactions`,
-      icon: CircleDollarSign,
-    },
-    {
-      label: "Processing fees",
-      value: formatCurrency((overview?.financial.feeCentavos || 0) / 100),
-      detail: "Recorded payment fees",
-      icon: Banknote,
-    },
-    {
-      label: "Net earned",
-      value: formatCurrency((overview?.financial.netCentavos || 0) / 100),
-      detail: "After recorded fees",
-      icon: CheckCircle2,
-    },
-    {
-      label: "Needs attention",
-      value: String((overview?.financial.failedInvoices || 0) + (overview?.receipts.failed || 0)),
-      detail: "Failed invoices and receipts",
-      icon: AlertTriangle,
-    },
+  const activityCards = [
+    { label: "Recorded events", value: overview?.total || 0, detail: "All retained activity", icon: History },
+    { label: "Last 24 hours", value: overview?.last24Hours || 0, detail: "New recorded events", icon: Clock3 },
+    { label: "Shop changes", value: overview?.shopChanges || 0, detail: "Shop-linked activity", icon: Store },
+    { label: "Privileged changes", value: overview?.privilegedChanges || 0, detail: "Admin and auditor actions", icon: UserCog },
+    { label: "Needs attention", value: overview?.issues || 0, detail: "Failed or blocked events", icon: AlertTriangle },
   ];
+  const financialCards = [
+    { label: "Gross revenue", value: formatCurrency(Number(auditOverview?.financial.grossCentavos || 0) / 100), detail: "All completed payments", icon: Banknote },
+    { label: "Payment fees", value: formatCurrency(Number(auditOverview?.financial.feeCentavos || 0) / 100), detail: "Recorded processing costs", icon: ReceiptText },
+    { label: "Net earned / profit", value: formatCurrency(Number(auditOverview?.financial.netCentavos || 0) / 100), detail: "Gross less fees; before operating costs", icon: Activity },
+    { label: "Paid transactions", value: auditOverview?.financial.paidTransactions || 0, detail: `${auditOverview?.financial.issuedInvoices || 0} invoices issued`, icon: CheckCircle2 },
+    { label: "Outstanding", value: auditOverview?.financial.outstandingInvoices || 0, detail: `${auditOverview?.financial.failedInvoices || 0} failed`, icon: Clock3 },
+  ];
+  const cards = tab === "financial" ? financialCards : activityCards;
 
-  const activeRecords = tab === "health" ? filteredHealth : records;
+  const activeRecords = records;
+  const hasCustomEventFilters = status !== "all" || source !== "all" || actorRole !== "all"
+    || entityType !== "all" || storeId !== "all" || dateRange !== "30" || Boolean(searchInput);
 
   return (
     <div className="animate-in space-y-6 fade-in duration-300">
@@ -252,74 +454,138 @@ export default function AdminAudit() {
           <div className="flex items-center gap-3">
             <ShieldCheck className="h-7 w-7 text-violet-600 dark:text-violet-400" />
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-violet-600 dark:text-violet-400">Auditor only</p>
-              <h2 className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">Audit center</h2>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-violet-600 dark:text-violet-400">
+                {isAuditor ? "Full auditor access" : "Administrator view · read only"}
+              </p>
+              <h2 className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">Logs</h2>
             </div>
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400">
-            Review all recorded earnings, financial transactions, invoices, receipt delivery, loyalty activity, privileged changes, diagnostics, and system health.
+            {isAuditor
+              ? "Review money earned, payment fees, shop changes, administrator and auditor actions, account changes, billing, loyalty, and system activity from one place."
+              : "Review a redacted activity stream for operational awareness. Sensitive metadata, financial views, and exports remain auditor-only."}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void Promise.all([loadOverview(), loadTab(true)])}
-          disabled={refreshing}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh audit
-        </button>
+        <div className="flex items-center gap-2">
+          {isAuditor && (
+            <button
+              type="button"
+              onClick={() => void exportVisibleLogs()}
+              disabled={exporting}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Download PDF
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void Promise.all([loadOverview(), loadTab(true)]).catch((error) => {
+              toast.error(error instanceof Error ? error.message : "Logs could not be refreshed.", { error });
+            })}
+            disabled={refreshing}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            aria-label="Refresh logs"
+            title="Refresh logs"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {cards.map((card) => (
           <div key={card.label} className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium text-gray-500">{card.label}</p>
               <card.icon className="h-5 w-5 text-gray-400" />
             </div>
-            <p className="mt-3 text-2xl font-bold text-gray-900 dark:text-white">{card.value}</p>
+            <p className="mt-3 text-2xl font-bold text-gray-900 dark:text-white">{typeof card.value === "number" ? card.value.toLocaleString() : card.value}</p>
             <p className="mt-1 text-xs text-gray-500">{card.detail}</p>
           </div>
         ))}
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-        <div className="flex gap-2 overflow-x-auto border-b border-gray-100 p-3 dark:border-gray-800">
-          {TAB_OPTIONS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => changeTab(item.id)}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                tab === item.id
-                  ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900"
-                  : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
-              }`}
-            >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </button>
-          ))}
-        </div>
+      <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+        {isAuditor && (
+          <div className="flex gap-2 overflow-x-auto border-b border-gray-100 p-3 dark:border-gray-800">
+            {visibleTabs.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => changeTab(item.id)}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                  tab === item.id
+                    ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900"
+                    : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                }`}
+              >
+                <item.icon className="h-4 w-4" />
+                {item.label}
+              </button>
+            ))}
+          </div>
+        )}
 
-        <div className="grid gap-3 border-b border-gray-100 p-4 dark:border-gray-800 sm:grid-cols-[minmax(0,1fr)_14rem]">
-          <label className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
-              type="search"
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              placeholder={`Search ${TAB_OPTIONS.find((item) => item.id === tab)?.label.toLowerCase()}`}
-              className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+        <div className="border-b border-gray-100 p-4 dark:border-gray-800">
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((value) => !value)}
+            className="flex h-11 w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-semibold text-gray-700 lg:hidden dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            aria-expanded={filtersOpen}
+            aria-controls="audit-log-filters"
+          >
+            <span className="inline-flex items-center gap-2"><SlidersHorizontal className="h-4 w-4" /> Search & filters</span>
+            <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${filtersOpen ? "rotate-180" : ""}`} />
+          </button>
+          <div
+            id="audit-log-filters"
+            className={`grid transition-[grid-template-rows,opacity,margin] duration-300 ease-out lg:block lg:opacity-100 ${filtersOpen ? "mt-3 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0 lg:mt-0"}`}
+          >
+            <div className={`min-h-0 lg:overflow-visible ${filtersOpen ? "overflow-visible" : "overflow-hidden"}`}>
+          <div className={`grid gap-3 ${tab === "events" ? "lg:grid-cols-[minmax(16rem,1.5fr)_repeat(3,minmax(10rem,1fr))]" : "sm:grid-cols-[minmax(0,1fr)_14rem]"}`}>
+            <label className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                type="search"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder={tab === "events" ? "Search action, shop, record ID, actor…" : `Search ${visibleTabs.find((item) => item.id === tab)?.label.toLowerCase()}`}
+                aria-label="Search logs"
+                className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              />
+            </label>
+            <CustomDropdown
+              value={status}
+              onChange={(value) => { setStatus(value); setPage(1); }}
+              options={STATUS_OPTIONS[tab]}
+              ariaLabel={`Filter ${tab} by status`}
             />
-          </label>
-          <CustomDropdown
-            value={status}
-            onChange={(value) => { setStatus(value); setPage(1); }}
-            options={STATUS_OPTIONS[tab]}
-            ariaLabel={`Filter ${tab} by status`}
-          />
+            {tab === "events" && (
+              <>
+                <CustomDropdown value={storeId} onChange={(value) => { setStoreId(value); setPage(1); }} options={storeOptions} ariaLabel="Filter logs by shop" />
+                <CustomDropdown value={dateRange} onChange={(value) => { setDateRange(value); setPage(1); }} options={DATE_OPTIONS} ariaLabel="Filter logs by date" />
+              </>
+            )}
+          </div>
+          {tab === "events" && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <CustomDropdown value={source} onChange={(value) => { setSource(value); setPage(1); }} options={SOURCE_OPTIONS} ariaLabel="Filter logs by source" />
+              <CustomDropdown value={actorRole} onChange={(value) => { setActorRole(value); setPage(1); }} options={ACTOR_OPTIONS} ariaLabel="Filter logs by actor" />
+              <CustomDropdown value={entityType} onChange={(value) => { setEntityType(value); setPage(1); }} options={ENTITY_OPTIONS} ariaLabel="Filter logs by record type" />
+              <button
+                type="button"
+                onClick={resetEventFilters}
+                disabled={!hasCustomEventFilters}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-200 px-3 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                <X className="h-4 w-4" />
+                Clear filters
+              </button>
+            </div>
+          )}
+            </div>
+          </div>
         </div>
 
         {loading ? (
@@ -327,7 +593,7 @@ export default function AdminAudit() {
             <Loader2 className="h-7 w-7 animate-spin text-gray-400" />
           </div>
         ) : activeRecords.length ? (
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          <ScrollableRegion label={`${tab} log records`} className="divide-y divide-gray-100 dark:divide-gray-800">
             {tab === "financial" && records.map((record) => (
               <FinancialRow key={record.id} record={record} formatCurrency={formatCurrency} />
             ))}
@@ -338,34 +604,23 @@ export default function AdminAudit() {
               <LoyaltyRow key={record.id} record={record} />
             ))}
             {tab === "events" && records.map((record) => (
-              <EventRow key={record.id} record={record} />
+              <EventRow key={record.id} record={record} isAuditor={isAuditor} />
             ))}
-            {tab === "health" && filteredHealth.map((check) => (
-              <HealthRow key={check.id} check={check} />
-            ))}
-          </div>
+          </ScrollableRegion>
         ) : (
           <div className="px-6 py-16 text-center">
             <Database className="mx-auto h-10 w-10 text-gray-300" />
-            <h3 className="mt-3 font-bold text-gray-900 dark:text-white">No matching audit records</h3>
-            <p className="mt-1 text-sm text-gray-500">Try another search or status filter.</p>
+            <h3 className="mt-3 font-bold text-gray-900 dark:text-white">No matching log records</h3>
+            <p className="mt-1 text-sm text-gray-500">Try another search, shop, date range, or status.</p>
           </div>
         )}
 
-        {tab !== "health" && (
-          <Pagination
-            page={page}
-            pageSize={PAGE_SIZE}
-            totalItems={total}
-            onPageChange={setPage}
-            itemLabel="records"
-          />
-        )}
+        <Pagination page={page} pageSize={PAGE_SIZE} totalItems={total} onPageChange={setPage} itemLabel="records" />
       </div>
 
       <p className="flex items-center gap-2 text-xs text-gray-500">
         <Clock3 className="h-3.5 w-3.5" />
-        Totals and health last refreshed {formatDateTime(tab === "health" ? health?.generatedAt : overview?.generatedAt)}.
+        Log totals last refreshed {formatDateTime(overview?.generatedAt)}. Times are shown in Philippine time.
       </p>
     </div>
   );
@@ -411,7 +666,7 @@ function ReceiptRow({ record, formatCurrency }: { record: any; formatCurrency: (
         {record.public_id && <p className="mt-1 font-mono text-xs text-gray-400">{record.public_id}</p>}
       </div>
       <div>
-        <p className="font-semibold text-gray-900 dark:text-white">{record.storeName || record.storeId || "Unknown store"}</p>
+        <p className="font-semibold text-gray-900 dark:text-white">{record.storeName || record.storeId || "Unknown shop"}</p>
         <p className="mt-1 text-sm text-gray-500">{formatCurrency(Number(record.amountCentavos || 0) / 100)} · Invoice {titleCase(record.invoiceStatus)}</p>
       </div>
       <div className="lg:text-right">
@@ -432,7 +687,7 @@ function LoyaltyRow({ record }: { record: any }) {
           <p className="font-bold text-gray-900 dark:text-white">{titleCase(record.type, "Loyalty activity")}</p>
           <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.status)}`}>{titleCase(record.status, "Unknown")}</span>
         </div>
-        <p className="mt-2 text-sm text-gray-500">{record.storeName || record.storeId || "Unknown store"}</p>
+        <p className="mt-2 text-sm text-gray-500">{record.storeName || record.storeId || "Unknown shop"}</p>
         {record.public_id && <p className="mt-1 font-mono text-xs text-gray-400">{record.public_id}</p>}
       </div>
       <div className="text-xs text-gray-500">
@@ -447,51 +702,79 @@ function LoyaltyRow({ record }: { record: any }) {
   );
 }
 
-function EventRow({ record }: { record: any }) {
-  return (
-    <article className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] lg:items-center">
-      <div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Activity className="h-4 w-4 text-gray-400" />
-          <p className="font-bold text-gray-900 dark:text-white">{titleCase(record.action, "Recorded event")}</p>
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.outcome)}`}>{titleCase(record.outcome, "Unknown")}</span>
-        </div>
-        <p className="mt-2 text-sm text-gray-500">{titleCase(record.entity_type, "Unknown entity")} · <span className="font-mono">{record.public_id || record.entity_id || "No ID"}</span></p>
-      </div>
-      <div>
-        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{record.actor_email || "System process"}</p>
-        <p className="mt-1 text-xs text-gray-500">{titleCase(record.actor_role || record.source)}</p>
-      </div>
-      <div className="lg:text-right">
-        <p className="text-xs text-gray-500">{formatDateTime(record.created_at)}</p>
-        {record.metadata && Object.keys(record.metadata).length > 0 && (
-          <p className="mt-1 truncate text-xs text-gray-400" title={JSON.stringify(record.metadata)}>
-            {JSON.stringify(record.metadata)}
-          </p>
-        )}
-      </div>
-    </article>
-  );
-}
+function EventRow({ record, isAuditor }: { record: any; isAuditor: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const changedFields = [
+    ...(Array.isArray(record.metadata?.changedFields) ? record.metadata.changedFields : []),
+    ...(Array.isArray(record.metadata?.dataChangedFields) ? record.metadata.dataChangedFields : []),
+  ].filter((field, index, fields) => field !== "data" && fields.indexOf(field) === index);
+  const storeName = record.store_name || record.metadata?.storeName || record.metadata?.name;
 
-function HealthRow({ check }: { check: HealthCheck }) {
-  const Icon = check.status === "healthy" ? CheckCircle2 : check.status === "warning" ? AlertTriangle : HeartPulse;
   return (
-    <article className="grid gap-4 p-5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
-      <span className={`flex h-11 w-11 items-center justify-center rounded-2xl ${tone(check.status)}`}>
-        <Icon className="h-5 w-5" />
-      </span>
-      <div>
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="font-bold text-gray-900 dark:text-white">{check.name}</p>
-          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(check.status)}`}>{check.status}</span>
+    <article className="p-5">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,.85fr)_auto] lg:items-center">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Activity className="h-4 w-4 text-gray-400" />
+            <p className="font-bold text-gray-900 dark:text-white">{titleCase(record.action, "Recorded event")}</p>
+            <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tone(record.outcome)}`}>{titleCase(record.outcome, "Unknown")}</span>
+          </div>
+          <p className="mt-2 truncate text-sm text-gray-500">
+            {titleCase(record.entity_type, "Unknown record")} · <span className="font-mono">{record.entity_id || "No ID"}</span>
+          </p>
+          {storeName && (
+            <p className="mt-1 truncate text-xs font-semibold text-violet-600 dark:text-violet-400">
+              {storeName}{record.store_public_id ? ` · ${record.store_public_id}` : ""}
+            </p>
+          )}
         </div>
-        <p className="mt-1 text-sm text-gray-500">{check.detail}</p>
+        <div>
+          <p className="truncate text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {record.actor_email || titleCase(record.actor_role, "System process")}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">{titleCase(record.actor_role || record.source)} · {titleCase(record.source)}</p>
+        </div>
+        <div className="lg:text-right">
+          <p className="text-xs font-medium text-gray-600 dark:text-gray-300">{formatDateTime(record.created_at)}</p>
+          {changedFields.length > 0 && <p className="mt-1 text-xs text-gray-400">{changedFields.length} field{changedFields.length === 1 ? "" : "s"} changed</p>}
+        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-gray-200 px-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+          aria-expanded={expanded}
+        >
+          Details
+          {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        </button>
       </div>
-      <div className="sm:text-right">
-        <p className="font-semibold text-gray-800 dark:text-gray-200">{check.value}</p>
-        <p className="mt-1 text-xs text-gray-500">{formatDateTime(check.checkedAt)}</p>
-      </div>
+      {expanded && (
+        <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-950/50">
+          <dl className="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            <div><dt className="font-semibold text-gray-500">Event ID</dt><dd className="mt-1 break-all font-mono text-gray-800 dark:text-gray-200">{record.id}</dd></div>
+            <div><dt className="font-semibold text-gray-500">Record</dt><dd className="mt-1 break-all font-mono text-gray-800 dark:text-gray-200">{record.entity_id || "Not recorded"}</dd></div>
+            <div><dt className="font-semibold text-gray-500">Shop</dt><dd className="mt-1 text-gray-800 dark:text-gray-200">{storeName || "Not shop-specific"}</dd></div>
+            <div><dt className="font-semibold text-gray-500">Source</dt><dd className="mt-1 text-gray-800 dark:text-gray-200">{titleCase(record.source)}</dd></div>
+          </dl>
+          {changedFields.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-semibold text-gray-500">Changed fields</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {changedFields.map((field) => <span key={field} className="rounded-md bg-white px-2 py-1 font-mono text-xs text-gray-700 dark:bg-gray-900 dark:text-gray-300">{field}</span>)}
+              </div>
+            </div>
+          )}
+          {isAuditor && Object.keys(record.metadata || {}).length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-semibold text-gray-500">Auditor metadata</p>
+              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-gray-900 p-3 text-xs text-gray-100">{JSON.stringify(record.metadata, null, 2)}</pre>
+            </div>
+          )}
+          {!isAuditor && (
+            <p className="mt-4 text-xs text-gray-500">Sensitive actor details and raw metadata are available only to the Auditor.</p>
+          )}
+        </div>
+      )}
     </article>
   );
 }

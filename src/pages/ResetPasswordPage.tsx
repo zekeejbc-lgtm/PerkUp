@@ -7,6 +7,7 @@ import { getPasswordStrength, sanitizePasswordInput, validateStrongPassword } fr
 import { assertPasswordNotCompromised } from "../lib/passwordBreach";
 import { initialRecoveryCallbackDetected, supabase } from "../lib/supabase";
 import { SkeletonBlock } from "../components/LoadingSkeleton";
+import { useToast } from "../components/ToastProvider";
 
 type RecoveryStatus = "checking" | "ready" | "invalid" | "success";
 
@@ -22,6 +23,7 @@ function hasRecoveryParameters() {
 
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [status, setStatus] = useState<RecoveryStatus>("checking");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -91,12 +93,16 @@ export default function ResetPasswordPage() {
     }
 
     setSubmitting(true);
+    const progressToastId = toast.progress("Updating your password…", { title: "Resetting password" });
     try {
       await assertPasswordNotCompromised(password);
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;
     } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : "Password update failed.");
+      const message = updateError instanceof Error ? updateError.message : "Password update failed.";
+      setError(message);
+      if (/password|compromised|breach/i.test(message)) toast.update(progressToastId, message, "info", { title: "Choose another password" });
+      else toast.update(progressToastId, message, "error", { error: updateError, title: "Password reset failed" });
       setSubmitting(false);
       return;
     }
@@ -107,6 +113,7 @@ export default function ResetPasswordPage() {
     setConfirmPassword("");
     setSubmitting(false);
     setStatus("success");
+    toast.update(progressToastId, "Your password was reset. You can now sign in.", "success", { title: "Password reset" });
   };
 
   const goToSignIn = () => {

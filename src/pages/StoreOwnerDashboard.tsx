@@ -295,7 +295,7 @@ export default function StoreOwnerDashboard() {
                   <div className="absolute top-0 right-0 w-32 h-32 bg-gray-100 dark:bg-[#1b1b1b]/10 rounded-bl-full -z-10 transition-transform group-hover:scale-110" />
                   <div className="w-12 h-12 overflow-hidden bg-gray-100 dark:bg-white/15 rounded-2xl flex items-center justify-center mb-6 border border-gray-200 dark:border-white/10">
                     {logoUrl ? (
-                      <img src={logoUrl} alt={`${store.name || "Branch"} logo`} className="h-full w-full object-cover" />
+                      <img src={logoUrl} alt={`${store.name || "Branch"} logo`} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                     ) : (
                       <Building className="w-6 h-6 text-[#1b1b1b] dark:text-white" />
                     )}
@@ -413,8 +413,8 @@ export default function StoreOwnerDashboard() {
     {subscriptionStore && <SubscriptionAccessBanner store={subscriptionStore} />}
     <div className="flex flex-col md:flex-row gap-8 pb-24 md:pb-0 w-full relative">
       {/* Desktop Sidebar Navigation */}
-      <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 h-max z-10 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
-        <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} mb-2`}>
+      <aside className={`hidden md:flex flex-col shrink-0 sticky top-24 max-h-[calc(100dvh-7rem)] overflow-x-hidden overflow-y-auto overscroll-contain z-10 transition-all duration-300 ease-in-out [scrollbar-gutter:stable] ${isSidebarOpen ? 'w-64' : 'w-20'} space-y-4`}>
+        <div className={`sticky top-0 z-20 flex items-center bg-white/95 py-1 backdrop-blur-sm dark:bg-[#1b1b1b]/95 ${isSidebarOpen ? 'justify-between' : 'justify-center'} mb-2`}>
             {isSidebarOpen && <span className="font-bold text-gray-900 dark:text-white px-2 text-xs tracking-widest uppercase">Navigation</span>}
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 rounded-xl text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                <Menu className="w-5 h-5" />

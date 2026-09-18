@@ -7,7 +7,8 @@ const root = process.cwd();
 const distDirectory = path.join(root, "dist");
 const baseHtml = await readFile(path.join(distDirectory, "index.html"), "utf8");
 const siteUrl = "https://www.perktoday.com";
-const defaultImage = `${siteUrl}/icons/perk-logo-source.png`;
+const logoImage = `${siteUrl}/icons/perk-wordmark-dark-transparent.png`;
+const defaultImage = `${siteUrl}/images/perk-social-preview-v3.png`;
 
 const escapeHtml = (value = "") => String(value)
   .replaceAll("&", "&amp;")
@@ -102,6 +103,9 @@ if (supabaseUrl && supabaseKey) {
     stores = (data || [])
       .filter((row) => row.data?.initialPaymentRequired !== true && row.data?.initialPaymentStatus !== "pending")
       .map((row) => ({ id: row.id, ...(row.data || {}) }));
+    if (stores.length === 0) {
+      console.warn("SEO generation found no publicly readable active stores. Verify production store status values and the anon SELECT policy if store pages were expected.");
+    }
   }
 } else {
   console.warn("SEO generation skipped dynamic store pages because the public Supabase build variables are missing.");
@@ -152,7 +156,7 @@ for (const page of pages) {
   const target = page.path === "/" ? path.join(distDirectory, "index.html") : path.join(distDirectory, page.path.slice(1), "index.html");
   await mkdir(path.dirname(target), { recursive: true });
   const jsonLd = page.path === "/" ? [
-    { "@context": "https://schema.org", "@type": "Organization", name: "Perk", url: siteUrl, logo: defaultImage },
+    { "@context": "https://schema.org", "@type": "Organization", name: "Perk", url: siteUrl, logo: logoImage },
     { "@context": "https://schema.org", "@type": "WebSite", name: "Perk", url: siteUrl },
   ] : undefined;
   await writeFile(target, renderPage(page, { jsonLd, extra: page.path === "/stores" ? storeLinks : "" }));

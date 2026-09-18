@@ -23,6 +23,9 @@ import { ViewModeButton } from "../components/ViewModeButton";
 import { useCurrency } from "../contexts/CurrencyContext";
 import { Seo } from "../components/Seo";
 import { isStorePubliclyVisible } from "../lib/storeDirectory";
+import { ScrollableRegion, ScrollableTableRegion } from "../components/ScrollableRegion";
+import { Pagination } from "../components/Pagination";
+import { useCollectionPagination } from "../hooks/useCollectionPagination";
 
 const catalogViewOptions = [
   { value: "tiles", label: "Card", icon: Grid2X2 },
@@ -131,6 +134,7 @@ export default function StoreProductsPage() {
   }, [availability, convertToPhp, maxPrice, minPrice, products, search, sortBy]);
 
   const hasActiveFilters = Boolean(search || minPrice || maxPrice || availability !== "all");
+  const productPagination = useCollectionPagination(filteredProducts, 12);
   const clearFilters = () => {
     setSearch("");
     setAvailability("all");
@@ -138,7 +142,7 @@ export default function StoreProductsPage() {
     setMaxPrice("");
   };
 
-  if (loading) return <PageSkeleton variant="products" />;
+  if (loading) return <PageSkeleton variant="public-products" />;
 
   if (storeMissing || !store) {
     return (
@@ -276,11 +280,11 @@ export default function StoreProductsPage() {
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Try changing your search or filters.</p>
           </div>
         ) : viewMode === "tiles" ? (
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filteredProducts.map((product) => (
+          <ScrollableRegion label={`${store.name} products`} className="mt-6 grid gap-4 pr-1 sm:grid-cols-2 lg:grid-cols-3">
+            {productPagination.pageItems.map((product) => (
               <article key={product.id} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
                 <div className="relative flex h-52 items-center justify-center bg-gray-100 dark:bg-gray-800">
-                  {product.imageUrl ? <img src={getDisplayImageUrl(product.imageUrl)} alt={product.name} loading="lazy" className="h-full w-full object-cover" /> : <ImageIcon className="h-8 w-8 text-gray-300 dark:text-gray-600" />}
+                  {product.imageUrl ? <img src={getDisplayImageUrl(product.imageUrl)} alt={product.name} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <ImageIcon className="h-8 w-8 text-gray-300 dark:text-gray-600" />}
                   {product.available === false && <span className="absolute right-3 top-3 rounded-full bg-gray-950/90 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">Unavailable</span>}
                 </div>
                 <div className="p-5">
@@ -292,17 +296,17 @@ export default function StoreProductsPage() {
                 </div>
               </article>
             ))}
-          </div>
+          </ScrollableRegion>
         ) : (
-          <div className="mt-6 overflow-x-auto rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <ScrollableTableRegion label={`${store.name} products table`} className="mt-6 rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <table className="w-full min-w-[42rem] text-left">
               <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wider text-gray-500 dark:border-gray-800 dark:bg-gray-800/60 dark:text-gray-400">
                 <tr><th className="px-5 py-4 font-bold">Product</th><th className="px-5 py-4 font-bold">Details</th><th className="px-5 py-4 font-bold">Availability</th><th className="px-5 py-4 text-right font-bold">Price</th></tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {filteredProducts.map((product) => (
+                {productPagination.pageItems.map((product) => (
                   <tr key={product.id}>
-                    <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">{product.imageUrl ? <img src={getDisplayImageUrl(product.imageUrl)} alt="" loading="lazy" className="h-full w-full object-cover" /> : <ImageIcon className="h-5 w-5 text-gray-300" />}</div><span className="font-bold text-gray-900 dark:text-white">{product.name}</span></div></td>
+                    <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">{product.imageUrl ? <img src={getDisplayImageUrl(product.imageUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <ImageIcon className="h-5 w-5 text-gray-300" />}</div><span className="font-bold text-gray-900 dark:text-white">{product.name}</span></div></td>
                     <td className="max-w-md px-5 py-4 text-sm text-gray-500 dark:text-gray-400">{product.ingredients || "—"}</td>
                     <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${product.available === false ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"}`}>{product.available === false ? "Unavailable" : "Available"}</span></td>
                     <td className="px-5 py-4 text-right font-black text-gray-900 dark:text-white">{Number.isFinite(Number(product.price)) ? formatCurrency(Number(product.price)) : "—"}</td>
@@ -310,8 +314,9 @@ export default function StoreProductsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollableTableRegion>
         )}
+        <Pagination page={productPagination.page} pageSize={productPagination.pageSize} totalItems={productPagination.totalItems} onPageChange={productPagination.setPage} itemLabel="products" />
       </main>
       <PublicSiteFooter />
     </div>

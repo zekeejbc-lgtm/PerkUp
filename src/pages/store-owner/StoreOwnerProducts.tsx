@@ -7,13 +7,16 @@ import { PageSkeleton } from "../../components/LoadingSkeleton";
 import { ConfirmationModal } from "../../components/ConfirmationModal";
 import { ImageCropEditor } from "../../components/ImageCropEditor";
 import { Pagination } from "../../components/Pagination";
+import { ScrollableRegion } from "../../components/ScrollableRegion";
 import { useCurrency } from "../../contexts/CurrencyContext";
 import { CategorySearchInput } from "../../components/CategorySearchInput";
+import { useToast } from "../../components/ToastProvider";
 
 const PRODUCTS_PER_PAGE = 9;
 
 export default function StoreOwnerProducts({ store }: { store: any }) {
   const { currency, convertFromPhp, convertToPhp, formatCurrency } = useCurrency();
+  const toast = useToast();
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -106,6 +109,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    const progressToastId = toast.progress(editingProduct ? "Saving product changes…" : "Creating the product…", { title: editingProduct ? "Updating product" : "New product" });
     let uploadedImageUrl = "";
     let productPersisted = false;
     try {
@@ -140,11 +144,12 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
       }
       setIsModalOpen(false);
       setPendingImageFile(null);
+      toast.update(progressToastId, editingProduct ? "Product changes saved." : "Product created.", "success", { title: editingProduct ? "Product updated" : "Product created" });
     } catch (error) {
       if (!productPersisted && uploadedImageUrl) {
         await deleteImageFromDriveSecure(uploadedImageUrl).catch(console.error);
       }
-      alert("Failed to save product");
+      toast.update(progressToastId, "The product could not be saved.", "error", { error, title: "Save failed" });
     } finally {
       setSaving(false);
     }
@@ -153,13 +158,15 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
   const handleDelete = async () => {
     if (!productToDelete) return;
     setIsDeleting(true);
+    const progressToastId = toast.progress("Deleting the product…", { title: "Deleting product" });
     try {
       await deleteDoc(doc(db, "products", productToDelete.id));
       if (productToDelete.imageUrl) await deleteImageFromDriveSecure(productToDelete.imageUrl).catch(console.error);
       setProducts((current) => current.filter((product) => product.id !== productToDelete.id));
       setProductToDelete(null);
+      toast.update(progressToastId, "The product was deleted.", "success", { title: "Product deleted" });
     } catch (error) {
-      alert("Failed to delete product");
+      toast.update(progressToastId, "The product could not be deleted.", "error", { error, title: "Delete failed" });
     } finally {
       setIsDeleting(false);
     }
@@ -167,6 +174,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
 
   const handleAvailabilityToggle = async (product: any) => {
     const nextAvailable = !(product.available ?? true);
+    const progressToastId = toast.progress(`${nextAvailable ? "Making" : "Marking"} the product ${nextAvailable ? "available" : "unavailable"}…`, { title: "Updating availability" });
 
     setAvailabilitySavingIds((current) => new Set(current).add(product.id));
     setProducts((current) =>
@@ -178,12 +186,13 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
         available: nextAvailable,
         updatedAt: serverTimestamp(),
       });
+      toast.update(progressToastId, `Product marked ${nextAvailable ? "available" : "unavailable"}.`, "success", { title: "Availability updated" });
     } catch (error) {
       console.error("Failed to update product availability", error);
       setProducts((current) =>
         current.map((item) => item.id === product.id ? { ...item, available: !nextAvailable } : item)
       );
-      alert("Failed to update product availability. Please try again.");
+      toast.update(progressToastId, "The product availability could not be updated.", "error", { error, title: "Update failed" });
     } finally {
       setAvailabilitySavingIds((current) => {
         const next = new Set(current);
@@ -224,7 +233,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
         className="w-full rounded-2xl border border-gray-200 bg-white py-3.5 pl-12 pr-12 text-sm text-gray-900 shadow-sm outline-none transition-colors placeholder:text-gray-400 focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-gray-500"
       />
 
-      <div id="store-catalog-results" className="scroll-mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <ScrollableRegion label="Store product catalog" id="store-catalog-results" className="scroll-mt-6 grid gap-4 pr-1 sm:grid-cols-2 lg:grid-cols-3">
         {filteredProducts.length === 0 ? (
           <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-[#1b1b1b] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
             <ImageIcon className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-700 mb-3" />
@@ -236,7 +245,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
             <div key={product.id} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden group flex flex-col h-full shadow-sm hover:shadow-md transition-shadow">
               <div className="h-48 bg-gray-100 dark:bg-gray-800 relative shrink-0">
                 {product.imageUrl ? (
-                  <img src={getDisplayImageUrl(product.imageUrl)} alt={product.name} loading="lazy" className="w-full h-full object-cover" />
+                  <img src={getDisplayImageUrl(product.imageUrl)} alt={product.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
                     <ImageIcon className="w-8 h-8 text-gray-300 dark:text-gray-600" />
@@ -308,7 +317,7 @@ export default function StoreOwnerProducts({ store }: { store: any }) {
             </div>
           ))
         )}
-      </div>
+      </ScrollableRegion>
       <Pagination
         page={currentPage}
         pageSize={PRODUCTS_PER_PAGE}
