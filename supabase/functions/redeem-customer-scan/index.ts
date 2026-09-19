@@ -7,6 +7,7 @@ const LEGACY_TOKEN_PREFIX = "perk:v1:";
 const RETIRED_SIGNED_TOKEN_PREFIX = "perk:v2:";
 const SIGNED_TOKEN_PREFIX = "perk:v3:";
 const MAX_POINTS_PER_SCAN = 100;
+const MAX_POS_REFERENCE_LENGTH = 100;
 const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,22}[a-z0-9]$/;
 const PHILIPPINE_UTC_OFFSET = "+08:00";
 const LOCAL_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?$/;
@@ -172,6 +173,13 @@ Deno.serve(async (req) => {
     const storeId = String(body.storeId || "").trim();
     const selectedCardId = String(body.selectedCardId || "").trim();
     const promotionId = String(body.promotionId || "").trim();
+    const rawPosReferenceNumber = String(body.posReferenceNumber || "").trim();
+    if (rawPosReferenceNumber.length > MAX_POS_REFERENCE_LENGTH) {
+      return jsonResponse({ error: `POS reference number must be ${MAX_POS_REFERENCE_LENGTH} characters or fewer.` }, 400);
+    }
+    const posReferenceNumber = promotionId
+      ? rawPosReferenceNumber.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ") || null
+      : null;
     const points = normalizePoints(body.points);
     const previewOnly = Boolean(body.previewOnly);
     const scannerLocation = normalizeScannerLocation(body.scannerLocation);
@@ -514,6 +522,7 @@ Deno.serve(async (req) => {
         String(points),
         issuedAt,
         promotionId || "store-visit",
+        posReferenceNumber || "no-pos-reference",
       ].join(".");
       const cryptographicId = await signedReceiptId(receiptPayload, serviceKey);
 
@@ -647,6 +656,7 @@ Deno.serve(async (req) => {
         storeName: String(store?.name || "Store"),
         promotionId: promotionId || null,
         promotionTitle,
+        posReferenceNumber,
         type: "points",
         points,
         scannerLocation,
@@ -696,6 +706,7 @@ Deno.serve(async (req) => {
           storeName: String(store?.name || "Store"),
           promotionId: promotionId || null,
           promotionTitle,
+          posReferenceNumber,
           points,
           issuedAt,
         },

@@ -38,6 +38,7 @@ const buildScanActivity = (scans: any[]) =>
         id: scan.id,
         action: scan.promotionTitle ? `Earned stamp: ${scan.promotionTitle}` : "Earned points",
         points: points > 0 ? `+${points}` : `${points}`,
+        posReferenceNumber: String(scan.posReferenceNumber || "").trim() || null,
         date: date?.toISOString() || new Date().toISOString(),
       };
     })
@@ -479,6 +480,11 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                          <div>
                            <p className="font-semibold text-gray-900 dark:text-white text-sm">{item.action}</p>
                            <p className="text-xs text-gray-500 mt-0.5">{new Date(item.date).toLocaleDateString()}</p>
+                           {item.posReferenceNumber && (
+                             <p className="mt-1 break-all font-mono text-[11px] font-semibold text-gray-500 dark:text-gray-400">
+                               POS ref: {item.posReferenceNumber}
+                             </p>
+                           )}
                          </div>
                        <span className={`font-black tracking-tight ${String(item.points).startsWith('+') ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
                            {item.points}

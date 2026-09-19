@@ -78,6 +78,7 @@ type BatchItem = {
   id: string;
   redemptionInput: RedemptionInput;
   points: number;
+  posReferenceNumber: string;
 };
 
 const MAX_POINTS_PER_SCAN = 100;
@@ -148,6 +149,7 @@ export default function StaffScanner({ store }: { store: any }) {
   const [isScannerActive, setIsScannerActive] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [pointsToAdd, setPointsToAdd] = useState(1);
+  const [posReferenceNumber, setPosReferenceNumber] = useState("");
   const [scannedCustomer, setScannedCustomer] = useState<ScannedCustomer | null>(null);
   const [selectedCardId, setSelectedCardId] = useState("");
   const [manualUsername, setManualUsername] = useState("");
@@ -200,6 +202,7 @@ export default function StaffScanner({ store }: { store: any }) {
     setBatchQueue([]);
     setShowBatchModal(false);
     setMessage(null);
+    setPosReferenceNumber("");
   }, [selectedPromotionId]);
 
   useEffect(() => {
@@ -373,7 +376,12 @@ export default function StaffScanner({ store }: { store: any }) {
     setTimeout(() => setShowScanSuccess(false), 1000);
 
     if (isBatchMode) {
-      setBatchQueue((queue) => [...queue, { id: scanKey, redemptionInput, points: pointsToAdd }]);
+      setBatchQueue((queue) => [...queue, {
+        id: scanKey,
+        redemptionInput,
+        points: pointsToAdd,
+        posReferenceNumber: "",
+      }]);
       return;
     }
 
@@ -462,6 +470,7 @@ export default function StaffScanner({ store }: { store: any }) {
         ...scannedCustomer.redemptionInput,
         storeId: store.id,
         promotionId: selectedPromotionId || undefined,
+        posReferenceNumber: selectedPromotionId ? posReferenceNumber.trim() || undefined : undefined,
         selectedCardId: selectedCardId || undefined,
         points: pointsToAdd,
         scannerLocation,
@@ -491,6 +500,7 @@ export default function StaffScanner({ store }: { store: any }) {
       setScannedCustomer(null);
       setSelectedCardId("");
       setPointsToAdd(1);
+      setPosReferenceNumber("");
       setIsScannerActive(true);
     } catch (error) {
       console.error(error);
@@ -519,6 +529,7 @@ export default function StaffScanner({ store }: { store: any }) {
           ...item.redemptionInput,
           storeId: store.id,
           promotionId: selectedPromotionId || undefined,
+          posReferenceNumber: selectedPromotionId ? item.posReferenceNumber.trim() || undefined : undefined,
           points: item.points,
           scannerLocation,
         });
@@ -550,6 +561,12 @@ export default function StaffScanner({ store }: { store: any }) {
     });
   };
 
+  const updateBatchItemReference = (index: number, value: string) => {
+    setBatchQueue((queue) => queue.map((item, itemIndex) =>
+      itemIndex === index ? { ...item, posReferenceNumber: value } : item
+    ));
+  };
+
   const removeBatchItem = (index: number) => {
     setBatchQueue((queue) => queue.filter((_, itemIndex) => itemIndex !== index));
   };
@@ -558,6 +575,7 @@ export default function StaffScanner({ store }: { store: any }) {
     setScannedCustomer(null);
     setMessage(null);
     setPointsToAdd(1);
+    setPosReferenceNumber("");
     setIsScannerActive(true);
   };
 
@@ -812,8 +830,9 @@ export default function StaffScanner({ store }: { store: any }) {
                 ) : (
                   <div className="max-h-64 space-y-2 overflow-y-auto p-3">
                     {batchQueue.map((item, index) => (
-                      <div key={`${item.id}-${index}`} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
-                        <div className="min-w-0">
+                      <div key={`${item.id}-${index}`} className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
+                        <div className="flex min-w-0 items-center justify-between gap-3">
+                         <div className="min-w-0">
                           <p className="truncate text-sm font-bold text-gray-900 dark:text-white">Customer Scan</p>
                           <p className="truncate font-mono text-[11px] text-gray-500">{item.id.slice(0, 18)}</p>
                         </div>
@@ -831,6 +850,21 @@ export default function StaffScanner({ store }: { store: any }) {
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
+                        </div>
+                        {selectedPromotionId && (
+                          <label className="mt-3 block">
+                            <span className="text-[11px] font-bold text-gray-600 dark:text-gray-300">POS reference for this stamp (optional)</span>
+                            <input
+                              type="text"
+                              value={item.posReferenceNumber}
+                              onChange={(event) => updateBatchItemReference(index, event.target.value)}
+                              maxLength={100}
+                              autoComplete="off"
+                              placeholder="Receipt or transaction number"
+                              className="mt-1.5 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-900 outline-none focus:border-gray-400 focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:ring-gray-700"
+                            />
+                          </label>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -976,6 +1010,24 @@ export default function StaffScanner({ store }: { store: any }) {
                     <p className="mt-1 text-xl font-bold text-gray-900 dark:text-white">{currentStars + pointsToAdd}</p>
                   </div>
                 </div>
+
+                {selectedPromotionId && (
+                  <label className="block rounded-3xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+                    <span className="text-sm font-bold text-gray-900 dark:text-white">Did the POS issue a reference number?</span>
+                    <input
+                      type="text"
+                      value={posReferenceNumber}
+                      onChange={(event) => setPosReferenceNumber(event.target.value)}
+                      maxLength={100}
+                      autoComplete="off"
+                      placeholder="Enter it here, or leave blank"
+                      className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 font-mono text-sm text-gray-900 outline-none transition focus:border-gray-400 focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:border-gray-500 dark:focus:ring-gray-700"
+                    />
+                    <span className="mt-1.5 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                      Saved with this stamp so the owner can match it to the POS purchase.
+                    </span>
+                  </label>
+                )}
               </div>
               </div>
 
@@ -1012,7 +1064,8 @@ export default function StaffScanner({ store }: { store: any }) {
             </div>
             <div className="flex-1 space-y-4 overflow-y-auto p-6">
               {batchQueue.map((item, index) => (
-                <div key={`${item.id}-${index}`} className="flex items-center justify-between rounded-2xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+                <div key={`${item.id}-${index}`} className="rounded-2xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-gray-900 dark:text-white">Customer Scan</p>
                     <p className="truncate font-mono text-xs text-gray-500">{item.id.slice(0, 18)}</p>
@@ -1031,6 +1084,21 @@ export default function StaffScanner({ store }: { store: any }) {
                       <Trash2 className="h-5 w-5" />
                     </button>
                   </div>
+                 </div>
+                  {selectedPromotionId && (
+                    <label className="mt-3 block">
+                      <span className="text-xs font-bold text-gray-600 dark:text-gray-300">POS reference for this stamp (optional)</span>
+                      <input
+                        type="text"
+                        value={item.posReferenceNumber}
+                        onChange={(event) => updateBatchItemReference(index, event.target.value)}
+                        maxLength={100}
+                        autoComplete="off"
+                        placeholder="Enter POS receipt or transaction number"
+                        className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 font-mono text-sm text-gray-900 outline-none focus:border-gray-400 focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:ring-gray-700"
+                      />
+                    </label>
+                  )}
                 </div>
               ))}
             </div>

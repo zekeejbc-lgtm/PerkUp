@@ -44,6 +44,7 @@ export type ScanTicket = {
   storeName: string;
   promotionId: string | null;
   promotionTitle: string | null;
+  posReferenceNumber: string | null;
   points: number;
   issuedAt: string;
 };
@@ -187,6 +188,7 @@ export async function redeemCustomerScan(input: {
   storeId: string;
   selectedCardId?: string;
   promotionId?: string;
+  posReferenceNumber?: string;
   points: number;
   scannerLocation?: ScannerLocation;
   previewOnly?: boolean;

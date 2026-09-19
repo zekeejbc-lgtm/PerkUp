@@ -22,6 +22,13 @@ type RedemptionInput = {
   manualUsername?: string;
 };
 
+type PromotionBatchItem = {
+  id: string;
+  redemptionInput: RedemptionInput;
+  points: number;
+  posReferenceNumber: string;
+};
+
 type ScannerLocation = {
   lat: number;
   lng: number;
@@ -103,6 +110,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
   // Scanner state
   const [isScannerActive, setIsScannerActive] = useState(false);
   const [pointsToAdd, setPointsToAdd] = useState(1);
+  const [posReferenceNumber, setPosReferenceNumber] = useState("");
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [scannedCustomer, setScannedCustomer] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -114,7 +122,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
 
   // Batch & Feedback state
   const [isBatchMode, setIsBatchMode] = useState(false);
-  const [batchQueue, setBatchQueue] = useState<{ id: string; redemptionInput: RedemptionInput; points: number }[]>([]);
+  const [batchQueue, setBatchQueue] = useState<PromotionBatchItem[]>([]);
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showScanSuccess, setShowScanSuccess] = useState(false);
   const duplicateScanRef = useRef<{ id: string; scannedAt: number; alertedAt: number } | null>(null);
@@ -325,7 +333,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     setTimeout(() => setShowScanSuccess(false), 1000);
 
     if (isBatchMode) {
-      setBatchQueue(prev => [...prev, { id: scanKey, redemptionInput, points: pointsToAdd }]);
+      setBatchQueue(prev => [...prev, { id: scanKey, redemptionInput, points: pointsToAdd, posReferenceNumber: "" }]);
       return;
     }
 
@@ -373,7 +381,11 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     }
   };
 
-  const processPointsForCustomerInput = async (redemptionInput: RedemptionInput, points: number) => {
+  const processPointsForCustomerInput = async (
+    redemptionInput: RedemptionInput,
+    points: number,
+    referenceNumber = "",
+  ) => {
     if (!store) throw new Error("Store context is missing.");
     if (redemptionInput.scanToken && !isValidCustomerQr(redemptionInput.scanToken)) {
       throw new Error("Invalid Perk QR code.");
@@ -387,6 +399,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       ...redemptionInput,
       storeId: store.id,
       promotionId: id,
+      posReferenceNumber: referenceNumber.trim() || undefined,
       points: safePoints,
       scannerLocation,
     });
@@ -474,7 +487,11 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     const progressToastId = toast.progress("Crediting the customer’s card…", { title: "Issuing points" });
 
     try {
-      const result = await processPointsForCustomerInput(scannedCustomer.redemptionInput, pointsToAdd);
+      const result = await processPointsForCustomerInput(
+        scannedCustomer.redemptionInput,
+        pointsToAdd,
+        posReferenceNumber,
+      );
 
       toast.update(progressToastId, `Ticket ${result.ticket?.ticketNumber || "issued"} — credited ${pointsToAdd} points to @${scannedCustomer.username}.`, "success", { title: "Points credited" });
       
@@ -482,6 +499,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       setScannedCustomer(null);
       setManualUsername("");
       setPointsToAdd(1);
+      setPosReferenceNumber("");
       
       await loadPromoCustomers();
       setIsScannerActive(true);
@@ -507,7 +525,11 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     try {
         const ticketNumbers: string[] = [];
         for (const item of batchQueue) {
-            const result = await processPointsForCustomerInput(item.redemptionInput, item.points);
+            const result = await processPointsForCustomerInput(
+              item.redemptionInput,
+              item.points,
+              item.posReferenceNumber,
+            );
             if (result.ticket?.ticketNumber) ticketNumbers.push(result.ticket.ticketNumber);
         }
         
@@ -532,6 +554,12 @@ export default function StaffPromotionScan({ store }: { store: any }) {
           return newQ;
       });
   };
+
+  const updateBatchItemReference = (index: number, value: string) => {
+    setBatchQueue(prev => prev.map((item, itemIndex) =>
+      itemIndex === index ? { ...item, posReferenceNumber: value } : item
+    ));
+  };
   
   const removeBatchItem = (index: number) => {
       setBatchQueue(prev => prev.filter((_, i) => i !== index));
@@ -541,6 +569,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     setShowConfirmModal(false);
     setScannedCustomer(null);
     setPointsToAdd(1);
+    setPosReferenceNumber("");
     setIsScannerActive(true); // resume scanner
   };
 
@@ -908,6 +937,22 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                 </div>
               )}
 
+              <label className="mb-6 block text-left">
+                <span className="text-sm font-bold text-gray-900 dark:text-white">Did the POS issue a reference number?</span>
+                <input
+                  type="text"
+                  value={posReferenceNumber}
+                  onChange={(event) => setPosReferenceNumber(event.target.value)}
+                  maxLength={100}
+                  autoComplete="off"
+                  placeholder="Enter it here, or leave blank"
+                  className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 font-mono text-sm text-gray-900 outline-none transition focus:border-gray-400 focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:border-gray-500 dark:focus:ring-gray-700"
+                />
+                <span className="mt-1.5 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                  This will be saved with this stamp so the owner can match it to the POS purchase.
+                </span>
+              </label>
+
               <div className="flex gap-3">
                 <button 
                   onClick={handleCancelPoints}
@@ -954,7 +999,8 @@ export default function StaffPromotionScan({ store }: { store: any }) {
               
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                   {batchQueue.map((item, index) => (
-                      <div key={index} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
+                      <div key={index} className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
+                        <div className="flex items-center justify-between gap-3">
                           <div className="flex items-center gap-3 overflow-hidden">
                              <div className="w-10 h-10 rounded-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 flex items-center justify-center shrink-0 shadow-sm">
                                  <UserCircle className="w-5 h-5 text-gray-400" />
@@ -978,6 +1024,19 @@ export default function StaffPromotionScan({ store }: { store: any }) {
                                   <Trash2 className="w-5 h-5" />
                               </button>
                           </div>
+                        </div>
+                        <label className="mt-3 block">
+                          <span className="text-xs font-bold text-gray-600 dark:text-gray-300">POS reference for this stamp (optional)</span>
+                          <input
+                            type="text"
+                            value={item.posReferenceNumber}
+                            onChange={(event) => updateBatchItemReference(index, event.target.value)}
+                            maxLength={100}
+                            autoComplete="off"
+                            placeholder="Enter POS receipt or transaction number"
+                            className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 font-mono text-sm text-gray-900 outline-none focus:border-gray-400 focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:border-gray-500 dark:focus:ring-gray-700"
+                          />
+                        </label>
                       </div>
                   ))}
                   

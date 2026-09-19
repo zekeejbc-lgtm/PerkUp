@@ -443,6 +443,11 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                             {formatCustomerCode(log.customerId)}
                           </p>
                         )}
+                        {log.posReferenceNumber && (
+                          <p className="mt-1 break-all font-mono text-[11px] font-semibold text-gray-500 dark:text-gray-400">
+                            POS ref: {log.posReferenceNumber}
+                          </p>
+                        )}
                       </div>
                       <div className="inline-flex items-center gap-1.5 self-start rounded-xl border border-gray-300 bg-gray-100 px-3 py-1.5 text-sm font-black text-[#1b1b1b] dark:border-white/15 dark:bg-white/10 dark:text-white sm:self-center">
                         <Star className="w-4 h-4 fill-current" />
