@@ -1,4 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
+import { buildScanActivity } from "../../lib/customerActivity";
+import StoreOwnerCustomerTransactions from "./StoreOwnerCustomerTransactions";
 import { collection, query, where, getDocs, doc, getDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { invokeAdminBackend } from "../../lib/adminBackend";
@@ -28,23 +31,6 @@ const toDate = (value: any) => {
 };
 
 const getInitial = (name?: string) => String(name || "C").trim().charAt(0).toUpperCase() || "C";
-
-const buildScanActivity = (scans: any[]) =>
-  scans
-    .map((scan) => {
-      const date = toDate(scan.timestamp) || toDate(scan.issuedAt) || toDate(scan.createdAt);
-      const points = Number(scan.points || 0);
-      return {
-        id: scan.id,
-        action: scan.promotionTitle ? `Earned stamp: ${scan.promotionTitle}` : "Earned points",
-        points: points > 0 ? `+${points}` : `${points}`,
-        posReferenceNumber: String(scan.posReferenceNumber || "").trim() || null,
-        date: date?.toISOString() || new Date().toISOString(),
-      };
-    })
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 8);
-
 const buildUsuals = (scans: any[]) => {
   const counts = new Map<string, number>();
   scans.forEach((scan) => {
@@ -64,7 +50,18 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
   const [promotions, setPromotions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedCustomer = customers.find(customer => customer.id === searchParams.get("customer")) || null;
+  const setSelectedCustomer = (customer: any) => {
+    if (customer?.id === selectedCustomer?.id) return;
+    setSearchParams(current => {
+      const next = new URLSearchParams(current);
+      if (customer) next.set("customer", customer.id);
+      else next.delete("customer");
+      next.delete("view");
+      return next;
+    });
+  };
   const [currentPage, setCurrentPage] = useState(1);
   const [updatingPromotionId, setUpdatingPromotionId] = useState<string | null>(null);
   const [updatingPoints, setUpdatingPoints] = useState(false);
@@ -196,7 +193,6 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
           ...selectedCustomer.recentHistory
         ]
       };
-      setSelectedCustomer(updatedCustomer);
       setCustomers(customers.map(c => c.id === selectedCustomer.id ? updatedCustomer : c));
       toast.success(delta > 0 ? "Point added successfully." : "Point removed successfully.");
     } catch (e) {
@@ -235,7 +231,6 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
           ...selectedCustomer.recentHistory
         ]
       };
-      setSelectedCustomer(updatedCustomer);
       setCustomers(customers.map(c => c.id === selectedCustomer.id ? updatedCustomer : c));
 
       if (delta > 0 && savedProgress < requiredStamps) {
@@ -296,6 +291,18 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
   if (loading) return <PageSkeleton variant="table" />;
 
   if (selectedCustomer) {
+    if (searchParams.get("view") === "transactions") {
+      return <StoreOwnerCustomerTransactions
+        key={`${store.id}:${selectedCustomer.customerId}`}
+        storeId={store.id}
+        customer={selectedCustomer}
+        onBack={() => setSearchParams(current => {
+          const next = new URLSearchParams(current);
+          next.delete("view");
+          return next;
+        })}
+      />;
+    }
     const isLoyal = getCustomerLoyaltySegment(Number(selectedCustomer.stars || 0)) === "loyal";
     const customerSegment = getCustomerLoyaltyLabel(Number(selectedCustomer.stars || 0));
 
@@ -475,11 +482,16 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                      <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-widest">Recent Activity</h3>
                    </div>
                    <div className={`min-h-0 flex-1 space-y-4 ${SCROLL_PANEL_CLASS}`}>
-                     {selectedCustomer.recentHistory?.map((item: any, i: number) => (
+                     {selectedCustomer.recentHistory?.slice(0, 8).map((item: any, i: number) => (
                        <div key={i} className="flex justify-between items-start gap-4 pb-4 border-b border-gray-100 dark:border-gray-800 last:border-0 last:pb-0">
                          <div>
                            <p className="font-semibold text-gray-900 dark:text-white text-sm">{item.action}</p>
-                           <p className="text-xs text-gray-500 mt-0.5">{new Date(item.date).toLocaleDateString()}</p>
+                           {item.isSimulatedDemoScan && (
+                             <span className="mt-1 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">
+                               Demo simulation
+                             </span>
+                           )}
+                           <p className="text-xs text-gray-500 mt-0.5">{item.date ? new Date(item.date).toLocaleDateString() : "Date unavailable"}</p>
                            {item.posReferenceNumber && (
                              <p className="mt-1 break-all font-mono text-[11px] font-semibold text-gray-500 dark:text-gray-400">
                                POS ref: {item.posReferenceNumber}
@@ -495,6 +507,13 @@ export default function StoreOwnerCustomers({ store }: { store: any }) {
                        <p className="text-sm text-gray-500 italic p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl text-center">No scan activity yet.</p>
                      )}
                    </div>
+                   <button type="button" onClick={() => setSearchParams(current => {
+                     const next = new URLSearchParams(current);
+                     next.set("view", "transactions");
+                     return next;
+                   })} className="mt-4 shrink-0 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-bold text-gray-900 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-white dark:hover:bg-gray-800">
+                     Show more
+                   </button>
                  </div>
 
                  {/* Feedback */}

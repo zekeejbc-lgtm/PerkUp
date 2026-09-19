@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { doc, getDoc } from "@/src/lib/dataCompat";
 import { db } from "../../lib/backend";
 import { Scanner } from "@yudiel/react-qr-scanner";
-import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2, Search, Cake, Sparkles, Trophy } from "lucide-react";
+import { Gift, ArrowLeft, Camera, CameraOff, Minus, Plus, MapPin, CheckCircle2, AlertTriangle, User, UserCircle, Trash2, Search, Cake, Sparkles, Trophy, FlaskConical } from "lucide-react";
 import { isSecureCustomerQr, normalizeCustomerUsername, parseCustomerQr, redeemCustomerScan } from "@/src/lib/secureQr";
 import { getBirthdayStatus } from "@/src/lib/birthday";
 import { PageSkeleton } from "../../components/LoadingSkeleton";
@@ -14,12 +14,14 @@ import { formatCustomerCode } from "@/src/lib/customerId";
 import { PROMOTION_REDEEM_QR_PREFIX, redeemPromotionClaim } from "@/src/lib/promotionClaims";
 import { configureQrScannerRuntime } from "@/src/lib/qrScannerRuntime";
 import { useToast } from "../../components/ToastProvider";
+import { useAuth } from "@/src/contexts/AuthContext";
 
 configureQrScannerRuntime();
 
 type RedemptionInput = {
   scanToken?: string;
   manualUsername?: string;
+  simulateDemoScan?: boolean;
 };
 
 type PromotionBatchItem = {
@@ -98,6 +100,7 @@ const normalizeCardRows = (rows: { id: string; data: Record<string, unknown> | n
 
 export default function StaffPromotionScan({ store }: { store: any }) {
   const { id } = useParams();
+  const { user } = useAuth();
   const toast = useToast();
   const [promo, setPromo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -390,7 +393,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
     if (redemptionInput.scanToken && !isValidCustomerQr(redemptionInput.scanToken)) {
       throw new Error("Invalid Perk QR code.");
     }
-    if (!redemptionInput.scanToken && !redemptionInput.manualUsername) {
+    if (!redemptionInput.simulateDemoScan && !redemptionInput.scanToken && !redemptionInput.manualUsername) {
       throw new Error("Customer scan or username is required.");
     }
 
@@ -555,6 +558,50 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       });
   };
 
+  const handleSimulateDemoScan = async () => {
+    if (user?.isDemo !== true || !store?.id || !id || isProcessing) return;
+    if (!navigator.onLine) {
+      toast.info("Demo scan simulation requires an internet connection.", { title: "You are offline" });
+      return;
+    }
+
+    setIsProcessing(true);
+    setIsBatchMode(false);
+    setIsScannerActive(false);
+    const progressToastId = toast.progress("Loading the sandbox customer…", { title: "Simulating scan" });
+    try {
+      const redemptionInput: RedemptionInput = { simulateDemoScan: true };
+      const result = await redeemCustomerScan({
+        ...redemptionInput,
+        storeId: store.id,
+        promotionId: id,
+        points: pointsToAdd,
+        scannerLocation,
+        previewOnly: true,
+      });
+
+      setScannedCustomer({
+        id: result.customer.id,
+        publicId: result.customer.publicId,
+        redemptionInput,
+        username: result.customer.username,
+        maskedName: result.customer.maskedName,
+        birthday: result.customer.birthday,
+        profilePic: result.customer.profilePic,
+        existingStars: result.customer.existingStars,
+      });
+      setShowConfirmModal(true);
+      toast.update(progressToastId, "Demo customer scanned. Confirm the stamp when ready.", "success", { title: "Simulation ready" });
+    } catch (error) {
+      console.error(error);
+      const message = error instanceof Error ? error.message : "The demo scan could not be simulated.";
+      toast.update(progressToastId, message, "error", { error, title: "Simulation failed" });
+      setIsScannerActive(true);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const updateBatchItemReference = (index: number, value: string) => {
     setBatchQueue(prev => prev.map((item, itemIndex) =>
       itemIndex === index ? { ...item, posReferenceNumber: value } : item
@@ -701,6 +748,29 @@ export default function StaffPromotionScan({ store }: { store: any }) {
           </div>
 
           <div className="w-full max-w-sm">
+            {user?.isDemo === true && (
+              <div className="mb-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/40">
+                <div className="flex items-start gap-3">
+                  <FlaskConical className="mt-0.5 h-5 w-5 shrink-0 text-blue-600 dark:text-blue-300" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-blue-950 dark:text-blue-100">Demo scan simulator</p>
+                    <p className="mt-1 text-xs leading-5 text-blue-800 dark:text-blue-200/80">
+                      Load this sandbox’s demo customer without using a camera. This remains isolated from production accounts.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleSimulateDemoScan}
+                      disabled={isProcessing || showConfirmModal}
+                      className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-800 disabled:opacity-50"
+                    >
+                      <FlaskConical className="h-4 w-4" />
+                      Simulate Customer Scan
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-900/20">
               <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Reward redeem code</label>
               <input
@@ -893,7 +963,7 @@ export default function StaffPromotionScan({ store }: { store: any }) {
       {/* Confirmation Modal - Single Mode */}
       {showConfirmModal && scannedCustomer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-gray-900 rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-800 animate-in zoom-in-95">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-[2rem] border border-gray-100 bg-white shadow-2xl animate-in zoom-in-95 dark:border-gray-800 dark:bg-gray-900">
             <div className="p-8 text-center border-b border-gray-100 dark:border-gray-800 bg-gray-100 dark:bg-white/5">
               {scannedCustomer.profilePic ? (
                 <img src={scannedCustomer.profilePic} alt="Customer" className="w-20 h-20 rounded-full mx-auto mb-4 border-4 border-white dark:border-gray-800 shadow-sm object-cover" />

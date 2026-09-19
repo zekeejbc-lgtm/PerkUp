@@ -170,6 +170,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const scanToken = String(body.scanToken || "").trim();
     const manualUsername = normalizeUsername(body.manualUsername);
+    const simulateDemoScan = body.simulateDemoScan === true;
     const storeId = String(body.storeId || "").trim();
     const selectedCardId = String(body.selectedCardId || "").trim();
     const promotionId = String(body.promotionId || "").trim();
@@ -177,9 +178,9 @@ Deno.serve(async (req) => {
     if (rawPosReferenceNumber.length > MAX_POS_REFERENCE_LENGTH) {
       return jsonResponse({ error: `POS reference number must be ${MAX_POS_REFERENCE_LENGTH} characters or fewer.` }, 400);
     }
-    const posReferenceNumber = promotionId
-      ? rawPosReferenceNumber.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ") || null
-      : null;
+    const posReferenceNumber = rawPosReferenceNumber
+      .replace(/[\u0000-\u001f\u007f]/g, "")
+      .replace(/\s+/g, " ") || null;
     const points = normalizePoints(body.points);
     const previewOnly = Boolean(body.previewOnly);
     const scannerLocation = normalizeScannerLocation(body.scannerLocation);
@@ -188,7 +189,7 @@ Deno.serve(async (req) => {
     const isSignedToken = scanToken.startsWith(SIGNED_TOKEN_PREFIX)
       || scanToken.startsWith(RETIRED_SIGNED_TOKEN_PREFIX);
     const isLegacyToken = scanToken.startsWith(LEGACY_TOKEN_PREFIX);
-    if (!isManualLookup && !isSignedToken && !isLegacyToken) {
+    if (!simulateDemoScan && !isManualLookup && !isSignedToken && !isLegacyToken) {
       return jsonResponse({ error: "Invalid Perk QR code." }, 400);
     }
     if (isManualLookup && !isValidUsername(manualUsername)) {
@@ -273,6 +274,9 @@ Deno.serve(async (req) => {
     } else if (store?.isDemo === true) {
       return jsonResponse({ error: "Production accounts cannot process demo sandbox activity." }, 403);
     }
+    if (simulateDemoScan && staff?.isDemo !== true) {
+      return jsonResponse({ error: "Simulated scans are only available to demo staff accounts." }, 403);
+    }
     const storeStampStyle = {
       stampIcon: String(store?.stampIcon || "star"),
       stampColor: String(store?.stampColor || "#1b1b1b"),
@@ -326,7 +330,12 @@ Deno.serve(async (req) => {
       if (promotion.geofenceEnabled && (!Number.isFinite(geofenceLat) || !Number.isFinite(geofenceLng))) {
         return jsonResponse({ error: "Promotion geofence is not configured correctly." }, 409);
       }
-      if (promotion.geofenceEnabled && Number.isFinite(geofenceLat) && Number.isFinite(geofenceLng)) {
+      if (
+        promotion.geofenceEnabled &&
+        Number.isFinite(geofenceLat) &&
+        Number.isFinite(geofenceLng) &&
+        !simulateDemoScan
+      ) {
         if (!scannerLocation) {
           return jsonResponse({ error: "Scanner location is required for this scan." }, 400);
         }
@@ -342,7 +351,20 @@ Deno.serve(async (req) => {
     let tokenHash = "";
     let verifiedSignedToken: Awaited<ReturnType<typeof verifySignedCustomerToken>> = null;
 
-    if (isManualLookup) {
+    if (simulateDemoScan) {
+      const { data: demoCustomers, error: demoCustomerError } = await admin
+        .from("users")
+        .select("id")
+        .eq("data->>role", "customer")
+        .eq("data->>isDemo", "true")
+        .eq("data->>demoTenantId", String(staff?.demoTenantId || ""))
+        .limit(2);
+      if (demoCustomerError) throw demoCustomerError;
+      if (!demoCustomers?.length) {
+        return jsonResponse({ error: "This sandbox does not have a demo customer to simulate." }, 404);
+      }
+      customerId = String(demoCustomers[0].id);
+    } else if (isManualLookup) {
       const { data: usernameRow, error: usernameError } = await admin
         .from("customer_usernames")
         .select("customer_id")
@@ -523,6 +545,7 @@ Deno.serve(async (req) => {
         issuedAt,
         promotionId || "store-visit",
         posReferenceNumber || "no-pos-reference",
+        simulateDemoScan ? "demo-simulation" : "live-scan",
       ].join(".");
       const cryptographicId = await signedReceiptId(receiptPayload, serviceKey);
 
@@ -657,6 +680,7 @@ Deno.serve(async (req) => {
         promotionId: promotionId || null,
         promotionTitle,
         posReferenceNumber,
+        isSimulatedDemoScan: simulateDemoScan,
         type: "points",
         points,
         scannerLocation,
@@ -707,6 +731,7 @@ Deno.serve(async (req) => {
           promotionId: promotionId || null,
           promotionTitle,
           posReferenceNumber,
+          isSimulatedDemoScan: simulateDemoScan,
           points,
           issuedAt,
         },

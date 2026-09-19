@@ -8,7 +8,9 @@ import {
   Camera,
   CameraOff,
   CheckCircle2,
+  ChevronDown,
   Gift,
+  FlaskConical,
   Loader2,
   MapPin,
   Navigation,
@@ -45,6 +47,7 @@ type ScannerLocation = {
 type RedemptionInput = {
   scanToken?: string;
   manualUsername?: string;
+  simulateDemoScan?: boolean;
 };
 
 type Promotion = {
@@ -146,6 +149,7 @@ export default function StaffScanner({ store }: { store: any }) {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationUpdatedAt, setLocationUpdatedAt] = useState<Date | null>(null);
   const [locationPing, setLocationPing] = useState(0);
+  const [locationDiagnosticsOpen, setLocationDiagnosticsOpen] = useState(false);
   const [isScannerActive, setIsScannerActive] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [pointsToAdd, setPointsToAdd] = useState(1);
@@ -470,7 +474,7 @@ export default function StaffScanner({ store }: { store: any }) {
         ...scannedCustomer.redemptionInput,
         storeId: store.id,
         promotionId: selectedPromotionId || undefined,
-        posReferenceNumber: selectedPromotionId ? posReferenceNumber.trim() || undefined : undefined,
+        posReferenceNumber: posReferenceNumber.trim() || undefined,
         selectedCardId: selectedCardId || undefined,
         points: pointsToAdd,
         scannerLocation,
@@ -529,7 +533,7 @@ export default function StaffScanner({ store }: { store: any }) {
           ...item.redemptionInput,
           storeId: store.id,
           promotionId: selectedPromotionId || undefined,
-          posReferenceNumber: selectedPromotionId ? item.posReferenceNumber.trim() || undefined : undefined,
+          posReferenceNumber: item.posReferenceNumber.trim() || undefined,
           points: item.points,
           scannerLocation,
         });
@@ -559,6 +563,32 @@ export default function StaffScanner({ store }: { store: any }) {
       nextQueue[index].points = normalizePoints(nextQueue[index].points + change);
       return nextQueue;
     });
+  };
+
+  const handleSimulateDemoScan = async () => {
+    if (user?.isDemo !== true || !store?.id || isProcessing || scannedCustomer) return;
+    if (!navigator.onLine) {
+      setMessage({ type: "error", text: "Demo scan simulation requires an internet connection." });
+      return;
+    }
+
+    setIsProcessing(true);
+    setIsBatchMode(false);
+    setIsScannerActive(false);
+    setMessage(null);
+    const progressToastId = toast.progress("Loading the sandbox customer…", { title: "Simulating scan" });
+    try {
+      await previewCustomer({ simulateDemoScan: true });
+      toast.update(progressToastId, "Demo customer scanned. Review the card before crediting it.", "success", { title: "Simulation ready" });
+    } catch (error) {
+      console.error(error);
+      const text = error instanceof Error ? error.message : "The demo scan could not be simulated.";
+      setMessage({ type: "error", text });
+      toast.update(progressToastId, text, "error", { error, title: "Simulation failed" });
+      setIsScannerActive(true);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const updateBatchItemReference = (index: number, value: string) => {
@@ -660,35 +690,48 @@ export default function StaffScanner({ store }: { store: any }) {
               </p>
             </div>
 
-            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-xs dark:border-gray-700 dark:bg-gray-800/60">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="flex items-center gap-2 font-bold text-gray-900 dark:text-white">
+            <div className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 text-xs dark:border-gray-700 dark:bg-gray-800/60">
+              <button
+                type="button"
+                aria-expanded={locationDiagnosticsOpen}
+                aria-controls="location-diagnostics-content"
+                onClick={() => setLocationDiagnosticsOpen((open) => !open)}
+                className="flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-gray-100/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:hover:bg-white/5 dark:focus-visible:ring-white"
+              >
+                <span className="flex items-center gap-2 font-bold text-gray-900 dark:text-white">
                   <Activity className="h-4 w-4" />
                   Live location diagnostics
-                </p>
-                <span className={`rounded-full px-2 py-1 font-bold ${scannerLocation ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300"}`}>
-                  {scannerLocation ? "Tracking" : "Waiting"}
                 </span>
-              </div>
-              {scannerLocation ? (
-                <div className="space-y-1 font-mono text-gray-600 dark:text-gray-300">
-                  <p>Lat: {scannerLocation.lat.toFixed(6)}</p>
-                  <p>Lng: {scannerLocation.lng.toFixed(6)}</p>
-                  <p>Accuracy: ±{Math.round(scannerLocation.accuracy || 0)}m</p>
-                  {distanceFromGeofence !== null && <p>Fence distance: {Math.round(distanceFromGeofence)}m / {activeGeofence?.radiusMeters}m</p>}
-                  <p>Updated: {locationUpdatedAt?.toLocaleTimeString() || "—"}</p>
+                <span className="flex items-center gap-2">
+                  <span className={`rounded-full px-2 py-1 font-bold ${scannerLocation ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300"}`}>
+                    {scannerLocation ? "Tracking" : "Waiting"}
+                  </span>
+                  <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform duration-200 dark:text-gray-400 ${locationDiagnosticsOpen ? "rotate-180" : ""}`} />
+                </span>
+              </button>
+              {locationDiagnosticsOpen && (
+                <div id="location-diagnostics-content" className="border-t border-gray-200 px-4 pb-4 pt-3 dark:border-gray-700">
+                  {scannerLocation ? (
+                    <div className="space-y-1 font-mono text-gray-600 dark:text-gray-300">
+                      <p>Lat: {scannerLocation.lat.toFixed(6)}</p>
+                      <p>Lng: {scannerLocation.lng.toFixed(6)}</p>
+                      <p>Accuracy: ±{Math.round(scannerLocation.accuracy || 0)}m</p>
+                      {distanceFromGeofence !== null && <p>Fence distance: {Math.round(distanceFromGeofence)}m / {activeGeofence?.radiusMeters}m</p>}
+                      <p>Updated: {locationUpdatedAt?.toLocaleTimeString() || "—"}</p>
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 dark:text-gray-400">Waiting for a GPS reading. Location tracking requires browser permission and HTTPS.</p>
+                  )}
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" onClick={() => setLocationPing((value) => value + 1)} className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-2 font-bold text-white dark:bg-white dark:text-gray-900">
+                      <Navigation className="h-3.5 w-3.5" /> Ping
+                    </button>
+                    <button type="button" onClick={resetLocation} className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 font-bold text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">
+                      <RotateCcw className="h-3.5 w-3.5" /> Reset
+                    </button>
+                  </div>
                 </div>
-              ) : (
-                <p className="text-gray-500 dark:text-gray-400">Waiting for a GPS reading. Location tracking requires browser permission and HTTPS.</p>
               )}
-              <div className="mt-3 flex gap-2">
-                <button type="button" onClick={() => setLocationPing((value) => value + 1)} className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-2 font-bold text-white dark:bg-white dark:text-gray-900">
-                  <Navigation className="h-3.5 w-3.5" /> Ping
-                </button>
-                <button type="button" onClick={resetLocation} className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 font-bold text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">
-                  <RotateCcw className="h-3.5 w-3.5" /> Reset
-                </button>
-              </div>
             </div>
 
             <div className="flex gap-2 rounded-xl bg-gray-100 p-1 dark:bg-gray-800">
@@ -754,6 +797,29 @@ export default function StaffScanner({ store }: { store: any }) {
           </div>
 
           <div className="mx-auto max-w-sm space-y-5">
+            {user?.isDemo === true && (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/40">
+                <div className="flex items-start gap-3">
+                  <FlaskConical className="mt-0.5 h-5 w-5 shrink-0 text-blue-600 dark:text-blue-300" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-blue-950 dark:text-blue-100">Demo scan simulator</p>
+                    <p className="mt-1 text-xs leading-5 text-blue-800 dark:text-blue-200/80">
+                      Load this sandbox’s demo customer without using a camera. Production customers cannot be selected.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleSimulateDemoScan}
+                      disabled={isProcessing || Boolean(scannedCustomer)}
+                      className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-800 disabled:opacity-50"
+                    >
+                      <FlaskConical className="h-4 w-4" />
+                      Simulate Customer Scan
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60">
               <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Manual Username</label>
               <div className="flex gap-2">
@@ -851,8 +917,7 @@ export default function StaffScanner({ store }: { store: any }) {
                           </button>
                         </div>
                         </div>
-                        {selectedPromotionId && (
-                          <label className="mt-3 block">
+                        <label className="mt-3 block">
                             <span className="text-[11px] font-bold text-gray-600 dark:text-gray-300">POS reference for this stamp (optional)</span>
                             <input
                               type="text"
@@ -863,8 +928,7 @@ export default function StaffScanner({ store }: { store: any }) {
                               placeholder="Receipt or transaction number"
                               className="mt-1.5 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-900 outline-none focus:border-gray-400 focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:focus:ring-gray-700"
                             />
-                          </label>
-                        )}
+                        </label>
                       </div>
                     ))}
                   </div>
@@ -945,7 +1009,7 @@ export default function StaffScanner({ store }: { store: any }) {
                   </div>
                 )}
 
-                <div>
+                <div className="space-y-5">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-lg font-bold text-gray-900 dark:text-white">Active Cards</h3>
                   <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
@@ -1010,9 +1074,9 @@ export default function StaffScanner({ store }: { store: any }) {
                     <p className="mt-1 text-xl font-bold text-gray-900 dark:text-white">{currentStars + pointsToAdd}</p>
                   </div>
                 </div>
+                </div>
 
-                {selectedPromotionId && (
-                  <label className="block rounded-3xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+                <label className="block rounded-3xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
                     <span className="text-sm font-bold text-gray-900 dark:text-white">Did the POS issue a reference number?</span>
                     <input
                       type="text"
@@ -1026,9 +1090,7 @@ export default function StaffScanner({ store }: { store: any }) {
                     <span className="mt-1.5 block text-xs font-medium text-gray-500 dark:text-gray-400">
                       Saved with this stamp so the owner can match it to the POS purchase.
                     </span>
-                  </label>
-                )}
-              </div>
+                </label>
               </div>
 
               <div className="flex shrink-0 flex-col gap-3 border-t border-gray-100 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 sm:flex-row sm:p-5">
@@ -1085,8 +1147,7 @@ export default function StaffScanner({ store }: { store: any }) {
                     </button>
                   </div>
                  </div>
-                  {selectedPromotionId && (
-                    <label className="mt-3 block">
+                  <label className="mt-3 block">
                       <span className="text-xs font-bold text-gray-600 dark:text-gray-300">POS reference for this stamp (optional)</span>
                       <input
                         type="text"
@@ -1097,8 +1158,7 @@ export default function StaffScanner({ store }: { store: any }) {
                         placeholder="Enter POS receipt or transaction number"
                         className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 font-mono text-sm text-gray-900 outline-none focus:border-gray-400 focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:ring-gray-700"
                       />
-                    </label>
-                  )}
+                  </label>
                 </div>
               ))}
             </div>

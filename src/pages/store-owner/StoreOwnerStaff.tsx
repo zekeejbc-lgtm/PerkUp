@@ -435,6 +435,11 @@ export default function StoreOwnerStaff({ store }: { store: any }) {
                         <p className="font-bold text-gray-900 dark:text-white truncate">
                           {customer?.name || customer?.username || "Customer"} credited
                         </p>
+                        {log.isSimulatedDemoScan === true && (
+                          <span className="mt-1 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">
+                            Demo simulation
+                          </span>
+                        )}
                         <p className="text-xs text-gray-500 mt-1">
                           {promotion?.title || "General scan"} · {formatDateTime(log.timestamp)}
                         </p>

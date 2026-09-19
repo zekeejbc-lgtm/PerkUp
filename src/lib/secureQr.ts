@@ -45,6 +45,7 @@ export type ScanTicket = {
   promotionId: string | null;
   promotionTitle: string | null;
   posReferenceNumber: string | null;
+  isSimulatedDemoScan?: boolean;
   points: number;
   issuedAt: string;
 };
@@ -185,6 +186,7 @@ export async function issueCustomerQr(input?: { rotate?: boolean }): Promise<Iss
 export async function redeemCustomerScan(input: {
   scanToken?: string;
   manualUsername?: string;
+  simulateDemoScan?: boolean;
   storeId: string;
   selectedCardId?: string;
   promotionId?: string;
